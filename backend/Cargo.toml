@@ -77,13 +77,19 @@ ripemd = "0.1"
 blake2b_simd = "1.0"
 
 # Zcash transaction primitives for proper sighash calculation
-zcash_primitives = "0.26"
-zcash_protocol = "0.7"
+# Upgraded as a group 2026-04-25: orchard 0.11/0.12 and their zcash_* counterparts
+# depended on core2, whose entire 0.3.x / 0.4.0 range was yanked from crates.io.
+# The 2025+ Zcash stack migrated to `corez` (fork), so we bump the whole family
+# together to restore reproducible builds.
+zcash_primitives = "0.27"
+zcash_protocol = "0.8"
 
-# Zcash Orchard privacy protocol support (matching zcash_primitives 0.26)
-orchard = "0.11"
+# Zcash Orchard privacy protocol support
+orchard = "0.13"
 zcash_note_encryption = "0.4"
-zcash_address = "0.10"
+zcash_address = "0.11"
+# zip32 was extracted out of zcash_primitives starting with 0.27
+zip32 = "0.2"
 pasta_curves = { version = "0.5", features = ["bits"] }
 incrementalmerkletree = { version = "0.8", features = ["legacy-api"] }
 subtle = "2.5"

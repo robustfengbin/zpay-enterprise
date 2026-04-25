@@ -9,7 +9,7 @@ use super::{OrchardError, OrchardResult};
 use orchard::keys::{FullViewingKey, Scope, SpendingKey};
 use sha2::{Digest, Sha256};
 use zcash_protocol::consensus::{MainNetwork, NetworkConstants};
-use zcash_primitives::zip32::AccountId;
+use zip32::AccountId;
 
 /// Orchard viewing key for scanning blocks
 #[derive(Debug, Clone)]
