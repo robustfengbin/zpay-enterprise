@@ -22,6 +22,9 @@
 > 加密 key / JWT secret / 管理员密码并写入 `backend/.env.secrets` —— 请
 > 立即备份此文件，**丢失 = 已加密钱包永久无法恢复**。
 >
+> 生产部署需要在 `.env` 中把 `WEB3_SERVER__ALLOWED_ORIGIN` 设置为前端实际
+> 访问地址（默认值 `http://localhost:3000` 仅适合本地 Vite 开发环境）。
+>
 > 完整指南：[QUICKSTART.md](QUICKSTART.md) · 更新记录：[CHANGELOG.md](CHANGELOG.md) · 最新版本：**v0.2.0**
 
 ## 功能特性

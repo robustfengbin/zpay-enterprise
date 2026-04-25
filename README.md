@@ -23,6 +23,10 @@ A modular Web3 wallet management service with multi-chain support, featuring a R
 > to `backend/.env.secrets` — back up that file, **its loss = permanent loss
 > of all encrypted wallets**.
 >
+> For production, set `WEB3_SERVER__ALLOWED_ORIGIN` in `.env` to the exact
+> origin your frontend is served from (the default `http://localhost:3000`
+> only matches a local dev frontend).
+>
 > Full walkthrough: [QUICKSTART.md](QUICKSTART.md) · Recent changes: [CHANGELOG.md](CHANGELOG.md) · Latest release: **v0.2.0**
 
 ## Features
