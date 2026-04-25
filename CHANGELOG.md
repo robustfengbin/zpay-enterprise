@@ -6,6 +6,65 @@ and this project aims to follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [Unreleased] — Security Hardening Sprint
+
+Triggered by an internal security audit of the v0.2.0 codebase. Closes
+the P0 finding and the four P1 findings flagged in the audit report.
+
+### ⚠️ Breaking changes
+
+- **`WEB3_SERVER__ALLOWED_ORIGIN` is now a required environment variable.**
+  Cross-origin requests are now restricted to an explicit allowlist; the
+  previous `Cors::default().allow_any_origin()` configuration is gone. Set
+  this to the exact origin your frontend serves from (e.g.
+  `https://wallet.example.com` or `http://localhost:5173` for local dev).
+  The service refuses to start if the variable is unset.
+
+  **Upgrading:** add `WEB3_SERVER__ALLOWED_ORIGIN=<your origin>` to your
+  `.env` or container runtime. See `backend/.env.example` for guidance.
+
+### Added — security
+
+- **CORS allowlist (P0-1).** Replaced wide-open CORS with an explicit
+  `WEB3_SERVER__ALLOWED_ORIGIN` allowlist. On a wallet-custody API,
+  `allow_any_origin()` combined with JWTs in `localStorage` is an
+  XSS-to-wallet-drain pipeline; this closes that pipeline.
+- **Rate limiting on authentication (P1-1).** `actix-governor`-style
+  middleware throttles `/api/v1/auth/login` (sustained brute-force on
+  argon2 is also a CPU-bound DoS vector, not just a credential risk).
+  A conservative global limit catches generic flooding.
+- **`AuthenticatedUser` extractor fails closed (P1-2).** When JWT claims
+  are missing the extractor now returns `Unauthorized` instead of a
+  synthetic `user_id=0` user. Defence in depth against a future handler
+  forgetting to register inside `AuthMiddleware`.
+- **Request body size limits (P1-3).** Global `JsonConfig` and
+  `PayloadConfig` caps prevent a single malicious POST from OOM-ing a
+  worker.
+- **Content-Security-Policy header (P1-4, short-term).** Restrictive CSP
+  on backend responses reduces the XSS surface that could read the JWT
+  out of `localStorage`. The medium-term move to `httpOnly` cookies for
+  the JWT remains tracked in the audit and is deliberately deferred —
+  it is a bigger frontend change.
+
+### Documentation
+
+- `SECURITY.md` adds a "Hardening Sprint 2026-04-25" entry recording the
+  audit, the five fixes, and the deferred work (httpOnly cookies, JWT
+  revocation, `/metrics`).
+- `backend/.env.example` documents the new
+  `WEB3_SERVER__ALLOWED_ORIGIN` requirement and any rate-limit knobs.
+- `QUICKSTART.md` configuration section updated.
+
+### Not addressed in this sprint (tracked)
+
+- P1-4 medium-term: JWT moved out of `localStorage` into `httpOnly`
+  cookies, with proper CSRF tokens for mutating requests. Requires
+  frontend changes.
+- P2 findings (stateless JWT revocation, audit-log shipping, others)
+  remain open.
+
+---
+
 ## [0.2.0] — 2026-04-25 — "Housekeeping Release"
 
 First release after a single-evening housekeeping sprint that turned a
