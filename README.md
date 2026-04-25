@@ -421,12 +421,22 @@ npm run dev
 npm run build
 ```
 
-### Default Credentials
+### Initial Admin Account
 
-- **Username:** admin
-- **Password:** admin123
+Before first startup, set the initial admin password in `backend/.env`:
 
-> **Important:** Change the default password immediately in production.
+```bash
+WEB3_SECURITY__ADMIN_INITIAL_PASSWORD=<at-least-12-characters-and-not-admin123>
+```
+
+The service will refuse to start if this value is unset or weak.
+
+- **Username:** `admin`
+- **Password:** the value you set in `WEB3_SECURITY__ADMIN_INITIAL_PASSWORD`
+
+> **After first login**, change the admin password via the UI (Settings →
+> Change Password), then rotate or remove
+> `WEB3_SECURITY__ADMIN_INITIAL_PASSWORD` from your deployment environment.
 
 ## API Reference
 

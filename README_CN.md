@@ -426,12 +426,21 @@ npm run dev
 npm run build
 ```
 
-### 默认账号
+### 初始管理员账号
 
-- **用户名：** admin
-- **密码：** admin123
+首次启动前，需要在 `backend/.env` 中设置初始管理员密码：
 
-> **重要提示：** 生产环境请立即修改默认密码。
+```bash
+WEB3_SECURITY__ADMIN_INITIAL_PASSWORD=<至少-12-字符-且-不能是-admin123>
+```
+
+如果未设置或过于简单（少于 12 字符 / 等于 `admin123`），服务将拒绝启动。
+
+- **用户名：** `admin`
+- **密码：** 您在 `WEB3_SECURITY__ADMIN_INITIAL_PASSWORD` 中设置的值
+
+> **首次登录后**请立即在界面（设置 → 修改密码）中修改管理员密码，
+> 并从部署环境中轮换或移除 `WEB3_SECURITY__ADMIN_INITIAL_PASSWORD`。
 
 ## API 接口
 

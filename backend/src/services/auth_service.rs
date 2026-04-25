@@ -111,8 +111,16 @@ impl AuthService {
         Ok(token_data.claims)
     }
 
-    pub async fn create_default_admin(&self) -> AppResult<()> {
-        let default_password = hash_password("admin123")?;
+    /// Creates the initial admin user with a caller-supplied password.
+    ///
+    /// The caller (main.rs) must pass the configured
+    /// `security.admin_initial_password` value. Config validation guarantees
+    /// the password is non-empty, at least 12 characters, and not `admin123`.
+    ///
+    /// Idempotent: if an admin user already exists, this is a no-op and the
+    /// supplied password is ignored (existing admin's password is not modified).
+    pub async fn create_default_admin(&self, initial_password: &str) -> AppResult<()> {
+        let default_password = hash_password(initial_password)?;
         self.user_repo
             .create_default_admin_if_not_exists(&default_password)
             .await

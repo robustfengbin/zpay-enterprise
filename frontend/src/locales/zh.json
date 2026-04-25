@@ -28,7 +28,7 @@
     "usernamePlaceholder": "请输入用户名",
     "passwordPlaceholder": "请输入密码",
     "signIn": "登录",
-    "defaultCredentials": "默认账号: admin / admin123",
+    "defaultCredentials": "默认管理员账号通过 backend/.env 配置 (WEB3_SECURITY__ADMIN_INITIAL_PASSWORD)",
     "failed": "登录失败"
   },
   "sidebar": {

@@ -127,9 +127,10 @@ async fn main() -> std::io::Result<()> {
         chain_registry.clone(),
     ));
 
-    // Create default admin user
+    // Create default admin user using the password supplied via
+    // WEB3_SECURITY__ADMIN_INITIAL_PASSWORD (validated in config::validate).
     auth_service
-        .create_default_admin()
+        .create_default_admin(&config.security.admin_initial_password)
         .await
         .expect("Failed to create default admin");
 

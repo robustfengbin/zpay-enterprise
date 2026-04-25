@@ -28,7 +28,7 @@
     "usernamePlaceholder": "Enter your username",
     "passwordPlaceholder": "Enter your password",
     "signIn": "Sign In",
-    "defaultCredentials": "Default credentials: admin / admin123",
+    "defaultCredentials": "Default admin account is configured via backend/.env (WEB3_SECURITY__ADMIN_INITIAL_PASSWORD)",
     "failed": "Login failed"
   },
   "sidebar": {

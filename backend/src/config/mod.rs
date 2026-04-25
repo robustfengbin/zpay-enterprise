@@ -35,6 +35,9 @@ pub struct JwtConfig {
 #[derive(Debug, Clone, Deserialize)]
 pub struct SecurityConfig {
     pub encryption_key: String,
+    /// Initial password for the default admin account. Required on first startup.
+    /// Must be set via WEB3_SECURITY__ADMIN_INITIAL_PASSWORD env var or config file.
+    pub admin_initial_password: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -89,6 +92,8 @@ impl AppConfig {
             .set_default("jwt.expire_hours", 24)?
             // Security defaults
             .set_default("security.encryption_key", "32-byte-encryption-key-here!!!!!")?
+            // No default for admin_initial_password — required to be explicitly set
+            .set_default("security.admin_initial_password", "")?
             // Ethereum defaults
             .set_default("ethereum.chain_id", 1)?
             .set_default("ethereum.rpc_url", "https://eth.llamarpc.com")?
@@ -136,6 +141,23 @@ impl AppConfig {
             ));
         }
 
+        // Validate admin initial password is set and not a weak default
+        let pw = &self.security.admin_initial_password;
+        if pw.is_empty() {
+            return Err(ConfigError::Message(
+                "WEB3_SECURITY__ADMIN_INITIAL_PASSWORD must be set before first startup. \
+                 See backend/.env.example."
+                    .to_string(),
+            ));
+        }
+        if pw == "admin123" || pw.len() < 12 {
+            return Err(ConfigError::Message(
+                "WEB3_SECURITY__ADMIN_INITIAL_PASSWORD is too weak \
+                 (must be at least 12 characters and not 'admin123')."
+                    .to_string(),
+            ));
+        }
+
         // Validate JWT secret is not empty
         if self.jwt.secret.is_empty() {
             return Err(ConfigError::Message(
@@ -180,6 +202,7 @@ impl Default for AppConfig {
             },
             security: SecurityConfig {
                 encryption_key: "32-byte-encryption-key-here!!!!!".to_string(),
+                admin_initial_password: String::new(),
             },
             ethereum: EthereumConfig {
                 rpc_url: "https://eth.llamarpc.com".to_string(),
