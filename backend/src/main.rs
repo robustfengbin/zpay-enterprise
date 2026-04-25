@@ -191,6 +191,11 @@ async fn main() -> std::io::Result<()> {
         App::new()
             .wrap(cors)
             .wrap(actix_web::middleware::from_fn(api::middleware::request_logger))
+            // Bound request bodies to prevent OOM-by-payload DoS. Most
+            // handlers move JSON < 8 KB; 64 KB JSON / 256 KB raw covers
+            // wallet imports (which carry encrypted keys) with headroom.
+            .app_data(web::JsonConfig::default().limit(64 * 1024))
+            .app_data(web::PayloadConfig::new(256 * 1024))
             .app_data(web::Data::new(auth_service.clone()))
             .app_data(web::Data::new(wallet_service.clone()))
             .app_data(web::Data::new(transfer_service.clone()))
