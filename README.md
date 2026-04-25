@@ -12,7 +12,7 @@ A modular Web3 wallet management service with multi-chain support, featuring a R
 > 🚀 **5-Minute Quick Start (Docker):**
 >
 > ```bash
-> git clone --branch v0.2.0 https://github.com/robustfengbin/zpay-enterprise.git
+> git clone https://github.com/robustfengbin/zpay-enterprise.git
 > cd zpay-enterprise
 > cp backend/.env.example .env
 > docker compose up --build
@@ -27,7 +27,7 @@ A modular Web3 wallet management service with multi-chain support, featuring a R
 > origin your frontend is served from (the default `http://localhost:3000`
 > only matches a local dev frontend).
 >
-> Full walkthrough: [QUICKSTART.md](QUICKSTART.md) · Recent changes: [CHANGELOG.md](CHANGELOG.md) · Latest release: **v0.2.0**
+> Full walkthrough: [QUICKSTART.md](QUICKSTART.md) · Recent changes: [CHANGELOG.md](CHANGELOG.md) · Latest stable tag: **v0.2.1**
 
 ## Features
 

@@ -12,7 +12,7 @@
 > 🚀 **5 分钟快速启动（Docker）：**
 >
 > ```bash
-> git clone --branch v0.2.0 https://github.com/robustfengbin/zpay-enterprise.git
+> git clone https://github.com/robustfengbin/zpay-enterprise.git
 > cd zpay-enterprise
 > cp backend/.env.example .env
 > docker compose up --build
@@ -25,7 +25,7 @@
 > 生产部署需要在 `.env` 中把 `WEB3_SERVER__ALLOWED_ORIGIN` 设置为前端实际
 > 访问地址（默认值 `http://localhost:3000` 仅适合本地 Vite 开发环境）。
 >
-> 完整指南：[QUICKSTART.md](QUICKSTART.md) · 更新记录：[CHANGELOG.md](CHANGELOG.md) · 最新版本：**v0.2.0**
+> 完整指南：[QUICKSTART.md](QUICKSTART.md) · 更新记录：[CHANGELOG.md](CHANGELOG.md) · 最新稳定版本：**v0.2.1**
 
 ## 功能特性
 
