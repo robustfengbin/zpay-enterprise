@@ -428,20 +428,34 @@ npm run build
 
 ### Initial Admin Account
 
-Before first startup, set the initial admin password in `backend/.env`:
+zpay-enterprise requires three secrets at startup:
 
-```bash
-WEB3_SECURITY__ADMIN_INITIAL_PASSWORD=<at-least-12-characters-and-not-admin123>
-```
+- `WEB3_SECURITY__ENCRYPTION_KEY` — 32-byte AES-256 key for encrypting wallet private keys
+- `WEB3_JWT__SECRET` — HMAC secret for JWT session tokens
+- `WEB3_SECURITY__ADMIN_INITIAL_PASSWORD` — initial admin login (>=12 chars, not `admin123`)
 
-The service will refuse to start if this value is unset or weak.
+You have two options:
+
+**Option A — auto-generate (simplest, recommended for first-time users):**
+leave all three variables unset (or empty) in `backend/.env`. On first
+startup the service will generate strong random values, write them to
+`backend/.env.secrets` (chmod 0600, gitignored), and print the file location.
+Subsequent restarts reuse the same file — secrets are never silently rotated,
+which would make existing encrypted wallets unrecoverable.
+
+> ⚠️ **If you rely on auto-generation, back up `backend/.env.secrets`.**
+> Loss of that file = permanent loss of all encrypted wallets.
+
+**Option B — explicit values (recommended for production):**
+set all three in your `.env` file, container runtime, or secrets manager.
+The service validates them at startup and refuses to start on weak values.
+
+After you log in the first time, change the admin password via the UI
+(Settings → Change Password).
 
 - **Username:** `admin`
-- **Password:** the value you set in `WEB3_SECURITY__ADMIN_INITIAL_PASSWORD`
-
-> **After first login**, change the admin password via the UI (Settings →
-> Change Password), then rotate or remove
-> `WEB3_SECURITY__ADMIN_INITIAL_PASSWORD` from your deployment environment.
+- **Password:** either (A) the value written to `backend/.env.secrets`, or
+  (B) the value you set in `WEB3_SECURITY__ADMIN_INITIAL_PASSWORD`
 
 ## API Reference
 

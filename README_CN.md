@@ -433,19 +433,32 @@ npm run build
 
 ### 初始管理员账号
 
-首次启动前，需要在 `backend/.env` 中设置初始管理员密码：
+zpay-enterprise 启动需要三个关键机密：
 
-```bash
-WEB3_SECURITY__ADMIN_INITIAL_PASSWORD=<至少-12-字符-且-不能是-admin123>
-```
+- `WEB3_SECURITY__ENCRYPTION_KEY` — 32 字节 AES-256 加密密钥（用于加密钱包私钥）
+- `WEB3_JWT__SECRET` — JWT 会话令牌的 HMAC 密钥
+- `WEB3_SECURITY__ADMIN_INITIAL_PASSWORD` — 初始管理员密码（≥12 字符，不能是 `admin123`）
 
-如果未设置或过于简单（少于 12 字符 / 等于 `admin123`），服务将拒绝启动。
+你有两种选择：
+
+**方案 A — 自动生成（最简单，推荐新手）：**
+在 `backend/.env` 中把以上三个变量留空（或不设置）。首次启动时服务会
+自动生成强随机值、写入 `backend/.env.secrets`（权限 0600，已 gitignore），
+并在启动日志中提示文件位置。后续重启会复用同一个文件 — 不会静默轮换密钥
+（否则已加密的钱包将无法恢复）。
+
+> ⚠️ **如果依赖自动生成，请备份 `backend/.env.secrets`。**
+> 丢失 = 所有已加密钱包的永久性丢失。
+
+**方案 B — 显式设置（推荐生产环境）：**
+在 `.env` 文件、容器运行时或密钥管理服务中显式设置三个值。服务会在启动时
+校验，弱值会拒绝启动。
+
+首次登录后，请立即在界面（设置 → 修改密码）中修改管理员密码。
 
 - **用户名：** `admin`
-- **密码：** 您在 `WEB3_SECURITY__ADMIN_INITIAL_PASSWORD` 中设置的值
-
-> **首次登录后**请立即在界面（设置 → 修改密码）中修改管理员密码，
-> 并从部署环境中轮换或移除 `WEB3_SECURITY__ADMIN_INITIAL_PASSWORD`。
+- **密码：** 方案 A 下为 `backend/.env.secrets` 中写入的随机值；
+  方案 B 下为你在 `WEB3_SECURITY__ADMIN_INITIAL_PASSWORD` 中设置的值
 
 ## API 接口
 

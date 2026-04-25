@@ -1,6 +1,8 @@
 # Backend (Rust)
 /backend/target/
 /backend/.env
+/backend/.env.secrets
+/backend/ADMIN_PASSWORD.txt
 /backend/*.log
 
 # Frontend (Node.js)
