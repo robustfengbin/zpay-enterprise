@@ -1,3 +1,4 @@
+use actix_governor::{Governor, GovernorConfigBuilder};
 use actix_web::web;
 use std::sync::Arc;
 
@@ -6,10 +7,29 @@ use super::middleware::AuthMiddleware;
 use crate::services::AuthService;
 
 pub fn configure_routes(cfg: &mut web::ServiceConfig, auth_service: Arc<AuthService>) {
+    // Throttle /auth/login to roughly 5 attempts per minute per peer IP.
+    // The default key extractor (PeerIpKeyExtractor) buckets by client IP.
+    // seconds_per_request(12) replenishes one slot every 12 s, burst_size(5)
+    // allows a small initial burst — together this is ~5 requests/minute
+    // steady-state per IP, which makes online password bruteforce
+    // uneconomical without blocking real users who fat-finger a few times.
+    // Bucket state is per process, so with 4 actix workers the effective
+    // ceiling is ~20/min/IP — still well below what a credible bruteforcer
+    // would need.
+    let login_governor = GovernorConfigBuilder::default()
+        .seconds_per_request(12)
+        .burst_size(5)
+        .finish()
+        .expect("login governor config is statically valid");
+
     cfg.service(
         web::scope("/api/v1")
             // Public routes
-            .route("/auth/login", web::post().to(handlers::login))
+            .service(
+                web::resource("/auth/login")
+                    .wrap(Governor::new(&login_governor))
+                    .route(web::post().to(handlers::login)),
+            )
             .route("/health", web::get().to(health_check))
             // Protected routes
             .service(

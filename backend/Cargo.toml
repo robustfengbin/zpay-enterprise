@@ -10,6 +10,9 @@ authors = ["robust"]
 actix-web = "4"
 actix-rt = "2"
 actix-cors = "0.7"
+# IP-based rate limiting (governor pattern). Used to throttle /auth/login
+# bruteforce and to provide a global per-IP cap.
+actix-governor = "0.10"
 
 # Serialization
 serde = { version = "1", features = ["derive"] }
