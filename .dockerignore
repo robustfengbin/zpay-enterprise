@@ -1,0 +1,41 @@
+.git
+.github
+.gitignore
+.dockerignore
+
+# ai_note and local-only planning dirs
+ai_note
+docs/images
+
+# frontend build artifacts and node_modules (frontend is not built in this image)
+frontend/node_modules
+frontend/dist
+frontend/.vite
+
+# backend build artifacts
+backend/target
+
+# PM2 / local runtime
+backend/logs
+backend/*.log
+*.log
+pm2.sh
+
+# env and secrets — NEVER copy these into the image
+**/.env
+**/.env.local
+**/.env.*.local
+
+# Editor / OS junk
+.vscode
+.idea
+*.swp
+.DS_Store
+Thumbs.db
+
+# Docs that don't affect build
+README*.md
+CLAUDE.md
+CONTRIBUTING.md
+SECURITY.md
+LICENSE

@@ -1,0 +1,76 @@
+# ==============================================================================
+# zpay-enterprise — local / quick-start deployment
+#
+# Usage:
+#   1. cp backend/.env.example .env
+#   2. Edit .env — at minimum set a strong WEB3_SECURITY__ADMIN_INITIAL_PASSWORD
+#      (>= 12 chars, not "admin123") and WEB3_SECURITY__ENCRYPTION_KEY (32 chars)
+#   3. docker compose up --build
+#
+# The frontend (React) is not bundled here — build it separately:
+#     cd frontend && npm ci && npm run build
+# and serve frontend/dist from any static host. The backend API is exposed
+# on http://localhost:8080.
+#
+# This compose file bundles MySQL 8 for first-run / development convenience.
+# For production, point the backend at your own hardened MySQL instance via
+# WEB3_DATABASE__HOST / WEB3_DATABASE__USER / WEB3_DATABASE__PASSWORD and
+# remove the `mysql` service from this file.
+# ==============================================================================
+
+services:
+  mysql:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      # Change in .env for anything beyond local testing
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-rootpw}
+      MYSQL_DATABASE: ${WEB3_DATABASE__NAME:-web3_wallet}
+    volumes:
+      - mysql-data:/var/lib/mysql
+    ports:
+      - "3306:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p${DB_ROOT_PASSWORD:-rootpw}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      # Server
+      WEB3_SERVER__HOST: 0.0.0.0
+      WEB3_SERVER__PORT: 8080
+      # Database — point at the bundled mysql service by default
+      WEB3_DATABASE__HOST: ${WEB3_DATABASE__HOST:-mysql}
+      WEB3_DATABASE__PORT: ${WEB3_DATABASE__PORT:-3306}
+      WEB3_DATABASE__USER: ${WEB3_DATABASE__USER:-root}
+      WEB3_DATABASE__PASSWORD: ${WEB3_DATABASE__PASSWORD:-${DB_ROOT_PASSWORD:-rootpw}}
+      WEB3_DATABASE__NAME: ${WEB3_DATABASE__NAME:-web3_wallet}
+      WEB3_DATABASE__MAX_CONNECTIONS: ${WEB3_DATABASE__MAX_CONNECTIONS:-10}
+      # JWT — required
+      WEB3_JWT__SECRET: ${WEB3_JWT__SECRET:?WEB3_JWT__SECRET is required}
+      WEB3_JWT__EXPIRE_HOURS: ${WEB3_JWT__EXPIRE_HOURS:-24}
+      # Security — both are required; the service will refuse to start otherwise
+      WEB3_SECURITY__ENCRYPTION_KEY: ${WEB3_SECURITY__ENCRYPTION_KEY:?WEB3_SECURITY__ENCRYPTION_KEY must be exactly 32 chars}
+      WEB3_SECURITY__ADMIN_INITIAL_PASSWORD: ${WEB3_SECURITY__ADMIN_INITIAL_PASSWORD:?WEB3_SECURITY__ADMIN_INITIAL_PASSWORD required (min 12 chars, not admin123)}
+      # Ethereum
+      WEB3_ETHEREUM__RPC_URL: ${WEB3_ETHEREUM__RPC_URL:-https://eth.llamarpc.com}
+      WEB3_ETHEREUM__CHAIN_ID: ${WEB3_ETHEREUM__CHAIN_ID:-1}
+      # Logging
+      RUST_LOG: ${RUST_LOG:-info,sqlx=warn}
+    ports:
+      - "8080:8080"
+    volumes:
+      - backend-logs:/app/logs
+
+volumes:
+  mysql-data:
+  backend-logs:
