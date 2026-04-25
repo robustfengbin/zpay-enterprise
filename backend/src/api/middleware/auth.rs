@@ -108,19 +108,19 @@ impl actix_web::FromRequest for AuthenticatedUser {
     ) -> Self::Future {
         let claims = req.extensions().get::<crate::services::auth_service::Claims>().cloned();
 
+        // Fail closed: if the AuthMiddleware did not run (e.g. someone added
+        // a new handler outside the middleware-wrapped scope), refuse the
+        // request rather than silently exposing a synthetic empty user.
+        // See SECURITY.md and the 2026-04-25 audit (P1-2) for rationale.
         match claims {
             Some(c) => ok(AuthenticatedUser {
                 user_id: c.sub,
                 username: c.username,
                 role: c.role,
             }),
-            None => {
-                ok(AuthenticatedUser {
-                    user_id: 0,
-                    username: String::new(),
-                    role: String::new(),
-                })
-            }
+            None => futures::future::ready(Err(actix_web::error::ErrorUnauthorized(
+                "Missing authentication context",
+            ))),
         }
     }
 }
