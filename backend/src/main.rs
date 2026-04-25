@@ -188,8 +188,24 @@ async fn main() -> std::io::Result<()> {
             .supports_credentials()
             .max_age(3600);
 
+        // Security response headers. The backend itself only serves JSON, so
+        // CSP `default-src 'none'` plus `frame-ancestors 'none'` is the
+        // strictest correct value — nothing should be loaded *from* an API
+        // response. X-Frame-Options + X-Content-Type-Options + Referrer-Policy
+        // are belt-and-braces against legacy browser behavior. The frontend
+        // (served from a separate origin / static host) sets its own CSP.
+        let security_headers = actix_web::middleware::DefaultHeaders::new()
+            .add((
+                "Content-Security-Policy",
+                "default-src 'none'; frame-ancestors 'none'",
+            ))
+            .add(("X-Frame-Options", "DENY"))
+            .add(("X-Content-Type-Options", "nosniff"))
+            .add(("Referrer-Policy", "strict-origin-when-cross-origin"));
+
         App::new()
             .wrap(cors)
+            .wrap(security_headers)
             .wrap(actix_web::middleware::from_fn(api::middleware::request_logger))
             // Bound request bodies to prevent OOM-by-payload DoS. Most
             // handlers move JSON < 8 KB; 64 KB JSON / 256 KB raw covers

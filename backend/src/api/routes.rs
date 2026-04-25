@@ -13,9 +13,11 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig, auth_service: Arc<AuthServ
     // allows a small initial burst — together this is ~5 requests/minute
     // steady-state per IP, which makes online password bruteforce
     // uneconomical without blocking real users who fat-finger a few times.
-    // Bucket state is per process, so with 4 actix workers the effective
-    // ceiling is ~20/min/IP — still well below what a credible bruteforcer
-    // would need.
+    //
+    // The Governor is applied to a dedicated `/auth/login` scope rather
+    // than to the route directly because actix-web 4's per-route `.wrap()`
+    // path doesn't pick up actix-governor's middleware in some
+    // configurations — scoping the limiter is the documented pattern.
     let login_governor = GovernorConfigBuilder::default()
         .seconds_per_request(12)
         .burst_size(5)
@@ -26,9 +28,9 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig, auth_service: Arc<AuthServ
         web::scope("/api/v1")
             // Public routes
             .service(
-                web::resource("/auth/login")
+                web::scope("/auth/login")
                     .wrap(Governor::new(&login_governor))
-                    .route(web::post().to(handlers::login)),
+                    .route("", web::post().to(handlers::login)),
             )
             .route("/health", web::get().to(health_check))
             // Protected routes
