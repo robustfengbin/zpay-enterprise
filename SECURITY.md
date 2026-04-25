@@ -95,6 +95,12 @@ Before going live, we recommend operators verify:
 - [ ] Audit log shipping to a SIEM or tamper-evident store
 - [ ] Rate limiting on authentication endpoints
 - [ ] Regular dependency updates (`cargo audit`, `npm audit`)
+- [ ] If self-hosting a Zcash full node for RPC, run **Zebra ≥ 4.3.1**
+      or **zcashd ≥ 6.12.1** (2026-04-17 disclosure). Earlier versions
+      are vulnerable to consensus split (CVE-2026-34377) and network
+      DoS (CVE-2026-40881). zpay-enterprise itself is an RPC client
+      and is **not** affected by those node-side bugs, but an outdated
+      node can be crashed or forked, taking your wallets offline.
 
 ## Disclosure Timeline
 
