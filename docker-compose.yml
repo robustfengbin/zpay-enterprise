@@ -48,6 +48,10 @@ services:
       # Server
       WEB3_SERVER__HOST: 0.0.0.0
       WEB3_SERVER__PORT: 8080
+      # CORS allowlist — must be the frontend URL. No wildcard allowed.
+      # Default is dev-only (localhost:3000). Override in .env for any
+      # production-ish deployment.
+      WEB3_SERVER__ALLOWED_ORIGIN: ${WEB3_SERVER__ALLOWED_ORIGIN:-http://localhost:3000}
       # Database — point at the bundled mysql service by default
       WEB3_DATABASE__HOST: ${WEB3_DATABASE__HOST:-mysql}
       WEB3_DATABASE__PORT: ${WEB3_DATABASE__PORT:-3306}

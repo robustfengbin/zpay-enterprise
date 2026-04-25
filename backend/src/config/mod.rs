@@ -9,6 +9,11 @@ use std::path::Path;
 pub struct ServerConfig {
     pub host: String,
     pub port: u16,
+    /// Allowed CORS origin for browser clients (the frontend URL). Required;
+    /// wildcard `*` is explicitly rejected because this service holds wallet
+    /// keys and must not accept credentialed requests from arbitrary origins.
+    /// Set via WEB3_SERVER__ALLOWED_ORIGIN.
+    pub allowed_origin: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -92,6 +97,9 @@ impl AppConfig {
             // Server defaults
             .set_default("server.host", "127.0.0.1")?
             .set_default("server.port", 8080)?
+            // Default CORS origin matches the dev frontend (Vite default port).
+            // Production deployments MUST override via WEB3_SERVER__ALLOWED_ORIGIN.
+            .set_default("server.allowed_origin", "http://localhost:3000")?
             // Database defaults
             .set_default("database.host", "localhost")?
             .set_default("database.port", 3306)?
@@ -153,6 +161,32 @@ impl AppConfig {
             ));
         }
 
+        // Validate CORS allowed_origin: must be set, must not be "*"
+        let origin = self.server.allowed_origin.trim();
+        if origin.is_empty() {
+            return Err(ConfigError::Message(
+                "WEB3_SERVER__ALLOWED_ORIGIN must be set to the frontend URL \
+                 (e.g. https://app.example.com). Wildcard `*` is not allowed \
+                 because this service holds wallet keys."
+                    .to_string(),
+            ));
+        }
+        if origin == "*" || origin.contains(',') {
+            return Err(ConfigError::Message(
+                "WEB3_SERVER__ALLOWED_ORIGIN must be a single origin (no wildcard, \
+                 no comma-separated list). For multi-origin deployments, run \
+                 separate backend instances behind a reverse proxy."
+                    .to_string(),
+            ));
+        }
+        if !(origin.starts_with("http://") || origin.starts_with("https://")) {
+            return Err(ConfigError::Message(
+                "WEB3_SERVER__ALLOWED_ORIGIN must begin with http:// or https:// \
+                 (e.g. https://app.example.com)."
+                    .to_string(),
+            ));
+        }
+
         // Validate admin initial password is set and not a weak default
         let pw = &self.security.admin_initial_password;
         if pw.is_empty() {
@@ -199,6 +233,7 @@ impl Default for AppConfig {
             server: ServerConfig {
                 host: "127.0.0.1".to_string(),
                 port: 8080,
+                allowed_origin: "http://localhost:3000".to_string(),
             },
             database: DatabaseConfig {
                 host: "localhost".to_string(),

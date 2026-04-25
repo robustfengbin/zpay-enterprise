@@ -171,12 +171,21 @@ async fn main() -> std::io::Result<()> {
 
     let settings_repo_for_app = settings_repo.clone();
     let eth_client_for_app = eth_client.clone();
+    let allowed_origin = config.server.allowed_origin.clone();
 
     HttpServer::new(move || {
+        // CORS: explicit allowlist of one origin. NEVER use allow_any_origin()
+        // here — this service holds wallet keys, so accepting credentialed
+        // cross-origin requests from arbitrary websites is a wallet-drain
+        // vector. See SECURITY.md and the 2026-04-25 audit for rationale.
         let cors = Cors::default()
-            .allow_any_origin()
-            .allow_any_method()
-            .allow_any_header()
+            .allowed_origin(&allowed_origin)
+            .allowed_methods(vec!["GET", "POST", "PUT", "DELETE", "OPTIONS"])
+            .allowed_headers(vec![
+                actix_web::http::header::AUTHORIZATION,
+                actix_web::http::header::CONTENT_TYPE,
+            ])
+            .supports_credentials()
             .max_age(3600);
 
         App::new()
