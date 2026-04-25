@@ -1,5 +1,9 @@
 use config::{Config, ConfigError, Environment, File};
+use rand::{distributions::Alphanumeric, Rng};
 use serde::Deserialize;
+use std::fs;
+use std::io::Write;
+use std::path::Path;
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct ServerConfig {
@@ -75,6 +79,14 @@ impl AppConfig {
     pub fn load() -> Result<Self, ConfigError> {
         // Load .env file if exists
         let _ = dotenvy::dotenv();
+
+        // Auto-generate any required secrets that are missing. Persists to
+        // backend/.env.secrets so restarts reuse the same values — regenerating
+        // would make existing encrypted wallets unrecoverable.
+        ensure_secrets();
+
+        // Re-load .env.secrets in case we just created or appended to it.
+        let _ = dotenvy::from_path(".env.secrets");
 
         let config = Config::builder()
             // Server defaults
@@ -223,4 +235,160 @@ impl Default for AppConfig {
             },
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Auto-generated secrets
+// ---------------------------------------------------------------------------
+
+/// Secrets that will be auto-generated (random, ASCII-alphanumeric) if they
+/// are missing from the process environment at startup time. Each tuple is
+/// (environment variable name, generated length in characters).
+const AUTO_GENERATED_SECRETS: &[(&str, usize)] = &[
+    // AES-256-GCM key must be exactly 32 bytes. Alphanumeric chars are ASCII
+    // single-byte, so a 32-char string == 32 bytes.
+    ("WEB3_SECURITY__ENCRYPTION_KEY", 32),
+    // JWT signing secret. 64 chars is overkill-safe for HS256.
+    ("WEB3_JWT__SECRET", 64),
+    // Initial admin password. 24 chars easily clears the >=12-char validator
+    // and is not "admin123".
+    ("WEB3_SECURITY__ADMIN_INITIAL_PASSWORD", 24),
+];
+
+/// Relative path to the auto-generated secrets file. Kept next to `.env` for
+/// operator familiarity. MUST remain gitignored.
+const SECRETS_FILE: &str = ".env.secrets";
+
+/// Fills in any missing critical secrets by generating random values and
+/// persisting them to `backend/.env.secrets`. Called once at config load.
+///
+/// Behavior:
+///
+/// * If the environment variable is already set (non-empty), it is left alone.
+/// * If `.env.secrets` already contains an entry, that value is loaded into
+///   the process environment.
+/// * Otherwise, a fresh random value is generated, set in the current process
+///   environment, and appended to `.env.secrets`.
+///
+/// The file is created with `0600` permissions on Unix. On any I/O error we
+/// log a warning and continue — config validation downstream will surface a
+/// clearer error if the missing secret is truly unset.
+///
+/// Rationale: new operators should not be blocked by "how do I produce a
+/// 32-byte encryption key" questions. At the same time, we never silently
+/// *rotate* existing secrets (that would make encrypted wallets unrecoverable),
+/// so `.env.secrets` values take priority over newly-generated ones.
+fn ensure_secrets() {
+    let path = Path::new(SECRETS_FILE);
+
+    // Parse any existing .env.secrets entries so we can reuse (not rotate)
+    // previously-generated values on restart.
+    let existing: std::collections::HashMap<String, String> = fs::read_to_string(path)
+        .ok()
+        .map(|content| {
+            content
+                .lines()
+                .filter_map(|line| {
+                    let line = line.trim();
+                    if line.is_empty() || line.starts_with('#') {
+                        return None;
+                    }
+                    let (k, v) = line.split_once('=')?;
+                    Some((k.trim().to_string(), v.trim().to_string()))
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let mut newly_generated: Vec<(&'static str, String)> = Vec::new();
+
+    for (name, length) in AUTO_GENERATED_SECRETS {
+        // Already set in env (from .env or the container runtime)? Leave it.
+        if std::env::var(name).map(|v| !v.is_empty()).unwrap_or(false) {
+            continue;
+        }
+
+        // Present in .env.secrets from a previous run? Load it.
+        if let Some(value) = existing.get(*name) {
+            if !value.is_empty() {
+                std::env::set_var(name, value);
+                continue;
+            }
+        }
+
+        // Otherwise, generate a fresh one.
+        let value: String = rand::thread_rng()
+            .sample_iter(&Alphanumeric)
+            .take(*length)
+            .map(char::from)
+            .collect();
+        std::env::set_var(name, &value);
+        newly_generated.push((name, value));
+    }
+
+    if newly_generated.is_empty() {
+        return;
+    }
+
+    // Append newly-generated values to .env.secrets.
+    let file_existed = path.exists();
+    let open_result = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path);
+
+    match open_result {
+        Ok(mut f) => {
+            if !file_existed {
+                let _ = writeln!(
+                    f,
+                    "# Auto-generated by zpay-enterprise at first startup.\n\
+                     # DO NOT COMMIT THIS FILE — it is gitignored.\n\
+                     # LOSS = PERMANENT LOSS OF ALL ENCRYPTED WALLETS AND PRIVATE KEYS.\n\
+                     # Back this file up securely (restricted, encrypted storage).",
+                );
+            }
+            for (name, value) in &newly_generated {
+                let _ = writeln!(f, "{}={}", name, value);
+            }
+        }
+        Err(e) => {
+            eprintln!(
+                "zpay-enterprise: WARNING — failed to persist auto-generated \
+                 secrets to {}: {}. Secrets are active for this process only; \
+                 next restart will generate new values (NOT SAFE IF ANY WALLETS \
+                 HAVE BEEN CREATED).",
+                SECRETS_FILE, e
+            );
+            return;
+        }
+    }
+
+    // Restrict permissions on Unix. Best-effort — not fatal if it fails.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = fs::set_permissions(path, fs::Permissions::from_mode(0o600));
+    }
+
+    // Loud, unmissable notice so the operator knows secrets were minted.
+    let names: Vec<&str> = newly_generated.iter().map(|(n, _)| *n).collect();
+    eprintln!(
+        "\n\
+         ╔══════════════════════════════════════════════════════════════════╗\n\
+         ║  zpay-enterprise: AUTO-GENERATED SECRETS                         ║\n\
+         ╠══════════════════════════════════════════════════════════════════╣\n\
+         ║  The following secrets were missing from the environment and    ║\n\
+         ║  have been randomly generated and written to: {:<18}║\n\
+         ║                                                                  ║\n\
+         ║  Generated: {:<54}║\n\
+         ║                                                                  ║\n\
+         ║  >>> BACK UP backend/{} SECURELY. <<<             ║\n\
+         ║  Loss of this file = permanent loss of all encrypted wallets.  ║\n\
+         ║  Do NOT commit it (already in .gitignore).                     ║\n\
+         ╚══════════════════════════════════════════════════════════════════╝\n",
+        SECRETS_FILE,
+        names.join(", "),
+        SECRETS_FILE,
+    );
 }
