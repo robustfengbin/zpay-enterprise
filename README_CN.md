@@ -2,6 +2,11 @@
 
 # Web3 钱包服务
 
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![Rust](https://img.shields.io/badge/rust-stable-orange.svg)](https://www.rust-lang.org)
+[![欢迎贡献](https://img.shields.io/badge/contributions-welcome-brightgreen.svg)](CONTRIBUTING.md)
+[![安全披露](https://img.shields.io/badge/security-disclosure-red.svg)](SECURITY.md)
+
 一个模块化的 Web3 钱包管理服务，支持多链架构，采用 Rust 后端 + React 前端技术栈。**现已完整支持 Zcash Orchard 隐私协议。**
 
 ## 功能特性
@@ -628,12 +633,27 @@ RUST_LOG=info,sqlx=warn
 
 ## 开源协议
 
-MIT License
+本项目采用 [Apache License 2.0](LICENSE) 开源许可证。
+
+## 安全漏洞披露
+
+发现漏洞？请**私下报告**，详见 [SECURITY.md](SECURITY.md)。
+请勿在公开 Issue 中披露安全漏洞。
 
 ## 参与贡献
+
+欢迎 Bug 报告、功能建议、Pull Request。开发环境搭建、代码风格、PR
+提交规范详见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+
+快速流程：
 
 1. Fork 本仓库
 2. 创建功能分支 (`git checkout -b feature/amazing-feature`)
 3. 提交更改 (`git commit -m '添加某个新功能'`)
 4. 推送到分支 (`git push origin feature/amazing-feature`)
 5. 提交 Pull Request
+
+## 致谢
+
+基于 [Zcash Orchard](https://github.com/zcash/orchard) + [Halo 2](https://github.com/zcash/halo2)、
+[Ethers-rs](https://github.com/gakonst/ethers-rs)、[Actix Web](https://actix.rs) 构建。

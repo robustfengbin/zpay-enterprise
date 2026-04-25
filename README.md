@@ -2,6 +2,11 @@
 
 # Web3 Wallet Service
 
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![Rust](https://img.shields.io/badge/rust-stable-orange.svg)](https://www.rust-lang.org)
+[![Contributions welcome](https://img.shields.io/badge/contributions-welcome-brightgreen.svg)](CONTRIBUTING.md)
+[![Security policy](https://img.shields.io/badge/security-disclosure-red.svg)](SECURITY.md)
+
 A modular Web3 wallet management service with multi-chain support, featuring a Rust backend and React frontend. **Now with full Zcash Orchard privacy protocol support.**
 
 ## Features
@@ -624,12 +629,28 @@ If you find this project useful, consider supporting the development:
 
 ## License
 
-MIT License
+Released under the [Apache License 2.0](LICENSE).
+
+## Security
+
+Found a vulnerability? Please report it privately — see [SECURITY.md](SECURITY.md).
+Do not open a public issue for security reports.
 
 ## Contributing
+
+Bug reports, feature ideas, and pull requests are welcome. See
+[CONTRIBUTING.md](CONTRIBUTING.md) for development setup, code style, and
+submission guidelines.
+
+Quick version:
 
 1. Fork the repository
 2. Create your feature branch (`git checkout -b feature/amazing-feature`)
 3. Commit your changes (`git commit -m 'Add some amazing feature'`)
 4. Push to the branch (`git push origin feature/amazing-feature`)
 5. Open a Pull Request
+
+## Acknowledgements
+
+Built on [Zcash Orchard](https://github.com/zcash/orchard) + [Halo 2](https://github.com/zcash/halo2),
+[Ethers-rs](https://github.com/gakonst/ethers-rs), and [Actix Web](https://actix.rs).
