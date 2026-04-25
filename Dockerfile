@@ -10,7 +10,7 @@
 # ==============================================================================
 
 # ---- Stage 1: build Rust backend ---------------------------------------------
-FROM rust:1.84-bookworm AS backend-builder
+FROM rust:1.90-bookworm AS backend-builder
 
 WORKDIR /build
 
