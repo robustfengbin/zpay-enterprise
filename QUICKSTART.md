@@ -39,14 +39,23 @@ Copy the example env file into a real `.env` at the repo root:
 cp backend/.env.example .env
 ```
 
-At a minimum, set these three values before first startup (the service
-will refuse to start otherwise):
+You'll typically set these on first deployment (the service will refuse
+to start with weak or missing values):
 
 | Variable | Requirement | Example |
 | --- | --- | --- |
+| `WEB3_SERVER__ALLOWED_ORIGIN` | the URL your frontend is served from; wildcard `*` is rejected | `http://localhost:3000` (dev) · `https://wallet.example.com` (prod) |
 | `WEB3_SECURITY__ENCRYPTION_KEY` | **exactly** 32 characters — used for AES-256-GCM of private keys | `openssl rand -hex 16` |
 | `WEB3_JWT__SECRET` | any strong random string | `openssl rand -hex 32` |
 | `WEB3_SECURITY__ADMIN_INITIAL_PASSWORD` | at least 12 characters, cannot be `admin123` | `openssl rand -hex 12` |
+
+> **About `WEB3_SERVER__ALLOWED_ORIGIN`** — zpay-enterprise enforces a
+> strict CORS allowlist because it custodies wallet keys; allowing any
+> origin would mean every malicious page in any browser could call your
+> API as soon as you have a valid session cookie/JWT. The default
+> (`http://localhost:3000`) is convenient for local Vite development
+> only; **production deployments MUST set this to the exact frontend
+> origin**.
 
 ### Option: let the service generate them for you
 
