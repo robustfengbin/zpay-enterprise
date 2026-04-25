@@ -9,6 +9,21 @@
 
 一个模块化的 Web3 钱包管理服务，支持多链架构，采用 Rust 后端 + React 前端技术栈。**现已完整支持 Zcash Orchard 隐私协议。**
 
+> 🚀 **5 分钟快速启动（Docker）：**
+>
+> ```bash
+> git clone --branch v0.2.0 https://github.com/robustfengbin/zpay-enterprise.git
+> cd zpay-enterprise
+> cp backend/.env.example .env
+> docker compose up --build
+> ```
+>
+> 后端启动于 `http://localhost:8080`。首次启动时如未设置密钥，会自动生成
+> 加密 key / JWT secret / 管理员密码并写入 `backend/.env.secrets` —— 请
+> 立即备份此文件，**丢失 = 已加密钱包永久无法恢复**。
+>
+> 完整指南：[QUICKSTART.md](QUICKSTART.md) · 更新记录：[CHANGELOG.md](CHANGELOG.md) · 最新版本：**v0.2.0**
+
 ## 功能特性
 
 - **钱包管理** - 创建、导入和管理多个钱包，私钥加密存储

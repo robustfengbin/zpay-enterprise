@@ -9,6 +9,22 @@
 
 A modular Web3 wallet management service with multi-chain support, featuring a Rust backend and React frontend. **Now with full Zcash Orchard privacy protocol support.**
 
+> 🚀 **5-Minute Quick Start (Docker):**
+>
+> ```bash
+> git clone --branch v0.2.0 https://github.com/robustfengbin/zpay-enterprise.git
+> cd zpay-enterprise
+> cp backend/.env.example .env
+> docker compose up --build
+> ```
+>
+> Backend boots on `http://localhost:8080`. On first start, missing secrets
+> (encryption key, JWT secret, admin password) are auto-generated and written
+> to `backend/.env.secrets` — back up that file, **its loss = permanent loss
+> of all encrypted wallets**.
+>
+> Full walkthrough: [QUICKSTART.md](QUICKSTART.md) · Recent changes: [CHANGELOG.md](CHANGELOG.md) · Latest release: **v0.2.0**
+
 ## Features
 
 - **Wallet Management** - Create, import, and manage multiple wallets with encrypted private key storage
