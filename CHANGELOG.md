@@ -140,8 +140,9 @@ license.
 - The default `WEB3_ETHEREUM__RPC_URL` uses a public, rate-limited
   endpoint (`https://eth.llamarpc.com`). Replace it with an Alchemy /
   Infura / self-hosted node before relying on it.
-- No `/health` endpoint yet; `docker compose ps` and the startup logs
-  are the current liveness signals.
+- `/api/v1/health` returns `{"status":"ok", "version":"..."}` but there
+  is no `/metrics` / Prometheus endpoint yet; use `docker compose ps`
+  for container-level liveness.
 
 ---
 
