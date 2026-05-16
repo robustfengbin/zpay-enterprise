@@ -18,7 +18,12 @@
     "recommended": "推荐",
     "max": "最大值",
     "enabling": "启用中...",
-    "close": "关闭"
+    "close": "关闭",
+    "action": "操作",
+    "load_more": "加载更多",
+    "back": "返回",
+    "not_found": "未找到",
+    "copied": "已复制！"
   },
   "login": {
     "title": "Web3 钱包管理系统",
@@ -316,6 +321,245 @@
       "executing": "发送中...",
       "confirmAnyway": "仍然发送",
       "confirm": "确认并发送"
+    }
+  },
+  "transfer": {
+    "tx_hash": "交易哈希",
+    "status": {
+      "pending": "待处理",
+      "submitted": "已提交",
+      "confirmed": "已确认",
+      "failed": "失败"
+    }
+  },
+  "approval": {
+    "empty": "暂无内容。",
+    "expires_at": "到期时间",
+    "expired": "已超时",
+    "rejected_reason": "拒绝原因",
+    "recall": "撤回",
+    "confirm_recall": "确认撤回此审批中转账？转账将被取消。",
+    "status": {
+      "awaiting": "等待审批",
+      "approved": "已批准",
+      "rejected": "已拒绝",
+      "expired": "已超时"
+    },
+    "event": {
+      "create": "创建",
+      "approve": "已批准",
+      "reject": "已拒绝",
+      "expire": "已超时",
+      "execute": "已执行",
+      "confirm": "链上已确认",
+      "fail": "失败"
+    },
+    "my_pending": {
+      "title": "我发起的审批",
+      "section": {
+        "awaiting_approval": "等待审批",
+        "approved": "已批准",
+        "rejected": "已拒绝",
+        "expired": "已超时"
+      }
+    },
+    "queue": {
+      "title": "待我审批",
+      "empty": "暂无待审批转账。",
+      "review": "审阅",
+      "col": {
+        "amount": "金额",
+        "token": "币种",
+        "maker": "发起人",
+        "remaining": "剩余时间"
+      }
+    },
+    "detail": {
+      "title": "审批详情",
+      "amount": "金额",
+      "from": "发件方",
+      "to": "收款方",
+      "memo": "备注",
+      "matched_policy": "匹配策略",
+      "expires_at": "到期时间",
+      "risk_tags": "风险标签",
+      "risk_tag": {
+        "placeholder": "F2.1 联调完成后将在此显示风险信号。"
+      },
+      "note_optional": "备注（可选）",
+      "approve": "批准",
+      "reject": "拒绝",
+      "reject_reason_required": "拒绝原因（必填，至少 5 字符）",
+      "reject_reason_placeholder": "例：收款方未通过 KYB 白名单",
+      "confirm_reject": "确认拒绝"
+    },
+    "error": {
+      "reason_too_short": "原因至少需要 5 个字符。"
+    },
+    "history": {
+      "title": "转账历史",
+      "timeline": "审批轨迹"
+    },
+    "policies": {
+      "title": "审批策略",
+      "new": "新建策略",
+      "empty": "暂无策略。新建一条以对超阈值转账启用 maker/checker 审批。",
+      "confirm_delete": "删除此审批策略？已发起的审批不受影响。",
+      "col": {
+        "scope": "范围",
+        "scope_id_optional": "范围 id（钱包/用户）",
+        "chain": "链",
+        "token": "币种",
+        "threshold": "金额阈值",
+        "sla": "SLA",
+        "required_count": "所需审批人数"
+      }
+    }
+  },
+  "auditor": {
+    "dashboard": {
+      "title": "审计师视图",
+      "subtitle": "对授权钱包的只读视图。生成披露报告以查看具体金额。",
+      "empty": "尚未授权任何钱包给当前审计师。",
+      "request_disclosure": "生成披露",
+      "col": {
+        "wallet": "钱包",
+        "chain": "链",
+        "address": "地址",
+        "tx_count": "交易数",
+        "last_activity": "最近活动",
+        "actions": "操作"
+      }
+    },
+    "viewing_key": {
+      "export_title": "导出 Viewing Key",
+      "warning_title": "请注意",
+      "warning_body": "Viewing Key 授予此钱包全部进出 shielded note 的读取权限。请仅分享给指定审计师。",
+      "wallet": "钱包",
+      "include_legacy": "同时包含旧版自定义编码",
+      "include_legacy_hint": "（仅内部回环；审计师使用标准 UFVK）",
+      "confirm_understand": "我已了解此举将暴露完整交易可见性。",
+      "export_now": "立即导出",
+      "exported_at": "导出时间",
+      "standard_ufvk": "标准 UFVK（ZIP-316）",
+      "standard_hint": "兼容 Zashi、Zecwallet 等标准 Zcash 钱包。",
+      "legacy_ufvk": "旧版自定义编码",
+      "legacy_hint": "ufvk:account:birthday:hex（内部格式）"
+    },
+    "disclosure": {
+      "new_title": "新建支付披露",
+      "generated_title": "披露已生成",
+      "id": "披露 id",
+      "items_count": "条目数",
+      "generated_at": "生成时间",
+      "wallet_id": "钱包 id",
+      "granularity": "颗粒度",
+      "granularity.single_tx": "单笔交易",
+      "granularity.single_address": "单个地址",
+      "granularity.time_range": "时间区间",
+      "tx_hash": "交易哈希",
+      "address": "地址",
+      "start_at": "开始",
+      "end_at": "结束",
+      "format": "格式",
+      "generate": "生成",
+      "preview": "预览（前 20 条）",
+      "more_items": "条目未列出（完整报告含全部）",
+      "download": "下载"
+    }
+  },
+  "payroll": {
+    "run_status": {
+      "draft": "草稿",
+      "awaiting_approval": "等待审批",
+      "approved": "已批准",
+      "rejected": "已拒绝",
+      "executing": "执行中",
+      "partial_success": "部分成功",
+      "completed": "已完成",
+      "failed": "失败"
+    },
+    "run_list": {
+      "title": "发薪批次",
+      "new_run": "新建批次",
+      "empty": "暂无发薪批次。",
+      "col": {
+        "period": "周期",
+        "source": "资金来源",
+        "amount": "金额",
+        "status": "状态",
+        "items": "条目（成功/总）",
+        "created_at": "创建时间"
+      }
+    },
+    "create": {
+      "title": "新建发薪批次",
+      "pay_period": "周期",
+      "source_chain": "源链",
+      "source_token": "源币种",
+      "csv_help": "上传 CSV，每行一名员工。列：",
+      "upload_csv": "上传 CSV",
+      "preview_summary": "预览",
+      "valid": "有效",
+      "invalid": "无效",
+      "total": "总数",
+      "create_draft": "创建草稿批次",
+      "confirm_with_invalid": "有 {{count}} 行校验错误将被跳过。继续？",
+      "in_address_book": "已在地址簿",
+      "chain_mismatch_warn": "地址格式与所选链不匹配",
+      "col": {
+        "employee": "员工",
+        "address": "地址",
+        "chain": "链",
+        "token": "币种",
+        "amount": "金额",
+        "privacy": "隐私模式",
+        "checks": "校验"
+      }
+    },
+    "detail": {
+      "title": "发薪批次",
+      "source_amount": "源金额",
+      "status": "状态",
+      "items_total": "条目数",
+      "created_by": "创建人",
+      "created_at": "创建时间",
+      "approved_by": "审批人",
+      "quote": "报价",
+      "estimated_fee": "预估手续费",
+      "estimated_proof_time": "预估证明时间",
+      "items": "条目",
+      "empty_items": "此批次无条目。",
+      "action": {
+        "quote": "获取报价",
+        "execute": "执行",
+        "retry_failed": "重试失败条目",
+        "view_approval": "查看审批"
+      },
+      "col": {
+        "employee": "员工",
+        "chain": "链",
+        "token": "币种",
+        "amount": "金额",
+        "privacy": "隐私模式",
+        "status": "状态",
+        "tx": "转账",
+        "reason": "失败原因"
+      }
+    },
+    "employees": {
+      "title": "员工",
+      "new": "新建员工",
+      "empty": "暂无员工。新建一名以用于发薪批次。",
+      "confirm_delete": "删除此员工记录？关联的发薪条目保留。",
+      "col": {
+        "name": "姓名",
+        "address": "钱包地址",
+        "chain": "默认链",
+        "token": "默认币种",
+        "privacy": "隐私模式",
+        "kyc": "KYC"
+      }
     }
   }
 }

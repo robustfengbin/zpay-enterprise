@@ -12,6 +12,20 @@ import {
   ZcashWallets,
   ZcashTransfer,
   ZcashRpcSettings,
+  // F2.1
+  MyPendingApprovals,
+  ApprovalQueue,
+  ApprovalDetail,
+  ApprovalHistory,
+  ApprovalPolicies,
+  // F1.1
+  AuditorDashboard,
+  DisclosureNew,
+  // F3.1
+  PayrollRunList,
+  PayrollRunCreate,
+  PayrollRunDetail,
+  PayrollEmployees,
 } from './pages';
 
 function App() {
@@ -99,6 +113,23 @@ function App() {
               </ProtectedRoute>
             }
           />
+
+          {/* F2.1 — Maker/Checker approval routes */}
+          <Route path="/approval/queue" element={<ProtectedRoute><ApprovalQueue /></ProtectedRoute>} />
+          <Route path="/approval/pending" element={<ProtectedRoute><MyPendingApprovals /></ProtectedRoute>} />
+          <Route path="/approval/policies" element={<ProtectedRoute><ApprovalPolicies /></ProtectedRoute>} />
+          <Route path="/approval/:id" element={<ProtectedRoute><ApprovalDetail /></ProtectedRoute>} />
+          <Route path="/approval/:id/history" element={<ProtectedRoute><ApprovalHistory /></ProtectedRoute>} />
+
+          {/* F1.1 — Auditor / Viewing Key / Disclosure routes */}
+          <Route path="/auditor" element={<ProtectedRoute><AuditorDashboard /></ProtectedRoute>} />
+          <Route path="/auditor/disclosure/new" element={<ProtectedRoute><DisclosureNew /></ProtectedRoute>} />
+
+          {/* F3.1 — Payroll routes */}
+          <Route path="/payroll/runs" element={<ProtectedRoute><PayrollRunList /></ProtectedRoute>} />
+          <Route path="/payroll/runs/new" element={<ProtectedRoute><PayrollRunCreate /></ProtectedRoute>} />
+          <Route path="/payroll/runs/:id" element={<ProtectedRoute><PayrollRunDetail /></ProtectedRoute>} />
+          <Route path="/payroll/employees" element={<ProtectedRoute><PayrollEmployees /></ProtectedRoute>} />
 
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

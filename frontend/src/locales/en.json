@@ -18,7 +18,12 @@
     "recommended": "Recommended",
     "max": "Max",
     "enabling": "Enabling...",
-    "close": "Close"
+    "close": "Close",
+    "action": "Action",
+    "load_more": "Load more",
+    "back": "Back",
+    "not_found": "Not found",
+    "copied": "Copied!"
   },
   "login": {
     "title": "Web3 Wallet Service",
@@ -316,6 +321,245 @@
       "executing": "Sending...",
       "confirmAnyway": "Send Anyway",
       "confirm": "Confirm & Send"
+    }
+  },
+  "transfer": {
+    "tx_hash": "Tx Hash",
+    "status": {
+      "pending": "Pending",
+      "submitted": "Submitted",
+      "confirmed": "Confirmed",
+      "failed": "Failed"
+    }
+  },
+  "approval": {
+    "empty": "Nothing here yet.",
+    "expires_at": "Expires",
+    "expired": "Expired",
+    "rejected_reason": "Rejection reason",
+    "recall": "Recall",
+    "confirm_recall": "Recall this pending approval? The transfer will be cancelled.",
+    "status": {
+      "awaiting": "Awaiting approval",
+      "approved": "Approved",
+      "rejected": "Rejected",
+      "expired": "Expired"
+    },
+    "event": {
+      "create": "Created",
+      "approve": "Approved",
+      "reject": "Rejected",
+      "expire": "Expired",
+      "execute": "Executed",
+      "confirm": "Confirmed on chain",
+      "fail": "Failed"
+    },
+    "my_pending": {
+      "title": "My Approvals",
+      "section": {
+        "awaiting_approval": "Awaiting approval",
+        "approved": "Approved",
+        "rejected": "Rejected",
+        "expired": "Expired"
+      }
+    },
+    "queue": {
+      "title": "Pending my approval",
+      "empty": "Nothing awaiting your decision.",
+      "review": "Review",
+      "col": {
+        "amount": "Amount",
+        "token": "Token",
+        "maker": "Maker",
+        "remaining": "Remaining"
+      }
+    },
+    "detail": {
+      "title": "Approval detail",
+      "amount": "Amount",
+      "from": "From",
+      "to": "To",
+      "memo": "Memo",
+      "matched_policy": "Matched policy",
+      "expires_at": "Expires",
+      "risk_tags": "Risk tags",
+      "risk_tag": {
+        "placeholder": "Risk signals will appear here once F2.1 wiring lands."
+      },
+      "note_optional": "Optional note",
+      "approve": "Approve",
+      "reject": "Reject",
+      "reject_reason_required": "Rejection reason (required, min 5 chars)",
+      "reject_reason_placeholder": "e.g. recipient not on KYB whitelist",
+      "confirm_reject": "Confirm reject"
+    },
+    "error": {
+      "reason_too_short": "Reason must be at least 5 characters."
+    },
+    "history": {
+      "title": "Transfer history",
+      "timeline": "Approval timeline"
+    },
+    "policies": {
+      "title": "Approval policies",
+      "new": "New policy",
+      "empty": "No policies yet. Create one to require maker/checker approval above a threshold.",
+      "confirm_delete": "Delete this approval policy? Existing pending approvals are unaffected.",
+      "col": {
+        "scope": "Scope",
+        "scope_id_optional": "Scope id (wallet/user)",
+        "chain": "Chain",
+        "token": "Token",
+        "threshold": "Amount threshold",
+        "sla": "SLA",
+        "required_count": "Required approvers"
+      }
+    }
+  },
+  "auditor": {
+    "dashboard": {
+      "title": "Auditor dashboard",
+      "subtitle": "Read-only view across scoped wallets. Generate disclosures to inspect amounts.",
+      "empty": "No wallets are scoped to you yet.",
+      "request_disclosure": "Request disclosure",
+      "col": {
+        "wallet": "Wallet",
+        "chain": "Chain",
+        "address": "Address",
+        "tx_count": "Tx count",
+        "last_activity": "Last activity",
+        "actions": "Actions"
+      }
+    },
+    "viewing_key": {
+      "export_title": "Export Viewing Key",
+      "warning_title": "Heads up",
+      "warning_body": "The viewing key grants read access to every incoming and outgoing shielded note for this wallet. Share only with the intended auditor.",
+      "wallet": "Wallet",
+      "include_legacy": "Also include legacy custom encoding",
+      "include_legacy_hint": "(internal round-trip only; auditors use the standard UFVK)",
+      "confirm_understand": "I understand this exposes full transaction visibility.",
+      "export_now": "Export now",
+      "exported_at": "Exported",
+      "standard_ufvk": "Standard UFVK (ZIP-316)",
+      "standard_hint": "Compatible with Zashi, Zecwallet, and standard Zcash wallets.",
+      "legacy_ufvk": "Legacy custom encoding",
+      "legacy_hint": "ufvk:account:birthday:hex (internal format)"
+    },
+    "disclosure": {
+      "new_title": "New payment disclosure",
+      "generated_title": "Disclosure generated",
+      "id": "Disclosure id",
+      "items_count": "Items",
+      "generated_at": "Generated",
+      "wallet_id": "Wallet id",
+      "granularity": "Granularity",
+      "granularity.single_tx": "Single transaction",
+      "granularity.single_address": "Single address",
+      "granularity.time_range": "Time range",
+      "tx_hash": "Transaction hash",
+      "address": "Address",
+      "start_at": "Start",
+      "end_at": "End",
+      "format": "Format",
+      "generate": "Generate",
+      "preview": "Preview (first 20 items)",
+      "more_items": "more items in full report",
+      "download": "Download"
+    }
+  },
+  "payroll": {
+    "run_status": {
+      "draft": "Draft",
+      "awaiting_approval": "Awaiting approval",
+      "approved": "Approved",
+      "rejected": "Rejected",
+      "executing": "Executing",
+      "partial_success": "Partial success",
+      "completed": "Completed",
+      "failed": "Failed"
+    },
+    "run_list": {
+      "title": "Payroll runs",
+      "new_run": "New run",
+      "empty": "No payroll runs yet.",
+      "col": {
+        "period": "Pay period",
+        "source": "Source",
+        "amount": "Amount",
+        "status": "Status",
+        "items": "Items (ok/total)",
+        "created_at": "Created"
+      }
+    },
+    "create": {
+      "title": "New payroll run",
+      "pay_period": "Pay period",
+      "source_chain": "Source chain",
+      "source_token": "Source token",
+      "csv_help": "Upload a CSV with one row per employee. Columns:",
+      "upload_csv": "Upload CSV",
+      "preview_summary": "Preview",
+      "valid": "valid",
+      "invalid": "invalid",
+      "total": "Total",
+      "create_draft": "Create draft run",
+      "confirm_with_invalid": "{{count}} rows have validation errors and will be skipped. Continue?",
+      "in_address_book": "In address book",
+      "chain_mismatch_warn": "Address format does not match selected chain",
+      "col": {
+        "employee": "Employee",
+        "address": "Address",
+        "chain": "Chain",
+        "token": "Token",
+        "amount": "Amount",
+        "privacy": "Privacy",
+        "checks": "Checks"
+      }
+    },
+    "detail": {
+      "title": "Payroll run",
+      "source_amount": "Source amount",
+      "status": "Status",
+      "items_total": "Items",
+      "created_by": "Created by",
+      "created_at": "Created",
+      "approved_by": "Approved by",
+      "quote": "Quote",
+      "estimated_fee": "Estimated fee",
+      "estimated_proof_time": "Estimated proof time",
+      "items": "Items",
+      "empty_items": "No items in this run.",
+      "action": {
+        "quote": "Get quote",
+        "execute": "Execute",
+        "retry_failed": "Retry failed items",
+        "view_approval": "View approval"
+      },
+      "col": {
+        "employee": "Employee",
+        "chain": "Chain",
+        "token": "Token",
+        "amount": "Amount",
+        "privacy": "Privacy",
+        "status": "Status",
+        "tx": "Transfers",
+        "reason": "Failure reason"
+      }
+    },
+    "employees": {
+      "title": "Employees",
+      "new": "New employee",
+      "empty": "No employees yet. Add one to use in payroll runs.",
+      "confirm_delete": "Delete this employee record? Linked payroll items remain.",
+      "col": {
+        "name": "Name",
+        "address": "Wallet address",
+        "chain": "Preferred chain",
+        "token": "Preferred token",
+        "privacy": "Privacy mode",
+        "kyc": "KYC"
+      }
     }
   }
 }
