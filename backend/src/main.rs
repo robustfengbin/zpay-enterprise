@@ -16,11 +16,11 @@ use api::handlers::load_rpc_config_from_db;
 use blockchain::{ethereum::EthereumClient, zcash::ZcashClient, ChainRegistry};
 use config::AppConfig;
 use db::repositories::{
-    ApprovalPolicyRepository, EmployeeRepository, SettingsRepository, TransferRepository,
-    UserRepository, WalletRepository,
+    ApprovalPolicyRepository, AuditorRepository, EmployeeRepository, SettingsRepository,
+    TransferRepository, UserRepository, WalletRepository,
 };
 use services::{
-    ApprovalService, AuthService, EmployeeService, TransferService, WalletService,
+    ApprovalService, AuditorService, AuthService, EmployeeService, TransferService, WalletService,
 };
 
 #[actix_web::main]
@@ -146,6 +146,15 @@ async fn main() -> std::io::Result<()> {
         chain_registry.clone(),
     ));
 
+    // M1 F1.1 — Auditor identity service.  Independent JWT (kind="auditor")
+    // sharing the same secret as user JWTs for v1; AuditorAuthMiddleware is
+    // queued for W2 (handlers inline-verify the token in the interim).
+    let auditor_service = Arc::new(AuditorService::new(
+        AuditorRepository::new(pool.clone()),
+        config.jwt.clone(),
+    ));
+    let wallet_repo_for_auditor = WalletRepository::new(pool.clone());
+
     // Create default admin user using the password supplied via
     // WEB3_SECURITY__ADMIN_INITIAL_PASSWORD (validated in config::validate).
     auth_service
@@ -236,6 +245,8 @@ async fn main() -> std::io::Result<()> {
             .app_data(web::Data::new(transfer_service.clone()))
             .app_data(web::Data::new(employee_service.clone()))
             .app_data(web::Data::new(approval_service.clone()))
+            .app_data(web::Data::new(auditor_service.clone()))
+            .app_data(web::Data::new(wallet_repo_for_auditor.clone()))
             .app_data(web::Data::new(chain_registry.clone()))
             .app_data(web::Data::new(settings_repo_for_app.clone()))
             .app_data(web::Data::new(eth_client_for_app.clone()))
