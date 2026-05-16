@@ -32,7 +32,7 @@
 
 | ID | 需求 | 优先级 |
 |---|---|---|
-| F3.1.1 | 新 `employees` 表：员工档案（name / wallet_address / chain / 标签 / 状态） | P0 |
+| F3.1.1 | 新 `employees` 表：employee_code / name / wallet_address / chain / tags JSON / active. **tags JSON 容纳 M2 字段**（preferred_token / privacy_mode / kyc_status 等），M1 不平铺到独立列以保留 schema 灵活性 | P0 |
 | F3.1.2 | 新 `payroll_runs` 表：批次（pay_period / source_wallet_id / total_amount / status / 等） | P0 |
 | F3.1.3 | 新 `payroll_items` 表：批次单条（run_id / employee_id / address / amount / memo / status / tx_hash） | P0 |
 | F3.1.4 | API 创建 payroll_run + 上传 items（CSV / JSON 两种格式） | P0 |
