@@ -16,9 +16,12 @@ use api::handlers::load_rpc_config_from_db;
 use blockchain::{ethereum::EthereumClient, zcash::ZcashClient, ChainRegistry};
 use config::AppConfig;
 use db::repositories::{
-    EmployeeRepository, SettingsRepository, TransferRepository, UserRepository, WalletRepository,
+    ApprovalPolicyRepository, EmployeeRepository, SettingsRepository, TransferRepository,
+    UserRepository, WalletRepository,
 };
-use services::{AuthService, EmployeeService, TransferService, WalletService};
+use services::{
+    ApprovalService, AuthService, EmployeeService, TransferService, WalletService,
+};
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
@@ -135,6 +138,14 @@ async fn main() -> std::io::Result<()> {
         chain_registry.clone(),
     ));
 
+    // M1 F2.1 — Approval policy + decision service.  Decision flow (approve /
+    // reject wiring into TransferService) is the next increment; this commit
+    // ships PolicyService CRUD only.
+    let approval_service = Arc::new(ApprovalService::new(
+        ApprovalPolicyRepository::new(pool.clone()),
+        chain_registry.clone(),
+    ));
+
     // Create default admin user using the password supplied via
     // WEB3_SECURITY__ADMIN_INITIAL_PASSWORD (validated in config::validate).
     auth_service
@@ -224,6 +235,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(web::Data::new(wallet_service.clone()))
             .app_data(web::Data::new(transfer_service.clone()))
             .app_data(web::Data::new(employee_service.clone()))
+            .app_data(web::Data::new(approval_service.clone()))
             .app_data(web::Data::new(chain_registry.clone()))
             .app_data(web::Data::new(settings_repo_for_app.clone()))
             .app_data(web::Data::new(eth_client_for_app.clone()))

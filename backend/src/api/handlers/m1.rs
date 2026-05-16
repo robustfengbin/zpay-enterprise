@@ -13,8 +13,9 @@ use actix_web::{web, HttpResponse};
 use chrono::{Duration, Utc};
 use serde_json::json;
 
+use crate::api::middleware::AuthenticatedUser;
 use crate::error::AppResult;
-use crate::services::EmployeeService;
+use crate::services::{ApprovalService, EmployeeService};
 
 // ===========================================================================
 // F1.1 — Viewing Key audit (Admin side)
@@ -152,21 +153,30 @@ pub async fn list_pending_approvals() -> HttpResponse {
     }))
 }
 
-pub async fn list_approval_policies() -> HttpResponse {
-    HttpResponse::Ok().json(json!([]))
+pub async fn list_approval_policies(
+    approval_service: web::Data<Arc<ApprovalService>>,
+) -> AppResult<HttpResponse> {
+    let policies = approval_service.list_policies().await?;
+    Ok(HttpResponse::Ok().json(policies))
 }
 
 pub async fn create_approval_policy(
-    _body: web::Json<crate::db::models_m1::CreateApprovalPolicyRequest>,
-) -> HttpResponse {
-    HttpResponse::NotImplemented().json(json!({
-        "error": "F2.1 create_approval_policy — not yet implemented",
-        "stub": true,
-    }))
+    body: web::Json<crate::db::models_m1::CreateApprovalPolicyRequest>,
+    approval_service: web::Data<Arc<ApprovalService>>,
+    user: AuthenticatedUser,
+) -> AppResult<HttpResponse> {
+    let policy = approval_service
+        .create_policy(body.into_inner(), user.user_id)
+        .await?;
+    Ok(HttpResponse::Created().json(policy))
 }
 
-pub async fn delete_approval_policy(_path: web::Path<i32>) -> HttpResponse {
-    HttpResponse::NotImplemented().json(json!({ "stub": true }))
+pub async fn delete_approval_policy(
+    path: web::Path<i32>,
+    approval_service: web::Data<Arc<ApprovalService>>,
+) -> AppResult<HttpResponse> {
+    approval_service.delete_policy(path.into_inner()).await?;
+    Ok(HttpResponse::Ok().json(json!({ "ok": true })))
 }
 
 // ===========================================================================
