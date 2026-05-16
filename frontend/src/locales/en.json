@@ -553,9 +553,11 @@
       "empty": "No employees yet. Add one to use in payroll runs.",
       "confirm_delete": "Delete this employee record? Linked payroll items remain.",
       "col": {
+        "code": "Code",
         "name": "Name",
         "address": "Wallet address",
-        "chain": "Preferred chain",
+        "chain": "Chain",
+        "active": "Active",
         "token": "Preferred token",
         "privacy": "Privacy mode",
         "kyc": "KYC"

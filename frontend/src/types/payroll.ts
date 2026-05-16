@@ -21,15 +21,33 @@ export type PayrollItemStatus =
   | 'failed'
   | 'compensation_pending';
 
+/**
+ * Optional UI-only fields stored inside Employee.tags JSON blob.
+ * Open shape — M2+ additions land here without ALTER TABLE.
+ */
+export interface EmployeeTags {
+  preferred_token?: string;
+  privacy_mode?: PayrollPrivacyMode;
+  kyc_status?: 'none' | 'pending' | 'verified';
+  [key: string]: unknown;
+}
+
+/**
+ * Aligned with backend struct in `backend/src/db/models_m1.rs`
+ * (commit 03dfdbc): the canonical Employee carries employee_code + chain
+ * + a flexible tags JSON blob. preferred_token / privacy_mode / kyc_status
+ * live inside tags so the schema can evolve without migrations.
+ */
 export interface Employee {
   id: number;
+  employee_code: string;
   name: string;
   wallet_address: string;
-  preferred_chain: string;
-  preferred_token: string;
-  privacy_mode: PayrollPrivacyMode;
-  kyc_status: string;
+  chain: string;
+  tags: EmployeeTags | null;
+  active: boolean;
   created_at: string;
+  updated_at: string;
 }
 
 export interface PayrollRun {

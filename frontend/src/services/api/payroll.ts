@@ -20,7 +20,7 @@ export const payrollService = {
     return api.get('/payroll/employees');
   },
 
-  async createEmployee(emp: Omit<Employee, 'id' | 'created_at'>): Promise<Employee> {
+  async createEmployee(emp: Omit<Employee, 'id' | 'created_at' | 'updated_at'>): Promise<Employee> {
     return api.post('/payroll/employees', emp);
   },
 

@@ -553,9 +553,11 @@
       "empty": "暂无员工。新建一名以用于发薪批次。",
       "confirm_delete": "删除此员工记录？关联的发薪条目保留。",
       "col": {
+        "code": "编号",
         "name": "姓名",
         "address": "钱包地址",
-        "chain": "默认链",
+        "chain": "链",
+        "active": "启用",
         "token": "默认币种",
         "privacy": "隐私模式",
         "kyc": "KYC"
