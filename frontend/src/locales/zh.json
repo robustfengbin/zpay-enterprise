@@ -54,6 +54,7 @@
     "my_approvals": "我的审批",
     "approval_policies": "审批策略",
     "auditor_dashboard": "审计师视图",
+    "auditor_manage": "审计师管理",
     "payroll": "发薪",
     "payroll_runs": "发薪批次",
     "employees": "员工"
@@ -426,6 +427,36 @@
     }
   },
   "auditor": {
+    "login": {
+      "title": "审计师登录",
+      "subtitle": "只读访问授权钱包。",
+      "email": "邮箱",
+      "password": "临时密码",
+      "submit": "登录",
+      "not_auditor": "不是审计师？",
+      "go_main": "返回主登录"
+    },
+    "list": {
+      "title": "审计师管理",
+      "new": "邀请审计师",
+      "empty": "暂无审计师。",
+      "deactivate": "停用",
+      "confirm_deactivate": "停用此审计师？其 Token 将立即失效。",
+      "created_title": "审计师已创建",
+      "temp_password": "临时密码",
+      "temp_password_warning_title": "仅此一次显示",
+      "temp_password_warning_body": "请立即复制并通过线下安全通道发送给审计师。密码不会在服务端明文保存。",
+      "invitation_link": "邀请链接",
+      "scope_wallets": "授权钱包 ID（逗号分隔）",
+      "col": {
+        "email": "邮箱",
+        "name": "姓名",
+        "scope_start": "授权开始",
+        "scope_end": "授权结束",
+        "max_count": "最大查询次数",
+        "last_login": "最近登录"
+      }
+    },
     "dashboard": {
       "title": "审计师视图",
       "subtitle": "对授权钱包的只读视图。生成披露报告以查看具体金额。",

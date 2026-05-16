@@ -208,21 +208,36 @@ export function Sidebar() {
             </>
           )}
 
-          {/* Auditor view — admins can preview the dashboard; auditor role uses /auditor login */}
+          {/* Auditor management — admin creates auditor accounts here */}
           {user?.role === 'admin' && (
-            <NavLink
-              to="/auditor"
-              className={({ isActive }) =>
-                `flex items-center px-6 py-3 text-sm transition-colors ${
-                  isActive
-                    ? 'bg-blue-600 text-white'
-                    : 'text-gray-300 hover:bg-gray-800 hover:text-white'
-                }`
-              }
-            >
-              <Eye className="w-5 h-5 mr-3 flex-shrink-0" />
-              <span>{t('sidebar.auditor_dashboard')}</span>
-            </NavLink>
+            <>
+              <NavLink
+                to="/auditor"
+                className={({ isActive }) =>
+                  `flex items-center px-6 py-3 text-sm transition-colors ${
+                    isActive
+                      ? 'bg-blue-600 text-white'
+                      : 'text-gray-300 hover:bg-gray-800 hover:text-white'
+                  }`
+                }
+              >
+                <Eye className="w-5 h-5 mr-3 flex-shrink-0" />
+                <span>{t('sidebar.auditor_dashboard')}</span>
+              </NavLink>
+              <NavLink
+                to="/auditor/manage"
+                className={({ isActive }) =>
+                  `flex items-center px-6 py-3 text-sm transition-colors ${
+                    isActive
+                      ? 'bg-blue-600 text-white'
+                      : 'text-gray-300 hover:bg-gray-800 hover:text-white'
+                  }`
+                }
+              >
+                <Users className="w-5 h-5 mr-3 flex-shrink-0" />
+                <span>{t('sidebar.auditor_manage')}</span>
+              </NavLink>
+            </>
           )}
         </div>
 

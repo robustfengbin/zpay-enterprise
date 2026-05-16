@@ -27,6 +27,8 @@ export {
   AuditorDashboard,
   ViewingKeyExportModal,
   DisclosureNew,
+  AuditorList,
+  AuditorLogin,
 } from './Auditor';
 
 // F3.1 Payroll Run (batch ZEC payroll, no swap) pages

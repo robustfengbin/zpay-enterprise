@@ -21,6 +21,8 @@ import {
   // F1.1
   AuditorDashboard,
   DisclosureNew,
+  AuditorList,
+  AuditorLogin,
   // F3.1
   PayrollRunList,
   PayrollRunCreate,
@@ -125,7 +127,9 @@ function App() {
 
           {/* F1.1 — Auditor / Viewing Key / Disclosure routes.
               Admin manages exports; Auditor logs in via separate /auditor/login. */}
+          <Route path="/auditor/login" element={<AuditorLogin />} />
           <Route path="/auditor" element={<ProtectedRoute requiredRole={["admin", "auditor"]}><AuditorDashboard /></ProtectedRoute>} />
+          <Route path="/auditor/manage" element={<ProtectedRoute requiredRole="admin"><AuditorList /></ProtectedRoute>} />
           <Route path="/auditor/disclosure/new" element={<ProtectedRoute requiredRole={["admin", "auditor"]}><DisclosureNew /></ProtectedRoute>} />
 
           {/* F3.1 — Payroll routes. Create requires operator+admin;

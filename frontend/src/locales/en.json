@@ -54,6 +54,7 @@
     "my_approvals": "My approvals",
     "approval_policies": "Approval policies",
     "auditor_dashboard": "Auditor view",
+    "auditor_manage": "Manage auditors",
     "payroll": "Payroll",
     "payroll_runs": "Payroll runs",
     "employees": "Employees"
@@ -426,6 +427,36 @@
     }
   },
   "auditor": {
+    "login": {
+      "title": "Auditor sign-in",
+      "subtitle": "Read-only access to scoped wallets.",
+      "email": "Email",
+      "password": "Temporary password",
+      "submit": "Sign in",
+      "not_auditor": "Not an auditor?",
+      "go_main": "Main sign-in"
+    },
+    "list": {
+      "title": "Manage auditors",
+      "new": "Invite auditor",
+      "empty": "No auditors yet.",
+      "deactivate": "Deactivate",
+      "confirm_deactivate": "Deactivate this auditor? Their token will be revoked.",
+      "created_title": "Auditor created",
+      "temp_password": "Temporary password",
+      "temp_password_warning_title": "One-time view",
+      "temp_password_warning_body": "Copy now and share securely (out-of-band). The password is not stored in plaintext server-side.",
+      "invitation_link": "Invitation link",
+      "scope_wallets": "Scoped wallet IDs (comma-separated)",
+      "col": {
+        "email": "Email",
+        "name": "Name",
+        "scope_start": "Scope start",
+        "scope_end": "Scope end",
+        "max_count": "Max queries",
+        "last_login": "Last login"
+      }
+    },
     "dashboard": {
       "title": "Auditor dashboard",
       "subtitle": "Read-only view across scoped wallets. Generate disclosures to inspect amounts.",

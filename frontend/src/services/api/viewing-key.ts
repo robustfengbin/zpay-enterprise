@@ -88,18 +88,72 @@ export const viewingKeyService = {
 // Auditor authentication (separate from main /auth)
 // ===========================================================
 
+export interface AuditorSession {
+  id: number;
+  email: string;
+  name: string;
+  scope_start: string | null;
+  scope_end: string | null;
+  max_count: number | null;
+  last_login_at: string | null;
+}
+
 export const auditorAuthService = {
   /**
    * POST /auditor/login — issues an auditor-scoped JWT.
+   * Auditor accounts are keyed by email (not username) per france's
+   * AuditorService design (commit pending).
    */
-  async login(username: string, password: string): Promise<{ token: string; auditor: { id: number; username: string } }> {
-    return api.post('/auditor/login', { username, password });
+  async login(email: string, password: string): Promise<{ token: string; auditor: AuditorSession }> {
+    return api.post('/auditor/login', { email, password });
   },
 
   /**
    * GET /auditor/me — current auditor session info.
    */
-  async me(): Promise<{ id: number; username: string; scoped_wallets: number[] }> {
+  async me(): Promise<AuditorSession> {
     return api.get('/auditor/me');
+  },
+};
+
+// ===========================================================
+// Admin-side auditor management
+// ===========================================================
+
+export interface CreateAuditorRequest {
+  email: string;
+  name: string;
+  wallet_ids: number[];
+  scope_start?: string;        // ISO 8601
+  scope_end?: string;
+  max_count?: number;          // max queries / disclosures auditor can issue
+}
+
+export interface CreateAuditorResponse {
+  auditor_id: number;
+  invitation_link: string;
+  temp_password: string;       // shown ONCE on creation, give to auditor OOB
+}
+
+export const auditorAdminService = {
+  /**
+   * POST /auditors — create a new auditor (Admin only).
+   */
+  async create(req: CreateAuditorRequest): Promise<CreateAuditorResponse> {
+    return api.post('/auditors', req);
+  },
+
+  /**
+   * GET /auditors — list all auditors (Admin only).
+   */
+  async list(): Promise<AuditorSession[]> {
+    return api.get('/auditors');
+  },
+
+  /**
+   * POST /auditors/{id}/deactivate — Admin revokes auditor access.
+   */
+  async deactivate(id: number): Promise<{ ok: boolean }> {
+    return api.post(`/auditors/${id}/deactivate`);
   },
 };
