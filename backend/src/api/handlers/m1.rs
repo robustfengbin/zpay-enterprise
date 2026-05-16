@@ -19,7 +19,9 @@ use crate::api::middleware::AuthenticatedUser;
 use crate::db::repositories::WalletRepository;
 use crate::error::{AppError, AppResult};
 use crate::services::auditor_service::AuditorClaims;
-use crate::services::{ApprovalService, AuditorService, EmployeeService};
+use crate::services::{
+    ApprovalService, AuditorService, EmployeeService, PaymentDisclosureService,
+};
 
 // ===========================================================================
 // F1.1 — Viewing Key audit (Admin side)
@@ -73,25 +75,60 @@ pub async fn deactivate_auditor(
 }
 
 pub async fn create_payment_disclosure(
-    _path: web::Path<i32>,
-    _body: web::Json<crate::db::models_m1::CreatePaymentDisclosureRequest>,
-) -> HttpResponse {
-    HttpResponse::NotImplemented().json(json!({
-        "error": "F1.1 create_payment_disclosure — not yet implemented",
-        "stub": true,
-    }))
+    path: web::Path<i32>,
+    body: web::Json<crate::db::models_m1::CreatePaymentDisclosureRequest>,
+    disclosure_service: web::Data<Arc<PaymentDisclosureService>>,
+    user: AuthenticatedUser,
+) -> AppResult<HttpResponse> {
+    let row = disclosure_service
+        .generate(path.into_inner(), user.user_id, body.into_inner())
+        .await?;
+    Ok(HttpResponse::Accepted().json(json!({
+        "disclosure_id": row.id,
+        "status": row.status,
+        "tx_count": row.tx_count,
+        "created_at": row.created_at,
+        "expires_at": row.expires_at,
+    })))
 }
 
-pub async fn get_payment_disclosure(_path: web::Path<i32>) -> HttpResponse {
-    HttpResponse::NotFound().json(json!({ "error": "stub: not found" }))
+pub async fn get_payment_disclosure(
+    path: web::Path<i32>,
+    disclosure_service: web::Data<Arc<PaymentDisclosureService>>,
+) -> AppResult<HttpResponse> {
+    let row = disclosure_service.get(path.into_inner()).await?;
+    Ok(HttpResponse::Ok().json(row))
 }
 
-pub async fn download_payment_disclosure(_path: web::Path<i32>) -> HttpResponse {
-    HttpResponse::NotImplemented().json(json!({ "stub": true }))
+pub async fn download_payment_disclosure(
+    path: web::Path<i32>,
+    disclosure_service: web::Data<Arc<PaymentDisclosureService>>,
+) -> AppResult<HttpResponse> {
+    let row = disclosure_service.get(path.into_inner()).await?;
+    if row.status != "ready" {
+        return Err(AppError::ValidationError(format!(
+            "disclosure {} not ready (status={})",
+            row.id, row.status
+        )));
+    }
+    // M1.W1 — return the JSON body directly with format-tagged content type.
+    // PDF / CSV serialization is M1.W2 when the real disclosure body lands.
+    let body = row
+        .disclosure_json
+        .unwrap_or_else(|| json!({"error": "no body"}));
+    Ok(HttpResponse::Ok()
+        .content_type("application/json")
+        .json(body))
 }
 
-pub async fn list_payment_disclosures(_path: web::Path<i32>) -> HttpResponse {
-    HttpResponse::Ok().json(json!([]))
+pub async fn list_payment_disclosures(
+    path: web::Path<i32>,
+    disclosure_service: web::Data<Arc<PaymentDisclosureService>>,
+) -> AppResult<HttpResponse> {
+    let rows = disclosure_service
+        .list_by_wallet(path.into_inner())
+        .await?;
+    Ok(HttpResponse::Ok().json(rows))
 }
 
 // ===========================================================================

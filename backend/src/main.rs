@@ -16,11 +16,12 @@ use api::handlers::load_rpc_config_from_db;
 use blockchain::{ethereum::EthereumClient, zcash::ZcashClient, ChainRegistry};
 use config::AppConfig;
 use db::repositories::{
-    ApprovalPolicyRepository, AuditorRepository, EmployeeRepository, SettingsRepository,
-    TransferRepository, UserRepository, WalletRepository,
+    ApprovalPolicyRepository, AuditorRepository, EmployeeRepository, PaymentDisclosureRepository,
+    SettingsRepository, TransferRepository, UserRepository, WalletRepository,
 };
 use services::{
-    ApprovalService, AuditorService, AuthService, EmployeeService, TransferService, WalletService,
+    ApprovalService, AuditorService, AuthService, EmployeeService, PaymentDisclosureService,
+    TransferService, WalletService,
 };
 
 #[actix_web::main]
@@ -155,6 +156,14 @@ async fn main() -> std::io::Result<()> {
     ));
     let wallet_repo_for_auditor = WalletRepository::new(pool.clone());
 
+    // M1 F1.1 — Payment disclosure (ZIP-307) async generation framework.
+    // The real disclosure body builder (librustzcash) is M1.W2; this stage
+    // wires the row + status state machine + async spawn pattern so the
+    // frontend disclosure report page is fully exercised end-to-end.
+    let payment_disclosure_service = Arc::new(PaymentDisclosureService::new(
+        PaymentDisclosureRepository::new(pool.clone()),
+    ));
+
     // Create default admin user using the password supplied via
     // WEB3_SECURITY__ADMIN_INITIAL_PASSWORD (validated in config::validate).
     auth_service
@@ -246,6 +255,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(web::Data::new(employee_service.clone()))
             .app_data(web::Data::new(approval_service.clone()))
             .app_data(web::Data::new(auditor_service.clone()))
+            .app_data(web::Data::new(payment_disclosure_service.clone()))
             .app_data(web::Data::new(wallet_repo_for_auditor.clone()))
             .app_data(web::Data::new(chain_registry.clone()))
             .app_data(web::Data::new(settings_repo_for_app.clone()))
