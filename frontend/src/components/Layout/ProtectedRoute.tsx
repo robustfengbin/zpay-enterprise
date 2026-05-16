@@ -3,10 +3,16 @@ import { Navigate } from 'react-router-dom';
 import { useAuth } from '../../hooks/useAuth';
 import { LoadingSpinner } from '../Common';
 import { Layout } from './Layout';
+import type { UserRole } from '../../types';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
-  requiredRole?: 'admin' | 'operator';
+  /**
+   * If provided, the user's role must be one of these values. Admin is
+   * always allowed (preserves the existing M0 behavior). Accepts either
+   * a single role or an array of roles for OR-matching.
+   */
+  requiredRole?: UserRole | UserRole[];
 }
 
 export function ProtectedRoute({ children, requiredRole }: ProtectedRouteProps) {
@@ -24,8 +30,11 @@ export function ProtectedRoute({ children, requiredRole }: ProtectedRouteProps) 
     return <Navigate to="/login" replace />;
   }
 
-  if (requiredRole && user.role !== requiredRole && user.role !== 'admin') {
-    return <Navigate to="/" replace />;
+  if (requiredRole) {
+    const allowed = Array.isArray(requiredRole) ? requiredRole : [requiredRole];
+    if (!allowed.includes(user.role) && user.role !== 'admin') {
+      return <Navigate to="/" replace />;
+    }
   }
 
   return <Layout>{children}</Layout>;

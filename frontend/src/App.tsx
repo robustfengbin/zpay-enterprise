@@ -114,22 +114,26 @@ function App() {
             }
           />
 
-          {/* F2.1 — Maker/Checker approval routes */}
-          <Route path="/approval/queue" element={<ProtectedRoute><ApprovalQueue /></ProtectedRoute>} />
-          <Route path="/approval/pending" element={<ProtectedRoute><MyPendingApprovals /></ProtectedRoute>} />
-          <Route path="/approval/policies" element={<ProtectedRoute><ApprovalPolicies /></ProtectedRoute>} />
-          <Route path="/approval/:id" element={<ProtectedRoute><ApprovalDetail /></ProtectedRoute>} />
+          {/* F2.1 — Maker/Checker approval routes.
+              Queue + policies are admin-only (checker side);
+              pending/detail/history available to operator + admin. */}
+          <Route path="/approval/queue" element={<ProtectedRoute requiredRole="admin"><ApprovalQueue /></ProtectedRoute>} />
+          <Route path="/approval/pending" element={<ProtectedRoute requiredRole={["admin", "operator"]}><MyPendingApprovals /></ProtectedRoute>} />
+          <Route path="/approval/policies" element={<ProtectedRoute requiredRole="admin"><ApprovalPolicies /></ProtectedRoute>} />
+          <Route path="/approval/:id" element={<ProtectedRoute requiredRole={["admin", "operator"]}><ApprovalDetail /></ProtectedRoute>} />
           <Route path="/approval/:id/history" element={<ProtectedRoute><ApprovalHistory /></ProtectedRoute>} />
 
-          {/* F1.1 — Auditor / Viewing Key / Disclosure routes */}
-          <Route path="/auditor" element={<ProtectedRoute><AuditorDashboard /></ProtectedRoute>} />
-          <Route path="/auditor/disclosure/new" element={<ProtectedRoute><DisclosureNew /></ProtectedRoute>} />
+          {/* F1.1 — Auditor / Viewing Key / Disclosure routes.
+              Admin manages exports; Auditor logs in via separate /auditor/login. */}
+          <Route path="/auditor" element={<ProtectedRoute requiredRole={["admin", "auditor"]}><AuditorDashboard /></ProtectedRoute>} />
+          <Route path="/auditor/disclosure/new" element={<ProtectedRoute requiredRole={["admin", "auditor"]}><DisclosureNew /></ProtectedRoute>} />
 
-          {/* F3.1 — Payroll routes */}
+          {/* F3.1 — Payroll routes. Create requires operator+admin;
+              list/detail/employees viewable by all authenticated users. */}
           <Route path="/payroll/runs" element={<ProtectedRoute><PayrollRunList /></ProtectedRoute>} />
-          <Route path="/payroll/runs/new" element={<ProtectedRoute><PayrollRunCreate /></ProtectedRoute>} />
+          <Route path="/payroll/runs/new" element={<ProtectedRoute requiredRole={["admin", "operator"]}><PayrollRunCreate /></ProtectedRoute>} />
           <Route path="/payroll/runs/:id" element={<ProtectedRoute><PayrollRunDetail /></ProtectedRoute>} />
-          <Route path="/payroll/employees" element={<ProtectedRoute><PayrollEmployees /></ProtectedRoute>} />
+          <Route path="/payroll/employees" element={<ProtectedRoute requiredRole={["admin", "operator"]}><PayrollEmployees /></ProtectedRoute>} />
 
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

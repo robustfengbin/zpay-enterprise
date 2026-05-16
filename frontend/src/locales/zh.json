@@ -14,6 +14,7 @@
     "active": "活跃",
     "admin": "管理员",
     "operator": "操作员",
+    "auditor": "审计师",
     "optional": "可选",
     "recommended": "推荐",
     "max": "最大值",
@@ -47,7 +48,15 @@
     "loggedInAs": "当前登录",
     "chains": "区块链",
     "general": "通用",
-    "rpcSettings": "RPC 设置"
+    "rpcSettings": "RPC 设置",
+    "governance": "治理与合规",
+    "approval_queue": "待审批队列",
+    "my_approvals": "我的审批",
+    "approval_policies": "审批策略",
+    "auditor_dashboard": "审计师视图",
+    "payroll": "发薪",
+    "payroll_runs": "发薪批次",
+    "employees": "员工"
   },
   "header": {
     "title": "以太坊钱包管理器",

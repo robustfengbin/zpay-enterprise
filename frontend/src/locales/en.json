@@ -14,6 +14,7 @@
     "active": "Active",
     "admin": "Admin",
     "operator": "Operator",
+    "auditor": "Auditor",
     "optional": "Optional",
     "recommended": "Recommended",
     "max": "Max",
@@ -47,7 +48,15 @@
     "loggedInAs": "Logged in as",
     "chains": "Chains",
     "general": "General",
-    "rpcSettings": "RPC Settings"
+    "rpcSettings": "RPC Settings",
+    "governance": "Governance",
+    "approval_queue": "Approval queue",
+    "my_approvals": "My approvals",
+    "approval_policies": "Approval policies",
+    "auditor_dashboard": "Auditor view",
+    "payroll": "Payroll",
+    "payroll_runs": "Payroll runs",
+    "employees": "Employees"
   },
   "header": {
     "title": "Ethereum Wallet Manager",
