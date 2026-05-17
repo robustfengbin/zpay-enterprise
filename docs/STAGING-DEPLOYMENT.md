@@ -207,9 +207,15 @@ server {
     # IMPORTANT: SPA cache rules — index.html must never be cached, hashed
     # assets must be cached aggressively.  See feedback_nginx_spa_cache_control
     # in the team workspace memory for the reasoning.
+    #
+    # Quirk: nginx's `expires` directive ALWAYS emits a Cache-Control: max-age
+    # header that overrides anything from `add_header Cache-Control`.  Use
+    # `add_header ... always;` (the `always` modifier is what lets the header
+    # apply on 304 / 4xx responses) and DO NOT add `expires` here — otherwise
+    # the response will surface `Cache-Control: max-age=0` instead of the
+    # strict no-store policy we want.  Verified live 2026-05-17 on staging.
     location = /index.html {
-        add_header Cache-Control "no-cache, no-store, must-revalidate";
-        expires 0;
+        add_header Cache-Control "no-cache, no-store, must-revalidate" always;
     }
     location /assets/ {
         expires 1y;
