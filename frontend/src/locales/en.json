@@ -35,7 +35,9 @@
     "passwordPlaceholder": "Enter your password",
     "signIn": "Sign In",
     "defaultCredentials": "Default admin account is configured via backend/.env (WEB3_SECURITY__ADMIN_INITIAL_PASSWORD)",
-    "failed": "Login failed"
+    "failed": "Login failed",
+    "auditor_hint": "Auditor?",
+    "auditor_link": "Sign in here"
   },
   "sidebar": {
     "title": "Web3 Wallet",

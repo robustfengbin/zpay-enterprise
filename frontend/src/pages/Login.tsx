@@ -102,6 +102,15 @@ export function Login() {
           <p className="mt-6 text-center text-sm text-gray-500">
             {t('login.defaultCredentials')}
           </p>
+
+          <div className="mt-4 pt-4 border-t border-gray-200 text-center">
+            <p className="text-xs text-gray-500">
+              {t('login.auditor_hint')}{' '}
+              <a href="/auditor/login" className="text-blue-600 hover:underline">
+                {t('login.auditor_link')}
+              </a>
+            </p>
+          </div>
         </div>
       </div>
     </div>

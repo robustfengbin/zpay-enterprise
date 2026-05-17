@@ -35,7 +35,9 @@
     "passwordPlaceholder": "请输入密码",
     "signIn": "登录",
     "defaultCredentials": "默认管理员账号通过 backend/.env 配置 (WEB3_SECURITY__ADMIN_INITIAL_PASSWORD)",
-    "failed": "登录失败"
+    "failed": "登录失败",
+    "auditor_hint": "审计师？",
+    "auditor_link": "从这里登录"
   },
   "sidebar": {
     "title": "Web3 钱包",
