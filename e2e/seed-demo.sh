@@ -89,7 +89,7 @@ parse "$(api PUT "/wallets/$DEMO_USDT_WALLET/activate" "$TOKEN")"
 log "creating approval policies"
 for spec in \
   'global|ethereum|USDT|5000.0|240' \
-  'global|zcash|ZEC|100.0|360'; do
+  'global|zcash|ZEC|50.0|360'; do
   SCOPE="${spec%%|*}"; rest="${spec#*|}"
   CHAIN="${rest%%|*}"; rest="${rest#*|}"
   TOKEN_NAME="${rest%%|*}"; rest="${rest#*|}"
@@ -153,21 +153,42 @@ for spec in \
 done
 
 # -----------------------------------------------------------------------------
-# Payroll run — May 2026 monthly payroll (small, won't trigger approval)
+# Payroll run — May 2026, realistic salary amounts.
+#
+# ZEC ≈ $500 USD (2026-05-17 reference) so each employee gets 8–15 ZEC =
+# $4k–$7.5k monthly. Total ≈ 65 ZEC ≈ $32.5k — designed to land above the
+# global ZEC ≥ 50 approval policy threshold so executing the run flips it
+# to `awaiting_approval` immediately, populating the approval UI for
+# marketing screenshots.
 # -----------------------------------------------------------------------------
-log "creating sample payroll run"
+log "creating sample payroll run (May 2026, ~\$32.5k total)"
 ITEMS='[
-  {"employee_address":"t1MuYerfu1kbxuZvGgdAVn7Wisv8PLUtNFk","amount":"0.50","memo":"May 2026 salary"},
-  {"employee_address":"t1cEVXapVBTVzaK5pmjTBFg1wEUhS3WKEFE","amount":"0.50","memo":"May 2026 salary"},
-  {"employee_address":"t1Qsc2499S51U4Wnns92TE75Db3uY85c9ek","amount":"0.75","memo":"May 2026 salary + Q1 bonus"}
+  {"employee_address":"t1MuYerfu1kbxuZvGgdAVn7Wisv8PLUtNFk","amount":"12.00","memo":"May 2026 — Alice Chen (Senior Engineer)"},
+  {"employee_address":"t1cEVXapVBTVzaK5pmjTBFg1wEUhS3WKEFE","amount":"15.00","memo":"May 2026 — Marcus Williams (Staff Engineer)"},
+  {"employee_address":"t1Qsc2499S51U4Wnns92TE75Db3uY85c9ek","amount":"10.00","memo":"May 2026 — Priya Patel (Senior Designer)"},
+  {"employee_address":"t1MuYerfu1kbxuZvGgdAVn7Wisv8PLUtNFk","amount":"8.00","memo":"May 2026 — Yui Tanaka (Engineer)"},
+  {"employee_address":"t1cEVXapVBTVzaK5pmjTBFg1wEUhS3WKEFE","amount":"10.00","memo":"May 2026 — base salary"},
+  {"employee_address":"t1Qsc2499S51U4Wnns92TE75Db3uY85c9ek","amount":"10.00","memo":"May 2026 — base + Q1 performance bonus"}
 ]'
 parse "$(api POST /payroll/runs "$TOKEN" \
-  "{\"pay_period\":\"2026-05\",\"source_wallet_id\":$DEMO_ZEC_WALLET,\"notes\":\"Monthly engineering payroll\",\"items\":$ITEMS}")"
+  "{\"pay_period\":\"2026-05\",\"source_wallet_id\":$DEMO_ZEC_WALLET,\"notes\":\"Monthly engineering + design payroll\",\"items\":$ITEMS}")"
 if [[ "$STATUS" =~ ^20[01]$ ]]; then
   RUN_ID=$(echo "$RESP" | jget run_id)
-  ok "payroll run id=$RUN_ID (pay_period 2026-05, 3 items, $DEMO_ZEC_WALLET)"
+  ok "payroll run id=$RUN_ID (pay_period 2026-05, 6 items, total 65 ZEC ≈ \$32.5k)"
 else
   fail "payroll run" "$RESP ($STATUS)"
+fi
+
+# Execute the run — total 65 ZEC > 50 threshold so this flips run.status
+# to awaiting_approval without touching the chain (no balance check at the
+# approval pivot path).
+log "executing run to trigger F2.1 approval pivot"
+parse "$(api POST "/payroll/runs/$RUN_ID/execute" "$TOKEN")"
+if [[ "$STATUS" == "200" ]] && [[ "$(echo "$RESP" | jget result)" == "awaiting_approval" ]]; then
+  POLICY_ID=$(echo "$RESP" | jget policy_id)
+  ok "run $RUN_ID auto-pivoted to awaiting_approval (matched policy id=$POLICY_ID)"
+else
+  log "  (run did not pivot — check policy thresholds; raw response: $RESP)"
 fi
 
 # -----------------------------------------------------------------------------
@@ -189,13 +210,17 @@ fi
 # -----------------------------------------------------------------------------
 printf '\n%s═══ Demo seed complete ═══%s\n' "$DIM" "$RST"
 printf '  Wallets       : %d\n' ${#WALLET_IDS[@]}
-printf '  Policies      : 2 (USDT >=5000, ZEC >=100)\n'
+printf '  Policies      : 2 (USDT ≥ 5000, ZEC ≥ 50 ≈ \$25k)\n'
 printf '  Employees     : 6 (Engineering / Product Design / Operations / Finance)\n'
-printf '  Payroll run   : 1 (May 2026, 3 items)\n'
+printf '  Payroll run   : 1 (May 2026, 6 items, 65 ZEC ≈ \$32.5k, pivoted to awaiting_approval)\n'
 printf '  Auditor       : Jennifer Morgan, CPA (Q1 2026, 20 disclosures)\n'
 printf '\nFor screenshots, log in to the staging UI and walk:\n'
 printf '  - /payroll/employees       — 6 English-name employee cards\n'
-printf '  - /approval/policies       — 2 realistic enterprise thresholds\n'
-printf '  - /payroll/runs/%-3s        — May 2026 monthly payroll detail\n' "$RUN_ID"
+printf '  - /approval/policies       — 2 realistic enterprise thresholds (USDT ≥5000 / ZEC ≥50)\n'
+printf '  - /payroll/runs            — list with 1 row, status: awaiting_approval, 65 ZEC\n'
+printf '  - /payroll/runs/%-3s        — detail with awaiting_approval outcome card + 6 items\n' "$RUN_ID"
 printf '  - /auditor/manage          — Jennifer Morgan as scoped external auditor\n'
 printf '  - /auditor/login (incog)   — log in as auditor with temp password above\n'
+printf '\nNote: /approval/queue + /approval/my-pending are transfer-level pages and will\n'
+printf '  be empty until a real /transfers POST hits a wallet with on-chain balance.\n'
+printf '  M1 demo screenshots should use the PayrollRun awaiting_approval state instead.\n'
