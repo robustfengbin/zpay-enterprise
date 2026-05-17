@@ -28,12 +28,20 @@ export const approvalService = {
   /**
    * GET /approvals/pending — list transfers awaiting my approval.
    * Backend filters out transfers where I am the maker.
-   * Route shape aligned with france's c7cea2c handler routing.
+   *
+   * Backend currently returns a bare array (`Vec<Transfer>` JSON-encoded as
+   * `[...]`); the documented contract is `{items, next_cursor}`. Normalize
+   * here so callers always see the documented shape regardless of which
+   * side gets aligned first.
    */
   async listPending(limit = 20, cursor?: string): Promise<PendingApprovalListResponse> {
     const params: Record<string, string | number> = { limit };
     if (cursor) params.cursor = cursor;
-    return api.get('/approvals/pending', { params });
+    const data = (await api.get('/approvals/pending', { params })) as unknown;
+    if (Array.isArray(data)) {
+      return { items: data as PendingApprovalListResponse['items'], next_cursor: null };
+    }
+    return data as PendingApprovalListResponse;
   },
 
   /**
