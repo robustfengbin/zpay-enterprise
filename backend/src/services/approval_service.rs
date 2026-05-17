@@ -8,25 +8,41 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use rust_decimal::Decimal;
+use serde_json::json;
+use sqlx::MySqlPool;
 
 use crate::blockchain::ChainRegistry;
-use crate::db::models_m1::{ApprovalPolicy, CreateApprovalPolicyRequest};
-use crate::db::repositories::ApprovalPolicyRepository;
+use crate::db::models::Transfer;
+use crate::db::models_m1::{
+    ApprovalDecisionRequest, ApprovalPolicy, CreateApprovalPolicyRequest, TransferApproval,
+};
+use crate::db::repositories::{
+    ApprovalPolicyRepository, TransferApprovalRepository, TransferRepository,
+};
 use crate::error::{AppError, AppResult};
 
 pub struct ApprovalService {
     policy_repo: ApprovalPolicyRepository,
+    approval_repo: TransferApprovalRepository,
+    transfer_repo: TransferRepository,
     chain_registry: Arc<ChainRegistry>,
+    pool: MySqlPool,
 }
 
 impl ApprovalService {
     pub fn new(
         policy_repo: ApprovalPolicyRepository,
+        approval_repo: TransferApprovalRepository,
+        transfer_repo: TransferRepository,
         chain_registry: Arc<ChainRegistry>,
+        pool: MySqlPool,
     ) -> Self {
         Self {
             policy_repo,
+            approval_repo,
+            transfer_repo,
             chain_registry,
+            pool,
         }
     }
 
@@ -161,5 +177,210 @@ impl ApprovalService {
         // candidates are already ordered most-specific-first then by threshold asc;
         // pick the first policy whose threshold <= amount.
         Ok(candidates.into_iter().find(|p| amount >= p.amount_threshold))
+    }
+
+    // -----------------------------------------------------------------------
+    // Approval decisions (approve / reject a pending transfer)
+    //
+    // M1.W1 scope: the decision is written + transfer.status flips to
+    // approved | rejected.  Wiring the *creation* of an awaiting_approval
+    // transfer (policy-driven status pivot in /transfers POST) is the
+    // companion change inside transfer_service — slated for the next
+    // increment so this commit stays additive.
+    // -----------------------------------------------------------------------
+
+    pub async fn approve(
+        &self,
+        transfer_id: i32,
+        approver_user_id: i32,
+        req: ApprovalDecisionRequest,
+    ) -> AppResult<ApprovalDecisionResult> {
+        self.record_decision(transfer_id, approver_user_id, req, "approve")
+            .await
+    }
+
+    pub async fn reject(
+        &self,
+        transfer_id: i32,
+        approver_user_id: i32,
+        req: ApprovalDecisionRequest,
+    ) -> AppResult<ApprovalDecisionResult> {
+        // PRD §2.3 FR-9 — rejections must carry a reason; we enforce it
+        // up front rather than letting an empty string land in audit.
+        if req
+            .reason
+            .as_deref()
+            .map(|s| s.trim().len() < 5)
+            .unwrap_or(true)
+        {
+            return Err(AppError::ValidationError(
+                "reject requires reason >= 5 characters".to_string(),
+            ));
+        }
+        self.record_decision(transfer_id, approver_user_id, req, "reject")
+            .await
+    }
+
+    async fn record_decision(
+        &self,
+        transfer_id: i32,
+        approver_user_id: i32,
+        req: ApprovalDecisionRequest,
+        decision: &str,
+    ) -> AppResult<ApprovalDecisionResult> {
+        // 1. Idempotency replay short-circuit — if the same key was used
+        // before, return the prior decision rather than re-executing.
+        if let Some(key) = req.idempotency_key.as_deref() {
+            if let Some(prev) = self.approval_repo.find_by_idempotency_key(key).await? {
+                let transfer = self
+                    .transfer_repo
+                    .find_by_id(prev.transfer_id)
+                    .await?
+                    .ok_or_else(|| {
+                        AppError::InternalError(format!(
+                            "transfer {} referenced by idempotency key gone",
+                            prev.transfer_id
+                        ))
+                    })?;
+                return Ok(ApprovalDecisionResult {
+                    transfer,
+                    approval: prev,
+                    replayed: true,
+                });
+            }
+        }
+
+        // 2. Transfer must exist and be in a decidable state.  M1.W1 accepts
+        // either `awaiting_approval` (the future state once /transfers POST
+        // is wired) or `pending` (backward-compat for transfers created
+        // before the state-machine change ships).
+        let transfer = self
+            .transfer_repo
+            .find_by_id(transfer_id)
+            .await?
+            .ok_or_else(|| AppError::NotFound(format!("transfer {} not found", transfer_id)))?;
+
+        if !matches!(transfer.status.as_str(), "awaiting_approval" | "pending") {
+            return Err(AppError::ValidationError(format!(
+                "transfer {} is in state '{}' and cannot be {}d",
+                transfer_id, transfer.status, decision
+            )));
+        }
+
+        // 3. Maker ≠ checker — defended at the DB layer too via
+        // uq_one_decision_per_approver, but a typed app-level rejection
+        // gives the frontend a much better error to render.
+        if transfer.initiated_by == approver_user_id {
+            return Err(AppError::Forbidden(
+                "maker may not approve their own transfer (maker ≠ checker)".to_string(),
+            ));
+        }
+
+        // 4. Snapshot the policy that was in effect at the time of decision
+        // so the audit trail is self-contained even if policy is later edited.
+        let policy_snapshot = self
+            .matching_policy_for(
+                &transfer.chain,
+                &transfer.token,
+                transfer.amount,
+                transfer.wallet_id,
+                transfer.initiated_by,
+            )
+            .await?
+            .map(|p| {
+                json!({
+                    "policy_id": p.id,
+                    "scope": p.scope,
+                    "scope_id": p.scope_id,
+                    "chain": p.chain,
+                    "token": p.token,
+                    "amount_threshold": p.amount_threshold.to_string(),
+                    "sla_minutes": p.sla_minutes,
+                    "required_count": p.required_count,
+                })
+            });
+
+        // 5. Insert the approval row.  DB unique constraints catch:
+        //    - duplicate idempotency_key (uq_approval_idem)
+        //    - same approver decided twice (uq_one_decision_per_approver)
+        let approval_id = self
+            .approval_repo
+            .create(
+                transfer_id,
+                approver_user_id,
+                decision,
+                req.reason.as_deref(),
+                policy_snapshot.as_ref(),
+                req.idempotency_key.as_deref(),
+            )
+            .await?;
+
+        // 6. Flip the transfer status.  required_count > 1 (N-of-M policies)
+        // is M2 (F2.6); M1 treats one approver as final.
+        let new_status = if decision == "approve" { "approved" } else { "rejected" };
+        self.transfer_repo
+            .update_status(transfer_id, new_status, None, None)
+            .await?;
+
+        // Re-fetch so the response reflects the post-decision state.
+        let transfer = self
+            .transfer_repo
+            .find_by_id(transfer_id)
+            .await?
+            .ok_or_else(|| {
+                AppError::InternalError(format!("transfer {} vanished after update", transfer_id))
+            })?;
+
+        let approval = self
+            .approval_repo
+            .list_by_transfer(transfer_id)
+            .await?
+            .into_iter()
+            .find(|a| a.id == approval_id)
+            .ok_or_else(|| {
+                AppError::InternalError("approval row vanished after insert".to_string())
+            })?;
+
+        Ok(ApprovalDecisionResult {
+            transfer,
+            approval,
+            replayed: false,
+        })
+    }
+
+    pub async fn list_approvals_for_transfer(
+        &self,
+        transfer_id: i32,
+    ) -> AppResult<Vec<TransferApproval>> {
+        self.approval_repo.list_by_transfer(transfer_id).await
+    }
+
+    /// Listing pending-approval transfers is a cross-table read that does
+    /// not fit any of the existing repositories cleanly, so we run it
+    /// inline against the shared pool rather than spawning a new repo.
+    pub async fn list_pending_for_user(&self, _viewer_user_id: i32) -> AppResult<Vec<Transfer>> {
+        let rows = sqlx::query_as::<_, Transfer>(
+            "SELECT * FROM transfers WHERE status = 'awaiting_approval' ORDER BY created_at ASC",
+        )
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
+    }
+}
+
+pub struct ApprovalDecisionResult {
+    pub transfer: Transfer,
+    pub approval: TransferApproval,
+    pub replayed: bool,
+}
+
+impl serde::Serialize for ApprovalDecisionResult {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeStruct;
+        let mut st = s.serialize_struct("ApprovalDecisionResult", 3)?;
+        st.serialize_field("transfer", &self.transfer)?;
+        st.serialize_field("approval", &self.approval)?;
+        st.serialize_field("replayed", &self.replayed)?;
+        st.end()
     }
 }

@@ -17,8 +17,8 @@ use blockchain::{ethereum::EthereumClient, zcash::ZcashClient, ChainRegistry};
 use config::AppConfig;
 use db::repositories::{
     ApprovalPolicyRepository, AuditorRepository, EmployeeRepository, PaymentDisclosureRepository,
-    SettingsRepository, TransferRepository, UserRepository, ViewingKeyExportRepository,
-    WalletRepository,
+    SettingsRepository, TransferApprovalRepository, TransferRepository, UserRepository,
+    ViewingKeyExportRepository, WalletRepository,
 };
 use services::{
     ApprovalService, AuditorService, AuthService, EmployeeService, PaymentDisclosureService,
@@ -140,12 +140,16 @@ async fn main() -> std::io::Result<()> {
         chain_registry.clone(),
     ));
 
-    // M1 F2.1 — Approval policy + decision service.  Decision flow (approve /
-    // reject wiring into TransferService) is the next increment; this commit
-    // ships PolicyService CRUD only.
+    // M1 F2.1 — Approval policy + decision service.  Stage 2 adds the
+    // approve / reject flow on top of policy CRUD; the upstream side
+    // (POST /transfers pivoting status to awaiting_approval when amount
+    // crosses a policy threshold) lands in the next increment.
     let approval_service = Arc::new(ApprovalService::new(
         ApprovalPolicyRepository::new(pool.clone()),
+        TransferApprovalRepository::new(pool.clone()),
+        TransferRepository::new(pool.clone()),
         chain_registry.clone(),
+        pool.clone(),
     ));
 
     // M1 F1.1 — Auditor identity service.  Independent JWT (kind="auditor")

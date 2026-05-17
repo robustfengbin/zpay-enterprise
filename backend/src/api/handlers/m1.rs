@@ -295,34 +295,45 @@ pub async fn auditor_wallet_disclosures(
 // ===========================================================================
 
 pub async fn approve_transfer(
-    _path: web::Path<i32>,
-    _body: web::Json<crate::db::models_m1::ApprovalDecisionRequest>,
-) -> HttpResponse {
-    HttpResponse::NotImplemented().json(json!({
-        "error": "F2.1 approve_transfer — not yet implemented",
-        "stub": true,
-    }))
+    path: web::Path<i32>,
+    body: web::Json<crate::db::models_m1::ApprovalDecisionRequest>,
+    approval_service: web::Data<Arc<ApprovalService>>,
+    user: AuthenticatedUser,
+) -> AppResult<HttpResponse> {
+    let result = approval_service
+        .approve(path.into_inner(), user.user_id, body.into_inner())
+        .await?;
+    Ok(HttpResponse::Ok().json(result))
 }
 
 pub async fn reject_transfer(
-    _path: web::Path<i32>,
-    _body: web::Json<crate::db::models_m1::ApprovalDecisionRequest>,
-) -> HttpResponse {
-    HttpResponse::NotImplemented().json(json!({
-        "error": "F2.1 reject_transfer — not yet implemented",
-        "stub": true,
-    }))
+    path: web::Path<i32>,
+    body: web::Json<crate::db::models_m1::ApprovalDecisionRequest>,
+    approval_service: web::Data<Arc<ApprovalService>>,
+    user: AuthenticatedUser,
+) -> AppResult<HttpResponse> {
+    let result = approval_service
+        .reject(path.into_inner(), user.user_id, body.into_inner())
+        .await?;
+    Ok(HttpResponse::Ok().json(result))
 }
 
-pub async fn list_approvals_for_transfer(_path: web::Path<i32>) -> HttpResponse {
-    HttpResponse::Ok().json(json!([]))
+pub async fn list_approvals_for_transfer(
+    path: web::Path<i32>,
+    approval_service: web::Data<Arc<ApprovalService>>,
+) -> AppResult<HttpResponse> {
+    let approvals = approval_service
+        .list_approvals_for_transfer(path.into_inner())
+        .await?;
+    Ok(HttpResponse::Ok().json(approvals))
 }
 
-pub async fn list_pending_approvals() -> HttpResponse {
-    HttpResponse::Ok().json(json!({
-        "items": [],
-        "stub": true,
-    }))
+pub async fn list_pending_approvals(
+    approval_service: web::Data<Arc<ApprovalService>>,
+    user: AuthenticatedUser,
+) -> AppResult<HttpResponse> {
+    let transfers = approval_service.list_pending_for_user(user.user_id).await?;
+    Ok(HttpResponse::Ok().json(transfers))
 }
 
 pub async fn list_approval_policies(
