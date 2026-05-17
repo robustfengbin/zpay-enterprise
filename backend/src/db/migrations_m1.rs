@@ -213,7 +213,7 @@ async fn create_f31_payroll_tables(pool: &MySqlPool) -> AppResult<()> {
             id INT PRIMARY KEY AUTO_INCREMENT,
             pay_period VARCHAR(32) NOT NULL,
             source_wallet_id INT NOT NULL,
-            total_amount DECIMAL(28, 8) NOT NULL,
+            total_amount DECIMAL(36, 18) NOT NULL,
             item_count INT NOT NULL,
             status VARCHAR(24) NOT NULL DEFAULT 'pending',
             created_by_user_id INT NOT NULL,
@@ -240,7 +240,7 @@ async fn create_f31_payroll_tables(pool: &MySqlPool) -> AppResult<()> {
             run_id INT NOT NULL,
             employee_id INT NULL,
             employee_address VARCHAR(512) NOT NULL,
-            amount DECIMAL(28, 8) NOT NULL,
+            amount DECIMAL(36, 18) NOT NULL,
             memo TEXT NULL,
             status VARCHAR(24) NOT NULL DEFAULT 'pending',
             tx_hash VARCHAR(128) NULL,
@@ -258,6 +258,24 @@ async fn create_f31_payroll_tables(pool: &MySqlPool) -> AppResult<()> {
             INDEX idx_pi_tx_hash (tx_hash)
         )
         "#,
+    )
+    .execute(pool)
+    .await?;
+
+    // Forward-only schema upgrade (2026-05-17): widen DECIMAL precision
+    // from (28, 8) → (36, 18) so multi-chain payroll can hold any ERC20
+    // / EVM-native amount without truncation (Gemini GitHub PR review).
+    // MODIFY COLUMN is metadata-only when the new precision is a superset
+    // of the old (which it is here) — no data loss, no row rewrite.
+    // sqlx returns Err on already-modified columns? No — MODIFY is
+    // idempotent: re-applying the same definition is a no-op.
+    sqlx::query(
+        r#"ALTER TABLE payroll_runs MODIFY COLUMN total_amount DECIMAL(36, 18) NOT NULL"#,
+    )
+    .execute(pool)
+    .await?;
+    sqlx::query(
+        r#"ALTER TABLE payroll_items MODIFY COLUMN amount DECIMAL(36, 18) NOT NULL"#,
     )
     .execute(pool)
     .await?;
