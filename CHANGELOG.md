@@ -6,6 +6,92 @@ and this project aims to follow [Semantic Versioning](https://semver.org/).
 
 ---
 
+## [0.3.0] — M1 Enterprise — 2026-06
+
+The first M1 release. Three new business pillars (audit / approvals /
+payroll) built on top of the existing multi-chain wallet core, plus
+end-to-end smoke coverage and bilingual user documentation. Existing
+M0 callers continue to work unchanged; the schema is forward-only with
+nullable additions to `transfers`.
+
+### Added — F1.1 Viewing-Key Audit & Disclosure
+
+- **Dedicated Auditor role** (`auditors` + `auditor_wallet_scopes` tables),
+  separate JWT (kind=`auditor`), independent `/auditor/login` route.
+  Dual-JWT physical isolation: admin tokens cannot reach `/api/v1/auditor/*`
+  endpoints; auditor tokens cannot reach admin endpoints.
+- **Viewing-key export** API for Orchard OVK / IVK / UFVK. The UFVK is
+  encoded as a ZIP-316 standard `uview...` string — auditors paste it
+  directly into Zashi or any compatible viewing-only wallet. One-time
+  download token (24h TTL); the encrypted payload is zeroed on download
+  and the SHA-256 hash plus IP are retained for audit.
+- **ZIP-307 inspired disclosure** reports — async generation, granularity
+  `tx` / `address` / `range`, formats `json` / `csv` / `pdf` (pure-Rust
+  printpdf, no system deps). Range supports ISO 8601 timestamps which are
+  resolved to block heights server-side via a `getblock` binary search.
+- **Auditor dashboard** — 11 fields per authorized wallet (name / address /
+  chain / scope window / disclosure budget current/max / total tx count /
+  last activity / pending disclosures); WalletDetail surfaces real on-chain
+  balance + scope-window transfers.
+
+### Added — F2.1 Maker-Checker Approvals
+
+- **Approval policy** CRUD (scope: `global` | `wallet` | `user`,
+  chain × token × amount threshold × SLA minutes × required count).
+  Matching is most-specific-first (user > wallet > global) then narrowest
+  amount threshold.
+- **`POST /transfers` auto-pivots** to `awaiting_approval` when the
+  amount meets a matching policy.
+- **`maker ≠ checker` enforced at the SQL layer** (`WHERE
+  initiated_by <> viewer_user_id`); reject mandates a written reason
+  ≥ 5 chars; approve carries an optional note.
+- **SLA worker** sweeps every 5 minutes and flips overdue
+  `awaiting_approval` rows to `expired`.
+
+### Added — F3.1 Bulk Payroll
+
+- **Employee roster** (`employees` table): `employee_code` + name +
+  wallet address + chain + tags JSON + active. Single-add / soft delete /
+  CSV import.
+- **Payroll Run lifecycle** (`payroll_runs` + `payroll_items`): two-stage
+  validation (client preview + server-side per-row), atomic insert with
+  HTTP 422 on any invalid row, per-item fan-out via
+  `chain_client.transfer_native` (real on-chain), terminal status
+  `completed` | `partial_success` | `failed`.
+- **F2.1 threshold hook**: a payroll run whose total meets the policy
+  threshold goes through one approval, not N per-item approvals.
+- **Partial-failure recovery**: retry a single failed item via
+  `/payroll/runs/{id}/items/{item_id}/retry`; cancel from any of
+  `pending` / `awaiting_approval` / `executing` (stuck-recovery path).
+
+### Added — Operations & developer experience
+
+- **AuditorAuthMiddleware** — actix Transform that verifies the
+  kind=auditor JWT and exposes `AuthenticatedAuditor` as a FromRequest
+  extractor.
+- **Bilingual user manual** — `docs/USER-MANUAL-EN.md` +
+  `docs/USER-MANUAL-CN.md`, organized by role and business scenario
+  with ASCII flow diagrams rather than by backend feature.
+- **30-minute staging deployment SOP** — `docs/STAGING-DEPLOYMENT.md`
+  takes a fresh Linux host to a live HTTPS deployment.
+- **Three public PRDs** — `docs/public/PRD-F1.1.md` /
+  `PRD-F2.1.md` / `PRD-F3.1.md`.
+- **Approval policy form** is enumeration-first: chain dropdown
+  (`/chains` endpoint), token dropdown per chain, scope-aware
+  wallet/user picker.
+- **Demo screenshots** for marketing and onboarding (`docs/images/m1-*.png`).
+
+### Added — Database (auto-migrated on startup, M0 tables unchanged)
+
+- `auditors` + `auditor_wallet_scopes`
+- `viewing_key_exports` + `payment_disclosures`
+- `approval_policies` + `transfer_approvals`
+- `employees` + `payroll_runs` + `payroll_items`
+- `transfers` gains 5 nullable columns: `approval_required`, `expiry_at`,
+  `approved_by`, `approved_at`, `rejection_reason`
+
+---
+
 ## [Unreleased] — Security Hardening Sprint
 
 Triggered by an internal security audit of the v0.2.0 codebase. Closes

@@ -9,6 +9,37 @@
 
 A modular Web3 wallet management service with multi-chain support, featuring a Rust backend and React frontend. **Now with full Zcash Orchard privacy protocol support — plus M1 enterprise features: viewing-key audit, maker-checker approvals, and bulk payroll.**
 
+---
+
+## 🎉 What's New in v0.3.0 — M1 Enterprise (June 2026)
+
+> The biggest release since launch. Three new business pillars on top of the existing multi-chain wallet core, plus end-to-end automated smoke coverage. Existing M0 callers continue to work unchanged.
+
+### 🔐 F1.1 — Viewing-Key Audit & Disclosure
+A dedicated **Auditor role** with its own login (`/auditor/login`) and a separate JWT — so a leaked admin token can never reach an audit endpoint and vice versa. Admins one-click export **OVK / IVK / UFVK** (the UFVK is a ZIP-316 standard `uview...` string — paste directly into Zashi or any compatible viewing-only wallet). On-demand **ZIP-307 inspired disclosure reports** in PDF / CSV / JSON, scoped to a wallet + time window + per-quarter budget. → [PRD-F1.1](docs/public/PRD-F1.1.md)
+
+![Auditor management — invite scoped third-party auditors](docs/images/m1-manage-auditors.png)
+
+### 🛡 F2.1 — Maker-Checker Approvals
+Configurable **approval policies** along (scope × chain × token × amount threshold × SLA). `maker ≠ checker` is enforced at the SQL layer, not just the frontend. Auto-pivot on `POST /transfers` when the amount meets a policy; reject requires a written reason (≥ 5 chars); a **5-minute SLA worker** auto-expires stalled requests so they don't block the maker forever. → [PRD-F2.1](docs/public/PRD-F2.1.md)
+
+![Approval policies — enterprise-grade thresholds per chain × token](docs/images/m1-approval-policies.png)
+
+### 💰 F3.1 — Bulk Payroll
+Employee roster with CSV import, **two-stage validation** (client + server), per-item Orchard fan-out (real on-chain), and the F2.1 threshold hook so large monthly runs go through one approval rather than N separate ones. Partial failures retry individually; runs stuck in `executing` can be force-cancelled as a recovery path. → [PRD-F3.1](docs/public/PRD-F3.1.md)
+
+![Employee roster — 6 demo employees across multiple chains](docs/images/m1-employees.png)
+
+![Payroll run awaiting approval — F2.1 threshold hook auto-triggers on the batch total](docs/images/m1-payroll-runs.png)
+
+### 📐 Ops & DX
+- **End-to-end smoke harness** — 11 steps × 34 assertions in one shell script.
+- **Bilingual user manual** — [English](docs/USER-MANUAL-EN.md) · [中文](docs/USER-MANUAL-CN.md), organized by role and business scenario (not by feature).
+- **30-minute staging recipe** — [STAGING-DEPLOYMENT.md](docs/STAGING-DEPLOYMENT.md) takes a fresh Linux host to a live HTTPS deployment.
+
+For the full per-area change list see [CHANGELOG.md](CHANGELOG.md).
+
+
 > 🚀 **5-Minute Quick Start (Docker):**
 >
 > ```bash
@@ -27,7 +58,7 @@ A modular Web3 wallet management service with multi-chain support, featuring a R
 > origin your frontend is served from (the default `http://localhost:3000`
 > only matches a local dev frontend).
 >
-> Full walkthrough: [QUICKSTART.md](QUICKSTART.md) · Recent changes: [CHANGELOG.md](CHANGELOG.md) · Latest stable tag: **v0.2.1**
+> Full walkthrough: [QUICKSTART.md](QUICKSTART.md) · Recent changes: [CHANGELOG.md](CHANGELOG.md) · Latest stable tag: **v0.3.0**
 >
 > 📘 **End-user operations**: [User Manual (English)](docs/USER-MANUAL-EN.md) | [中文](docs/USER-MANUAL-CN.md)
 > 📦 **Deploy to staging in 30 min**: [STAGING-DEPLOYMENT.md](docs/STAGING-DEPLOYMENT.md)
