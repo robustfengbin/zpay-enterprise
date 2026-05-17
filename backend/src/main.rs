@@ -214,6 +214,25 @@ async fn main() -> std::io::Result<()> {
         }
     });
 
+    // M1 F2.1 — SLA worker. Every 5 minutes, sweep awaiting_approval
+    // transfers whose expiry_at has passed and flip them to `expired` so the
+    // operator UI shows them in the right bucket and the approve endpoint
+    // refuses to act on them.  Frequency is intentionally coarse — SLA
+    // accuracy of ~5min matches PRD §2.3 and avoids hammering the DB.
+    let sla_pool = pool.clone();
+    tokio::spawn(async move {
+        let sla_repo = TransferRepository::new(sla_pool);
+        let mut sla_interval = interval(Duration::from_secs(300));
+        loop {
+            sla_interval.tick().await;
+            match sla_repo.expire_overdue_awaiting_approval().await {
+                Ok(0) => {}
+                Ok(n) => tracing::info!("[sla] expired {} overdue awaiting_approval transfers", n),
+                Err(e) => tracing::error!("[sla] expire sweep failed: {}", e),
+            }
+        }
+    });
+
     // Pre-build Orchard proving key in background (expensive one-time operation)
     // This ensures the first privacy transfer doesn't have to wait
     tokio::spawn(async move {

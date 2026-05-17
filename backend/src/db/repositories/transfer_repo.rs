@@ -183,4 +183,20 @@ impl TransferRepository {
 
         Ok(count.0)
     }
+
+    /// M1 F2.1 — flip every `awaiting_approval` transfer whose SLA deadline has
+    /// passed into the terminal `expired` state.  Returns the row count so the
+    /// caller can decide whether to log.  Driven by the SLA worker.
+    pub async fn expire_overdue_awaiting_approval(&self) -> AppResult<u64> {
+        let result = sqlx::query(
+            r#"UPDATE transfers
+               SET status = 'expired'
+               WHERE status = 'awaiting_approval'
+                 AND expiry_at IS NOT NULL
+                 AND expiry_at < NOW()"#,
+        )
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected())
+    }
 }
