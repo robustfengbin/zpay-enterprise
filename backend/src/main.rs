@@ -17,12 +17,12 @@ use blockchain::{ethereum::EthereumClient, zcash::ZcashClient, ChainRegistry};
 use config::AppConfig;
 use db::repositories::{
     ApprovalPolicyRepository, AuditorRepository, EmployeeRepository, PaymentDisclosureRepository,
-    SettingsRepository, TransferApprovalRepository, TransferRepository, UserRepository,
-    ViewingKeyExportRepository, WalletRepository,
+    PayrollRepository, SettingsRepository, TransferApprovalRepository, TransferRepository,
+    UserRepository, ViewingKeyExportRepository, WalletRepository,
 };
 use services::{
     ApprovalService, AuditorService, AuthService, EmployeeService, PaymentDisclosureService,
-    TransferService, ViewingKeyService, WalletService,
+    PayrollService, TransferService, ViewingKeyService, WalletService,
 };
 
 #[actix_web::main]
@@ -139,6 +139,20 @@ async fn main() -> std::io::Result<()> {
     let employee_service = Arc::new(EmployeeService::new(
         EmployeeRepository::new(pool.clone()),
         chain_registry.clone(),
+    ));
+
+    // M1 F3.1 — Payroll run service.  Owns its own repo handles so it stays
+    // independent of EmployeeService (decoupled lifecycle, separate validation
+    // surface).  Reuses WalletService for private-key access and
+    // ApprovalPolicyRepository so a large run can pivot to awaiting_approval
+    // exactly like single transfers do.
+    let payroll_service = Arc::new(PayrollService::new(
+        PayrollRepository::new(pool.clone()),
+        EmployeeRepository::new(pool.clone()),
+        WalletRepository::new(pool.clone()),
+        wallet_service.clone(),
+        chain_registry.clone(),
+        ApprovalPolicyRepository::new(pool.clone()),
     ));
 
     // M1 F2.1 — Approval policy + decision service.  Stage 2 adds the
@@ -270,6 +284,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(web::Data::new(wallet_service.clone()))
             .app_data(web::Data::new(transfer_service.clone()))
             .app_data(web::Data::new(employee_service.clone()))
+            .app_data(web::Data::new(payroll_service.clone()))
             .app_data(web::Data::new(approval_service.clone()))
             .app_data(web::Data::new(auditor_service.clone()))
             .app_data(web::Data::new(payment_disclosure_service.clone()))

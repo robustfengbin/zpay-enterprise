@@ -10,7 +10,6 @@
 use std::sync::Arc;
 
 use actix_web::{web, HttpResponse};
-use chrono::{Duration, Utc};
 use serde_json::json;
 
 use actix_web::{HttpMessage, HttpRequest};
@@ -20,7 +19,8 @@ use crate::db::repositories::WalletRepository;
 use crate::error::{AppError, AppResult};
 use crate::services::auditor_service::AuditorClaims;
 use crate::services::{
-    ApprovalService, AuditorService, EmployeeService, PaymentDisclosureService, ViewingKeyService,
+    ApprovalService, AuditorService, EmployeeService, PayrollService, PaymentDisclosureService,
+    ViewingKeyService,
 };
 
 // ===========================================================================
@@ -416,43 +416,82 @@ pub struct ListEmployeesQuery {
     pub active_only: Option<bool>,
 }
 
+// ===========================================================================
+// F3.1 — Payroll Run (real implementation)
+// ===========================================================================
+
+#[derive(serde::Deserialize)]
+pub struct ListPayrollRunsQuery {
+    pub limit: Option<i32>,
+    pub offset: Option<i32>,
+}
+
 pub async fn create_payroll_run(
-    _body: web::Json<crate::db::models_m1::CreatePayrollRunRequest>,
-) -> HttpResponse {
-    let now = Utc::now();
-    HttpResponse::Ok().json(json!({
-        "run_id": 0,
-        "item_count": 0,
-        "validation_errors": [],
-        "stub": true,
-        "_created_at_marker": now.to_rfc3339(),
-        "_expiry_marker": (now + Duration::hours(24)).to_rfc3339(),
-    }))
+    body: web::Json<crate::db::models_m1::CreatePayrollRunRequest>,
+    payroll_service: web::Data<Arc<PayrollService>>,
+    user: AuthenticatedUser,
+) -> AppResult<HttpResponse> {
+    let resp = payroll_service
+        .create_run(body.into_inner(), user.user_id)
+        .await?;
+    // 422 when validation_errors is non-empty so the frontend can branch
+    // on status code instead of inspecting the body shape.
+    if !resp.validation_errors.is_empty() {
+        return Ok(HttpResponse::UnprocessableEntity().json(resp));
+    }
+    Ok(HttpResponse::Created().json(resp))
 }
 
-pub async fn list_payroll_runs() -> HttpResponse {
-    HttpResponse::Ok().json(json!([]))
+pub async fn list_payroll_runs(
+    query: web::Query<ListPayrollRunsQuery>,
+    payroll_service: web::Data<Arc<PayrollService>>,
+) -> AppResult<HttpResponse> {
+    let runs = payroll_service
+        .list_runs(query.limit.unwrap_or(50), query.offset.unwrap_or(0))
+        .await?;
+    Ok(HttpResponse::Ok().json(runs))
 }
 
-pub async fn get_payroll_run(_path: web::Path<i32>) -> HttpResponse {
-    HttpResponse::NotFound().json(json!({ "error": "stub: not found" }))
+pub async fn get_payroll_run(
+    path: web::Path<i32>,
+    payroll_service: web::Data<Arc<PayrollService>>,
+) -> AppResult<HttpResponse> {
+    let summary = payroll_service.get_run_summary(path.into_inner()).await?;
+    Ok(HttpResponse::Ok().json(summary))
 }
 
-pub async fn execute_payroll_run(_path: web::Path<i32>) -> HttpResponse {
-    HttpResponse::NotImplemented().json(json!({
-        "error": "F3.1 execute_payroll_run — not yet implemented",
-        "stub": true,
-    }))
+pub async fn execute_payroll_run(
+    path: web::Path<i32>,
+    payroll_service: web::Data<Arc<PayrollService>>,
+    user: AuthenticatedUser,
+) -> AppResult<HttpResponse> {
+    let outcome = payroll_service
+        .execute_run(path.into_inner(), user.user_id)
+        .await?;
+    Ok(HttpResponse::Ok().json(outcome))
 }
 
-pub async fn cancel_payroll_run(_path: web::Path<i32>) -> HttpResponse {
-    HttpResponse::NotImplemented().json(json!({ "stub": true }))
+pub async fn cancel_payroll_run(
+    path: web::Path<i32>,
+    payroll_service: web::Data<Arc<PayrollService>>,
+) -> AppResult<HttpResponse> {
+    let run = payroll_service.cancel_run(path.into_inner()).await?;
+    Ok(HttpResponse::Ok().json(run))
 }
 
-pub async fn retry_payroll_item(_path: web::Path<(i32, i32)>) -> HttpResponse {
-    HttpResponse::NotImplemented().json(json!({ "stub": true }))
+pub async fn retry_payroll_item(
+    path: web::Path<(i32, i32)>,
+    payroll_service: web::Data<Arc<PayrollService>>,
+) -> AppResult<HttpResponse> {
+    let (run_id, item_id) = path.into_inner();
+    let item = payroll_service.retry_item(run_id, item_id).await?;
+    Ok(HttpResponse::Ok().json(item))
 }
 
-pub async fn payroll_run_report(_path: web::Path<i32>) -> HttpResponse {
-    HttpResponse::NotImplemented().json(json!({ "stub": true }))
+pub async fn payroll_run_report(
+    path: web::Path<i32>,
+    payroll_service: web::Data<Arc<PayrollService>>,
+) -> AppResult<HttpResponse> {
+    let report = payroll_service.run_report(path.into_inner()).await?;
+    Ok(HttpResponse::Ok().json(report))
 }
