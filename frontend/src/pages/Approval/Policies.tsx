@@ -10,7 +10,7 @@ import type { ChainInfo, Wallet } from '../../types';
  * Admin-only: Approval policy management. Reachable via Settings.
  * Per PRD-F2.1 §5.6.
  *
- * Form is enumeration-first per Robust feedback 2026-05-17 — operators
+ * Form is enumeration-first — operators
  * shouldn't free-type chain or token; they pick from dropdowns wired to
  * the live /chains endpoint and a fixed M1 token list per chain.
  */

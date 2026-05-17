@@ -3,7 +3,7 @@
 //!
 //! All structs are additive — existing `models.rs` is not modified except
 //! for adding 4 new `TransferStatus` enum variants (additive, default value
-//! unchanged), which is backward-compatible per Robust's 2026-05-16 rule.
+//! unchanged) so M0 callers keep working unchanged.
 
 use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;

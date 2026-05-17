@@ -1,7 +1,7 @@
 # zPay Enterprise — User Operations Manual
 
 > End-to-end operations guide for finance, compliance, and audit roles.
-> Staging companion: <https://zpaystage.fastaitop.com>
+> Staging companion: <https://staging.example.com>
 > For technical detail see the [PRD docs](.) and [STAGING-DEPLOYMENT.md](STAGING-DEPLOYMENT.md).
 > 中文版本: [USER-MANUAL-CN.md](USER-MANUAL-CN.md)
 
@@ -12,7 +12,7 @@
 - [1. Document map and role definitions](#1-document-map-and-role-definitions)
 - [2. First-time setup after deployment](#2-first-time-setup-after-deployment)
 - [3. Audit and compliance](#3-audit-and-compliance)
-- [4. Employees and bulk payroll](#4-employees-and-bulk-payroll) (sweden — to be filled)
+- [4. Employees and bulk payroll](#4-employees-and-bulk-payroll)
 - [5. End-to-end business scenarios](#5-end-to-end-business-scenarios)
 - [6. Troubleshooting and FAQ](#6-troubleshooting-and-faq)
 - [7. Security guidance and pitch points](#7-security-guidance-and-pitch-points)
@@ -63,7 +63,7 @@ Chains supported: Ethereum (ETH / ERC20) and Zcash (transparent + shielded).
 
 ### 2.1 First login
 
-Once deployment is done, visit <https://zpaystage.fastaitop.com> (or your domain) and use the login page:
+Once deployment is done, visit <https://staging.example.com> (or your domain) and use the login page:
 
 - Username: `admin`
 - Password: auto-generated on first backend boot and written to `backend/.env.secrets` (chmod 0600, ops-only)
@@ -218,7 +218,7 @@ Sidebar **Wallets** → pick a zcash wallet → **Export Viewing Key**
 
 Once the auditor has the email + temp_password:
 
-1. Visit <https://zpaystage.fastaitop.com/auditor/login> (**note the URL is different** — separate entry).
+1. Visit <https://staging.example.com/auditor/login> (**note the URL is different** — separate entry).
 2. After login, the **Auditor Dashboard** shows 11 fields per authorized wallet:
    - Wallet name / address / chain
    - Scope window
@@ -669,7 +669,7 @@ two separate runs.
 | Disclosure request rejected with "budget exhausted" | The quota is used up | Admin increases `max_disclosure_count` |
 | Zashi rejects the imported UFVK | Copy/paste truncation | Re-export — UFVK is a single complete `uview1...` line |
 
-### 6.4 Payroll (detail in sweden's chapter)
+### 6.4 Payroll (see chapter 4)
 
 | Symptom | Cause | Fix |
 |---|---|---|
@@ -691,7 +691,7 @@ two separate runs.
 
 ### 7.1 The five questions customers ask most (sales talking points)
 
-> Joint section, sweden will add deployment/multi-chain/staging-demo talking points.
+> Joint section covering deployment / multi-chain / staging-demo talking points.
 
 1. **Private key safety**
    - Answer: AES-256-GCM encrypted at rest, export requires re-entering the password, every export is logged.
@@ -714,7 +714,7 @@ two separate runs.
    - Answer: M1's three business pillars (F1.1 audit & compliance / F2.1 maker-checker / F3.1 bulk payroll) shipped in a single overnight on 2026-05-16~17, with an e2e smoke harness (11 steps / 34 assertions) you can run on every commit. Your customer acceptance timeline is predictable: 1 day in staging → 1 day in-browser testing → 1 day in production.
 
 7. **How does a customer trial / POC?**
-   - Answer: <https://zpaystage.fastaitop.com> is our reference staging. A customer can stand up the same on their own server in ~30 minutes (see [STAGING-DEPLOYMENT.md](STAGING-DEPLOYMENT.md)).
+   - Answer: <https://staging.example.com> is our reference staging. A customer can stand up the same on their own server in ~30 minutes (see [STAGING-DEPLOYMENT.md](STAGING-DEPLOYMENT.md)).
    - A few `apt` + a few `docker` commands → letsencrypt auto-issues HTTPS → demo in the browser.
    - Customer data stays on their own machine — nothing leaves their premises.
 
@@ -758,6 +758,6 @@ two separate runs.
 
 (This document is actively maintained.)
 
-**Last updated**: 2026-05-17 by france 🥖 + sweden 👑
+**Last updated**: 2026-05-17
 
-**Feedback**: please file a GitLab issue or post in the team Discord channel.
+**Feedback**: please file a repository issue.

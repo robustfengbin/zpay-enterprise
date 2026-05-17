@@ -1,7 +1,7 @@
 # zPay Enterprise 用户操作手册
 
 > 面向企业财务、合规、审计角色的端到端操作指南。
-> 配套 staging 环境: <https://zpaystage.fastaitop.com>
+> 配套 staging 环境: <https://staging.example.com>
 > 技术细节请见 [PRD 文档](.) 与 [STAGING-DEPLOYMENT.md](STAGING-DEPLOYMENT.md)。
 > English version: [USER-MANUAL-EN.md](USER-MANUAL-EN.md)
 
@@ -61,7 +61,7 @@ zPay Enterprise 是一套**企业级 Web3 钱包 + 发薪 + 审计**一体化平
 
 ### 2.1 首次登录
 
-部署完成后，访问 <https://zpaystage.fastaitop.com>（或你的部署域名），登录页：
+部署完成后，访问 <https://staging.example.com>（或你的部署域名），登录页：
 
 - 用户名：`admin`
 - 密码：首次启动时由后端自动生成，写在服务器上 `backend/.env.secrets`（chmod 0600，仅运维可读）
@@ -212,7 +212,7 @@ zPay Enterprise 是一套**企业级 Web3 钱包 + 发薪 + 审计**一体化平
 
 审计师拿到 email + temp_password 后：
 
-1. 访问 <https://zpaystage.fastaitop.com/auditor/login>（**注意 URL 不一样**，独立入口）
+1. 访问 <https://staging.example.com/auditor/login>（**注意 URL 不一样**，独立入口）
 2. 登录后进 **Auditor Dashboard**，看到 11 个字段的钱包列表卡片：
    - 钱包名 / 地址 / 链
    - scope 时间窗
@@ -607,7 +607,7 @@ RunDetail 表格：
 | 披露申请直接 reject "budget exhausted" | 配额用完 | Admin 在审计师管理里增加 `max_disclosure_count` |
 | Zashi import UFVK 失败 | 复制时多了/少了字符 | 重新 export，UFVK 是单行 `uview1...` 完整字符串 |
 
-### 6.4 发薪类（详见 sweden 章节）
+### 6.4 发薪类（详见章节四）
 
 | 症状 | 原因 | 解决 |
 |---|---|---|
@@ -629,7 +629,7 @@ RunDetail 表格：
 
 ### 7.1 客户最关心的 5 个问题（销售/推广话术）
 
-> 联合补充章节，待 sweden 增补对开发流程 / 多链支持 / staging 演示等 talking points
+> 涵盖开发流程 / 多链支持 / staging 演示等 talking points。
 
 1. **私钥安全**
    - 答：AES-256-GCM 落盘加密，导出需二次验证密码，导出全程审计留痕
@@ -653,7 +653,7 @@ RunDetail 表格：
    - 你的客户验收时间可控：上 staging 一天 → 浏览器真测一天 → prod 一天
 
 7. **怎么试用？给客户做 POC？**
-   - 答：staging 环境 <https://zpaystage.fastaitop.com>，30 分钟可独立部署同款（见 [STAGING-DEPLOYMENT.md](STAGING-DEPLOYMENT.md)）
+   - 答：staging 环境 <https://staging.example.com>，30 分钟可独立部署同款（见 [STAGING-DEPLOYMENT.md](STAGING-DEPLOYMENT.md)）
    - 客户自己服务器上：apt 几行 + docker 几条 → letsencrypt 自动签 HTTPS → 浏览器即可演示
    - 客户数据完全留在他自己机器，不出我们门
 
@@ -692,8 +692,8 @@ RunDetail 表格：
 
 ---
 
-(章节 4 / 5.1 / 5.4 / 5.5 / 7.1.6-10 / 7.2 / 7.3 由 sweden 主笔补，本文档持续维护)
+(本文档持续维护)
 
-**最后更新**：2026-05-17 by france 🥖 + sweden 👑
+**最后更新**：2026-05-17
 
-**文档反馈**：请通过 GitLab issue / Discord 团队群提交
+**文档反馈**：请通过仓库 issue 提交

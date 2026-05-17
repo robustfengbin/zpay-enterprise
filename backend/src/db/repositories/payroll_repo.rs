@@ -169,8 +169,7 @@ impl PayrollRepository {
 
     /// Aggregate counts used by execute() to decide the final run status.
     /// COUNT(CASE WHEN ...) returns BIGINT — `SUM(bool_expr)` would return
-    /// DECIMAL on MySQL and break decode into i64 (5664717 bug surfaced by
-    /// smoke run, reported by sweden).
+    /// DECIMAL on MySQL and break decode into i64.
     pub async fn count_items_by_status(&self, run_id: i32) -> AppResult<ItemStatusCounts> {
         let row: (i64, i64, i64, i64) = sqlx::query_as(
             r#"SELECT

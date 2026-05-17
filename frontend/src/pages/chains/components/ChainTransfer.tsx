@@ -13,7 +13,7 @@ import type { GasEstimateResponse } from '../../../services/api/transfer';
 /**
  * Transfer DTO augmented with F2.1 approval fields. Backend returns these
  * on the initiate response when the amount triggers a matching
- * approval_policies row (see france 899cbeb auto-pivot).
+ * approval_policies row (backend auto-pivot path, PRD-F2.1 §3.2).
  */
 type TransferInitiateResponse = TransferType & Partial<TransferApprovalFields>;
 
@@ -124,7 +124,7 @@ export function ChainTransfer({ chainId }: ChainTransferProps) {
       })) as TransferInitiateResponse;
 
       // F2.1 auto-pivot: if the amount triggered an approval policy on
-      // the backend (france 899cbeb), the response carries
+      // the backend auto-pivot path, the response carries
       // approval_required=true and status='awaiting_approval'. In that
       // case the user can NOT execute directly — redirect them to their
       // "my pending" list so they can track the checker's decision.

@@ -127,7 +127,7 @@ async fn create_f11_viewing_key_audit_tables(pool: &MySqlPool) -> AppResult<()> 
 }
 
 // ---------------------------------------------------------------------------
-// F2.1 — Maker / Checker dual-sign (sweden PRD §4)
+// F2.1 — Maker / Checker dual-sign (see PRD-F2.1 §4)
 // ---------------------------------------------------------------------------
 
 async fn create_f21_maker_checker_tables(pool: &MySqlPool) -> AppResult<()> {

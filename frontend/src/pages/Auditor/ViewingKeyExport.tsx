@@ -17,7 +17,7 @@ type Step = 'form' | 'token' | 'downloaded';
 /**
  * F1.1 — Admin one-click export of an Orchard viewing key.
  *
- * Three-step flow (aligned with france's backend 7dbaa87):
+ * Three-step flow (aligned with backend ViewingKeyService, PRD-F1.1 §3.1):
  *   1. form       — pick key_type (OVK/IVK/UFVK) + re-verify admin password
  *   2. token      — backend issued an export_id + download_token (24h TTL).
  *                   Show the token + "claim download" CTA. Token is single-
@@ -25,7 +25,7 @@ type Step = 'form' | 'token' | 'downloaded';
  *   3. downloaded — show the actual key string with copy-to-clipboard and
  *                   a strong reminder that this is a one-time view.
  *
- * Output format (france 485ef80): UFVK exports return a standard ZIP-316
+ * Output format: UFVK exports return a standard ZIP-316
  * `uview1...` string that Zashi / Zecwallet can import directly, preceded
  * by a one-line `# orchard-ufvk account=N birthday=H` metadata comment for
  * audit trail. OVK / IVK still ship as hex with the metadata header (no

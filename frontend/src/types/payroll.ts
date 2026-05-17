@@ -1,5 +1,5 @@
 // Types for F3.1 Payroll Run (batch payroll, single-wallet homogeneous batch)
-// Aligned with backend models_m1.rs after france's 5664717 ship.
+// Aligned with backend models_m1.rs (see PRD-F3.1 §4).
 //
 // M1 model: one run = one source wallet (source_wallet_id), chain implied by
 // wallet. Per-item target_chain / target_token / privacy_mode is M2 multi-chain

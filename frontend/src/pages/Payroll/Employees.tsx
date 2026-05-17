@@ -8,7 +8,7 @@ import type { Employee } from '../../types/payroll';
 /**
  * F3.2 — Employee profile CRUD (M1 view: 5 columns).
  *
- * Aligned with france's backend model (commit e8c4929):
+ * Aligned with backend Employee model in PRD-F3.1 §4.1:
  *   { employee_code, name, wallet_address, chain, tags JSON, active }
  *
  * tags JSON intentionally hidden in the M1 UI — M2+ unlocks per-employee

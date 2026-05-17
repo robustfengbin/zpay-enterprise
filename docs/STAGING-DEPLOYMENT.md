@@ -38,7 +38,7 @@ sudo apt install -y nodejs && sudo npm i -g yarn pm2
 ## 2. Clone + branches
 
 ```bash
-git clone ssh://git@gitlab.fastaitop.com:2222/robust/zpay-enterprise.git
+git clone https://github.com/<your-org>/zpay-enterprise.git
 cd zpay-enterprise
 git checkout feat/m1-2026-06
 ```

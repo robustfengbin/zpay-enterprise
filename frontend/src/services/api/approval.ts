@@ -83,7 +83,7 @@ export const approvalService = {
 
   /**
    * GET /approval-policies — list all policies (Admin only).
-   * Route shape aligned with france's actual handler routing (2026-05-16).
+   * Route shape aligned with backend handler routing (see PRD-F2.1 §5).
    */
   async listPolicies(): Promise<ApprovalPolicy[]> {
     return api.get('/approval-policies');

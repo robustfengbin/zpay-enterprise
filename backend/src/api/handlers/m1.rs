@@ -5,7 +5,7 @@
 //! filled in incrementally — see the per-feature PRD §5 + §7 milestones.
 //!
 //! All handlers are additive — existing /auth /wallets /transfers handlers
-//! in this directory are NOT modified (per Robust's 2026-05-16 rule).
+//! in this directory are NOT modified, preserving backward compatibility.
 
 use std::sync::Arc;
 

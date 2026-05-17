@@ -1,6 +1,6 @@
 // API client for F1.1 Viewing Key audit + ZIP-307 disclosure
 // Aligned with docs/PRD-F1.1-viewing-key-audit.md
-// Route shapes reconciled with france's backend skeleton (2026-05-16):
+// Route shapes reconciled with backend skeleton (see PRD-F1.1 §5):
 //   POST/GET /api/v1/wallets/{id}/viewing-keys/exports     (Admin side)
 //   POST/GET /api/v1/wallets/{id}/payment-disclosures      (Admin side)
 //   POST/GET /api/v1/auditor/login + /me + /wallets        (Auditor side)
@@ -149,8 +149,8 @@ export interface AuditorSession {
 export const auditorAuthService = {
   /**
    * POST /auditor/login — issues an auditor-scoped JWT.
-   * Auditor accounts are keyed by email (not username) per france's
-   * AuditorService design (commit pending).
+   * Auditor accounts are keyed by email (not username) per the backend
+   * AuditorService design (PRD-F1.1 §3.3).
    */
   async login(email: string, password: string): Promise<{ token: string; auditor: AuditorSession }> {
     return api.post('/auditor/login', { email, password });
