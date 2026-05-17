@@ -252,12 +252,193 @@ format:
 
 ## 4. Employees and bulk payroll
 
-> sweden chapter — to be filled. Covers:
-> - Employee roster management (manual add / CSV import / soft delete)
-> - Bulk payroll lifecycle (New Run → two-stage validate → Execute → tagged-union outcome)
-> - F2.1 threshold hook bridging into payroll (run total triggers approval)
-> - Partial-failure single-item retry + cancel from any state
-> - Full demo walkthrough
+> This chapter is aimed at CFO / HR / Finance executors. Bulk payroll is the
+> highest-frequency daily operation; the goal is to collapse N salary
+> transfers per month into "one upload + one confirm."
+
+### 4.1 The employee roster (configure once, reuse forever)
+
+Sidebar **Payroll** → **Employees**
+
+You must enroll employees in the system before you can pay them. The system
+uniquely identifies an employee by `employee_code` + wallet address. Once
+enrolled, payroll CSVs reference only `employee_code` — you never need to
+rewrite the wallet address.
+
+| Field | Notes | Example |
+|---|---|---|
+| Employee code (`employee_code`) | Your internal payroll ID, globally unique | `E001` / `ENG-042` |
+| Name | Display only | Wang Xiaoming |
+| Wallet address | Provided by the employee | `u1...` (Zcash) or `0x...` (ETH) |
+| Chain | Employee's default receiving chain | zcash (recommended) or ethereum |
+| Tags (JSON) | Free-form: department / level / KYC status / preferred token, etc. | `{"dept":"Engineering","kyc":"verified"}` |
+| Active | False removes the employee from payroll selectors but keeps history | true |
+
+**How to enroll**:
+1. **Single new** — click New, fill fields. Good for onboarding one new hire.
+2. **CSV bulk import** — prepare `code,name,wallet_address,chain,tags` CSV
+   and import all at once (M1: paste into the new-employee form; a dedicated
+   import endpoint lands later).
+3. **Edit / soft delete** — edits take effect immediately. Delete is soft
+   (data retained + active flipped to false); related payroll history stays
+   linked, **records are never hard-deleted**.
+
+> 💡 **Design intent**: employees are not one-off — soft-delete preserves
+> historical payroll runs; KYC / department lives in `tags JSON` so adding a
+> new field doesn't require a schema migration.
+
+### 4.2 Payroll-specific approval policy (trigger dual-signature on monthly total)
+
+Payroll is a large-amount operation. Best practice is to attach a dedicated
+approval policy to the wallet you pay from (see §3.1):
+
+```
+┌───────────────────────────────────────────────────────────────┐
+│  Typical enterprise configuration                              │
+├───────────────────────────────────────────────────────────────┤
+│  scope:        wallet=<corporate ZEC payroll wallet ID>        │
+│  chain+token:  zcash + ZEC                                     │
+│  amount:       1000 ZEC   ← run total ≥ 1000 → approval        │
+│  SLA:          240 min    ← decide within 4h or auto-expire    │
+│  required:     1 (M1)                                          │
+└───────────────────────────────────────────────────────────────┘
+```
+
+**Key detail**: payroll triggers approval on the **batch total**, not on
+each employee's amount. Example: 50 employees × 0.5 ZEC each = 25 ZEC total
+→ 25 ZEC vs policy threshold 20 → the entire run goes through one approval,
+not 50 separate approvals (this avoids drowning the approver in 50 notifications).
+
+### 4.3 Create a payroll run (New Run)
+
+Sidebar **Payroll** → **Payroll Runs** → **New Run**
+
+| Field | Notes |
+|---|---|
+| Source wallet | The paying wallet; the dropdown shows only wallets you've created; chain is implied by the wallet (zcash wallet = entire batch in ZEC; ethereum wallet = USDT/USDC/ETH) |
+| Pay period | Business label, e.g. `2026-05`; used as a query index, doesn't affect execution |
+| Notes | Optional internal note |
+| CSV file | Employee items, 4 columns: `employee_code, employee_address, amount, memo` |
+
+**CSV example** (4 employees, 0.5 ZEC each plus one bonus, memo visible to recipient):
+
+```csv
+employee_code,employee_address,amount,memo
+E001,u1abc...xyz,0.5,Salary 2026-05
+E002,u1def...uvw,0.5,Salary 2026-05
+E003,u1ghi...rst,0.5,Salary 2026-05 + bonus
+E004,u1jkl...opq,0.7,Salary 2026-05 + bonus
+```
+
+**Two-stage validation**:
+1. **Client-side** (runs in the browser immediately after upload):
+   - Displays an N-row preview table.
+   - Highlights bad rows in red (missing address / amount ≤ 0 / malformed).
+   - Counter: ✅ valid X / ❌ invalid Y / total.
+   - The Create button only submits valid rows.
+2. **Server-side** (runs on confirm click):
+   - The backend re-validates each row against the wallet's chain: is the
+     address chain-valid? amount > 0? does the `employee_code` exist in the
+     roster?
+   - Any invalid row → **whole batch rejected** (HTTP 422), response carries
+     `validation_errors: [{row_index, field, message}]` which the frontend
+     renders inline.
+   - All valid → run created in `pending` status.
+
+> ⚠️ **Why both stages?** Client-side catches the obvious errors quickly
+> (saves a round trip). Server-side is the source of truth (defends against
+> CSV tampering and frontend bypass).
+
+### 4.4 Execute the run — two outcome paths
+
+Open **Payroll Runs** → your just-created run → **Execute**.
+
+The backend first checks for matching approval policies (§4.2) using the
+**run total** vs the threshold:
+
+```
+                         ┌─── Path A: triggers approval ─────────────┐
+                         │                                          │
+Execute clicked          │    total ≥ any enabled policy threshold   │
+   │                     │    ↓                                     │
+   ├──→ payroll_service ─┤    run.status → awaiting_approval        │
+   │      .execute_run() │    NOT on-chain ❄️                        │
+   │                     │    returns {result:"awaiting_approval",  │
+   │                     │             policy_id, threshold}        │
+   │                     │    frontend flashes 1.2s then auto-      │
+   │                     │    redirects to /approval/pending        │
+   │                     │                                          │
+   │                     └──────────────────────────────────────────┘
+   │
+   │                     ┌─── Path B: direct execution ──────────────┐
+   │                     │                                          │
+   │                     │    no match OR total < threshold          │
+   │                     │    ↓                                     │
+   └─────────────────────┤    loop items → chain_client.transfer    │
+                         │       per-item fan-out on-chain          │
+                         │    returns {result:"executed",           │
+                         │             submitted: N, failed: M,     │
+                         │             final_status:                │
+                         │             completed|partial_success|failed}│
+                         │                                          │
+                         └──────────────────────────────────────────┘
+```
+
+**Result presentation**:
+- **Path A** (approval): nothing for the maker to do — wait for the
+  approver; after approval, return to RunDetail and click Execute again to
+  actually broadcast.
+- **Path B** (executed): immediately shows `submitted` / `failed` counters
+  plus each item's tx hash and on-chain confirmation state.
+
+> 💡 **Why per-item rather than one tx with many outputs?** M1 reuses M0's
+> proven single-transfer path (stable, well-exercised) — each employee is a
+> separate tx so one failure doesn't take down the others. M2 will introduce
+> librustzcash single-tx multi-output Orchard to save fees and avoid leaking
+> the recipient count on chain.
+
+### 4.5 Handling partial failures / canceling a run
+
+#### Retry a single failed item
+
+Payroll runs are usually ~95% successful, but occasionally an employee
+address typo or insufficient wallet balance produces a partial_success.
+
+- In the RunDetail table, failed items are highlighted in red and show the
+  `error_message` (e.g. `invalid recipient address`, `insufficient balance`).
+- Click **Retry failed items** → the frontend fans out
+  `POST /payroll/runs/{id}/items/{item_id}/retry` per failed item.
+- The backend re-runs `transfer_native` only for those items — **already
+  confirmed items are not re-sent** (filtered by status).
+- After fixing the underlying issue (top up wallet / update employee
+  address), a retry usually clears all failures.
+
+#### Cancel a run
+
+`POST /payroll/runs/{id}/cancel` is callable in the following states:
+
+| State | What cancel does |
+|---|---|
+| `pending` | Direct DB flip to cancelled; nothing on-chain affected. |
+| `awaiting_approval` | Same; equivalent to the maker withdrawing. |
+| `executing` (stuck) | **Special stuck-recovery path** — for runs left dangling by a backend crash. Already-on-chain items keep their state (cannot be reversed), un-submitted items flip to failed, run flips to cancelled. |
+
+> ⚠️ **Hard rule**: an on-chain confirmed transfer can never be reversed —
+> cancel only resets DB state so you can create a new run. To recover an
+> already-sent payment you must contact the recipient off-chain.
+
+### 4.6 Reports and archive
+
+In RunDetail click **View Report** at the top:
+
+- Run metadata: pay_period / source wallet / total amount / creator /
+  executor / timestamps.
+- Item stats: submitted / failed / pending counts.
+- Per-item detail: employee + address + amount + status + tx hash +
+  on-chain confirmation + failure reason.
+
+Export this report to CSV / PDF (M2 adds an export endpoint; for M1 use the
+browser's Save-as-PDF) and file it with the month's finance workpapers.
 
 ---
 
@@ -265,7 +446,78 @@ format:
 
 ### 5.1 Scenario A: Monthly payroll (most common)
 
-> sweden chapter — to be filled
+A typical company pays 50 employees per month — ~25 ZEC total, above the
+approval threshold. The complete flow spans 3 days:
+
+```
+Day -1 (HR prep: 1-2 days before payday)
+──────────────────────────────────────────
+1. Employees → review the roster
+   - New hires enrolled? (single-add / CSV)
+   - Departing employees soft-deleted? (active=false)
+   - Employees with new wallet addresses edited?
+2. Confirm with IT / Finance which wallet is paying this month
+   - Sufficient balance? (open wallet detail → check shielded balance)
+   - Not enough → top up from the corporate main account → wait 6 blocks
+
+Day 0 (Finance execution: payday)
+──────────────────────────────────────────
+1. Prepare CSV
+   - 4 columns: employee_code, employee_address, amount, memo
+   - Match HR's payroll spreadsheet; double-check amounts
+2. Payroll Runs → New Run
+   - Source wallet: corporate ZEC payroll wallet
+   - Pay period: e.g. "2026-05"
+   - Upload CSV → 50-row preview appears in the browser instantly
+   - See ✅ 50 valid / ❌ 0 invalid → click Create
+3. Backend re-validates → run enters pending status
+4. Click Execute →
+   ─── total 25 ZEC > threshold 20 ZEC ───
+   Receive `{result:"awaiting_approval", policy_id, threshold:"20"}`
+   1.2 s flash then auto-redirect to /approval/pending
+5. Ping the approver (CTO / CFO / another authorized user):
+   "Monthly payroll 25 ZEC in the queue, please review"
+
+Day 0 (Approver: within 5 minutes)
+──────────────────────────────────────────
+1. Approver signs in → Approval Queue → sees this run
+2. Click detail → review amount / maker / 50-employee list
+3. No anomalies → Approve (note "May 2026 monthly salary")
+4. run.status: awaiting_approval → approved
+5. System notifies maker (M2 real notification; M1 maker refreshes)
+
+Day 0 (Finance closeout)
+──────────────────────────────────────────
+1. Back in RunDetail → click Execute again
+   ─── this time status is approved, skip the approval check ───
+   - Backend calls transfer_native for each of the 50 employees
+   - Each item is a real on-chain tx
+   - Returns `{result:"executed", submitted:50, failed:0, final_status:"completed"}`
+2. RunDetail table shows 50 items all confirmed
+3. Spot-check 1-2 employees ("got it") → done
+4. Export PDF report into this month's finance workpapers
+
+Day +1 (Audit trail)
+──────────────────────────────────────────
+If an external auditor is within the scope window they can:
+- /auditor/wallets/{id}/transfers shows the 50 outgoing transfers
+- Request a disclosure with granularity=range 2026-05-01~2026-05-31 → PDF
+- No private key needed; chain data only
+```
+
+**Key timing**: do this 3 days before month-end so weekend approver absence
+doesn't block. SLA defaults to 24 h but practically aim for 4-8 h.
+
+### 5.1.1 Scenario A contingency: approver SLA timeout
+
+If the approver missed the notification and the SLA (4 h) elapses, the run
+auto-expires. Recovery:
+
+- Open My Approvals (maker view) → the monthly run row is now red (expired).
+- **You cannot reactivate the old run** (by design — that would defeat the
+  SLA concept).
+- Create a new run (the same CSV can be reused) → grab the approver in
+  person to approve → Execute.
 
 ### 5.2 Scenario B: Quarterly audit (auditor onboarding through report)
 
@@ -325,7 +577,66 @@ Day 30 (Admin closeout)
         → execute → confirmed
 ```
 
-### 5.4 Scenario D: Partial payroll failure (see sweden's chapter 5)
+### 5.4 Scenario D: Partial payroll failure (partial_success handling)
+
+50-person payroll where 3 fail and 47 confirm:
+
+```
+Click Execute → wait ~30 s (per-item fan-out)
+Receive `{result:"executed", submitted:50, failed:3, final_status:"partial_success"}`
+
+RunDetail table:
+┌────┬────────────┬─────────┬───────────┬──────────────────────────────┐
+│ id │ employee   │ amount  │ status    │ tx_hash / error              │
+├────┼────────────┼─────────┼───────────┼──────────────────────────────┤
+│ 1  │ E001 Wang  │ 0.5 ZEC │ confirmed │ 0xabc...                     │
+│ 2  │ E002 Li    │ 0.5 ZEC │ confirmed │ 0xdef...                     │
+│ 3  │ E003 Zhang │ 0.5 ZEC │ ⚠ failed  │ invalid recipient address    │
+│ 4  │ E004 Zhou  │ 0.5 ZEC │ confirmed │ 0xghi...                     │
+│ ...│ ...        │ ...     │ ...       │ ...                          │
+│ 27 │ E027 Han   │ 0.5 ZEC │ ⚠ failed  │ insufficient balance         │
+│ 35 │ E035 Huang │ 0.5 ZEC │ ⚠ failed  │ insufficient balance         │
+│ ...│ ...        │ ...     │ ...       │ ...                          │
+└────┴────────────┴─────────┴───────────┴──────────────────────────────┘
+
+Diagnosis:
+- E003: address typo → ask employee for new address → Employees → edit E003 → back to RunDetail
+- E027 / E035: wallet ran out (after a few items the remaining balance
+  couldn't cover fee + amount) → top up wallet
+
+Fix:
+1. Top up wallet 5 ZEC, wait 6 blocks
+2. Update E003 wallet address
+3. RunDetail → click Retry N failed
+   - Frontend fans out 3 independent retry requests
+   - Only failed rows are retried (confirmed rows untouched)
+4. ~5 s later → 3 items on chain → run.status auto-flips
+   partial_success → completed
+```
+
+**Why don't we pre-deduct the balance to prevent insufficient?** Design trade-off:
+- Pre-deduction needs wallet locking, serializing against other single
+  transfers — scalability hit.
+- M1 chose best-effort + retry: surface exactly which items failed and let
+  you fix surgically.
+- M2 will add a dry-run that estimates total fee + checks balance, surfacing
+  "short by N ZEC" before partial execution.
+
+### 5.5 Scenario E: Payroll to ETH wallets (multi-chain)
+
+Payroll is not ZEC-only — for USDT-denominated salaries to overseas employees:
+
+```
+1. Employees: set chain=ethereum for overseas staff, address 0x...
+2. New Run: source wallet = corporate USDT wallet (chain=ethereum)
+3. CSV: amounts in USDT (e.g. amount=2000 means 2000 USDT)
+4. Execute → each USDT ERC20 transfer routes through chain_client.transfer_token
+5. ETH gas is paid by the source wallet (confirm it holds a small ETH balance)
+```
+
+⚠️ Chain + token are determined by the source wallet; **a single run cannot
+mix chains** (all ZEC or all USDT, not both). Cross-chain payroll requires
+two separate runs.
 
 ---
 
@@ -399,9 +710,53 @@ Day 30 (Admin closeout)
 5. **Multi-chain support?**
    - Answer: M1 supports ETH (ERC20) + ZEC (transparent + Orchard shielded). The architecture abstracts to a `ChainClient` trait; adding a new chain only requires implementing the trait interface.
 
+6. **Development cadence and time-to-production**
+   - Answer: M1's three business pillars (F1.1 audit & compliance / F2.1 maker-checker / F3.1 bulk payroll) shipped in a single overnight on 2026-05-16~17, with an e2e smoke harness (11 steps / 34 assertions) you can run on every commit. Your customer acceptance timeline is predictable: 1 day in staging → 1 day in-browser testing → 1 day in production.
+
+7. **How does a customer trial / POC?**
+   - Answer: <https://zpaystage.fastaitop.com> is our reference staging. A customer can stand up the same on their own server in ~30 minutes (see [STAGING-DEPLOYMENT.md](STAGING-DEPLOYMENT.md)).
+   - A few `apt` + a few `docker` commands → letsencrypt auto-issues HTTPS → demo in the browser.
+   - Customer data stays on their own machine — nothing leaves their premises.
+
+8. **One-stop vs assembling a tool-chain**
+   - Answer: traditional approach = wallet (MetaMask / Zashi) + multisig (Gnosis Safe) + payroll scripts (Bash / Python hardcoded) + audit exports (wallet screenshots / third-party block explorers + manual Excel) → fragmented chain of trust, scattered audit trail.
+   - zPay Enterprise: single sign-on / single audit trail / single RBAC / single wallet encryption layer — **on top of the customer's existing multi-chain wallet capability, add the three enterprise must-haves, and you have a one-stop enterprise Web3 finance platform**.
+
+9. **Privacy vs transparency balance**
+   - Answer: Zcash Orchard is shielded by default (chain observers see no recipient, no amount, no memo). When you want a specific auditor to see it, **viewing keys give you self-service control** — no private key sharing, no transactions issued, only read access exported.
+   - Transparent chains (ETH etc.) are public by default — actually they need zPay's RBAC + dual-signature layer to guard against mistakes.
+   - Customers can **mix per scenario**: sensitive payroll via ZEC + viewing-key audit; operational transfers via ETH + dual-signature.
+
+10. **Demoability (5-minute sales walkthrough)**
+    - Create a ZEC wallet → configure approval policy threshold 0.01 → enroll 1 employee → pay 0.05 → triggers awaiting_approval → approve in a second browser window → execute → confirm on chain → export viewing key to the customer's "auditor" account → that account independently sees the transaction and downloads a PDF report — five minutes end-to-end, covers all three business pillars.
+
+### 7.2 Secure-deployment checklist (ops sign-off)
+
+```
+□ Admin initial password changed to a strong one (≥ 12 chars); .env.secrets
+  backed up but no longer sensitive
+□ letsencrypt auto-renewal configured (certbot --nginx -d your-domain)
+□ nginx serves index.html no-cache and /assets/ immutable (avoid stale-bundle incidents)
+□ MySQL volume mounted on encrypted partition; off-site mysqldump backups on schedule
+□ Zebra mainnet RPC cookie written to .env 0600 (backend-readable only)
+□ Firewall: 80/443 public; 8090 (backend) / 3307 (mysql) / 8232 (rpc) loopback-only
+□ Monitoring: pm2 logs zpay-staging-backend + grafana / promtail tailing RUST_LOG
+□ Disaster recovery: wallet .env.secrets backed up to ≥ 2 off-site encrypted stores;
+  losing it = historical wallets permanently unrecoverable
+□ Business safety: at least one global approval policy with a sensible threshold
+  to guard against unaudited initiation
+```
+
+### 7.3 Maintenance cadence
+
+- **Monthly**: reconcile employee roster (new hires + departures); review approval-policy coverage.
+- **Quarterly**: renew auditor scope windows; deactivate departed auditors.
+- **Semi-annually**: confirm letsencrypt auto-renew; re-run `./e2e/smoke.sh` (expect 34/34).
+- **Annually**: rotate auditor credentials; force password reset on all active auditors.
+
 ---
 
-(Chapters 4, 5.1, 5.4, and 7 are to be filled by sweden. This document is actively maintained.)
+(This document is actively maintained.)
 
 **Last updated**: 2026-05-17 by france 🥖 + sweden 👑
 
