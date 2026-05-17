@@ -362,6 +362,17 @@ pub async fn delete_approval_policy(
     Ok(HttpResponse::Ok().json(json!({ "ok": true })))
 }
 
+pub async fn update_approval_policy(
+    path: web::Path<i32>,
+    body: web::Json<crate::db::models_m1::UpdateApprovalPolicyRequest>,
+    approval_service: web::Data<Arc<ApprovalService>>,
+) -> AppResult<HttpResponse> {
+    let policy = approval_service
+        .update_policy(path.into_inner(), body.into_inner())
+        .await?;
+    Ok(HttpResponse::Ok().json(policy))
+}
+
 // ===========================================================================
 // F3.1 — Payroll Run · Employees CRUD (real implementation)
 // ===========================================================================

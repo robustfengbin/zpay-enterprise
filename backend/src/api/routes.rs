@@ -33,6 +33,21 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig, auth_service: Arc<AuthServ
                     .route("", web::post().to(handlers::login)),
             )
             .route("/health", web::get().to(health_check))
+            // ============================================================
+            // M1 — F1.1 Auditor side (independent prefix).  These MUST
+            // sit before the catch-all `web::scope("")` below, because
+            // that scope's empty prefix matches every path and would
+            // otherwise swallow these routes with a 404 (and a 401 from
+            // its AuthMiddleware before the handler is even reached).
+            // Auditor handlers do their own token verification via
+            // `require_auditor()` (separate JWT kind=`auditor`).
+            // ============================================================
+            .route("/auditor/login", web::post().to(handlers::m1::auditor_login))
+            .route("/auditor/me", web::get().to(handlers::m1::auditor_me))
+            .route("/auditor/wallets", web::get().to(handlers::m1::auditor_list_wallets))
+            .route("/auditor/wallets/{id}/balance", web::get().to(handlers::m1::auditor_wallet_balance))
+            .route("/auditor/wallets/{id}/transfers", web::get().to(handlers::m1::auditor_wallet_transfers))
+            .route("/auditor/wallets/{id}/disclosures", web::get().to(handlers::m1::auditor_wallet_disclosures))
             // Protected routes
             .service(
                 web::scope("")
@@ -81,7 +96,10 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig, auth_service: Arc<AuthServ
                     .route("/viewing-keys/download/{token}", web::get().to(handlers::m1::download_viewing_key))
                     .route("/auditors", web::post().to(handlers::m1::create_auditor))
                     .route("/auditors", web::get().to(handlers::m1::list_auditors))
+                    // POST + PUT both accepted — different frontend conventions
+                    // (some clients only POST mutation endpoints).
                     .route("/auditors/{id}/deactivate", web::put().to(handlers::m1::deactivate_auditor))
+                    .route("/auditors/{id}/deactivate", web::post().to(handlers::m1::deactivate_auditor))
                     .route("/wallets/{id}/payment-disclosures", web::post().to(handlers::m1::create_payment_disclosure))
                     .route("/wallets/{id}/payment-disclosures", web::get().to(handlers::m1::list_payment_disclosures))
                     .route("/payment-disclosures/{id}", web::get().to(handlers::m1::get_payment_disclosure))
@@ -95,6 +113,7 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig, auth_service: Arc<AuthServ
                     .route("/approvals/pending", web::get().to(handlers::m1::list_pending_approvals))
                     .route("/approval-policies", web::get().to(handlers::m1::list_approval_policies))
                     .route("/approval-policies", web::post().to(handlers::m1::create_approval_policy))
+                    .route("/approval-policies/{id}", web::put().to(handlers::m1::update_approval_policy))
                     .route("/approval-policies/{id}", web::delete().to(handlers::m1::delete_approval_policy))
                     // ============================================================
                     // M1 — F3.1 batch Payroll Run
@@ -111,18 +130,7 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig, auth_service: Arc<AuthServ
                     .route("/payroll/runs/{id}/cancel", web::post().to(handlers::m1::cancel_payroll_run))
                     .route("/payroll/runs/{run_id}/items/{item_id}/retry", web::post().to(handlers::m1::retry_payroll_item))
                     .route("/payroll/runs/{id}/report", web::get().to(handlers::m1::payroll_run_report)),
-            )
-            // ============================================================
-            // M1 — F1.1 Auditor side (independent prefix, AuthMiddleware
-            // still applied at outer scope; real AuditorAuthMiddleware
-            // wiring deferred to W1)
-            // ============================================================
-            .route("/auditor/login", web::post().to(handlers::m1::auditor_login))
-            .route("/auditor/me", web::get().to(handlers::m1::auditor_me))
-            .route("/auditor/wallets", web::get().to(handlers::m1::auditor_list_wallets))
-            .route("/auditor/wallets/{id}/balance", web::get().to(handlers::m1::auditor_wallet_balance))
-            .route("/auditor/wallets/{id}/transfers", web::get().to(handlers::m1::auditor_wallet_transfers))
-            .route("/auditor/wallets/{id}/disclosures", web::get().to(handlers::m1::auditor_wallet_disclosures)),
+            ),
     );
 }
 

@@ -15,6 +15,7 @@ use crate::blockchain::ChainRegistry;
 use crate::db::models::Transfer;
 use crate::db::models_m1::{
     ApprovalDecisionRequest, ApprovalPolicy, CreateApprovalPolicyRequest, TransferApproval,
+    UpdateApprovalPolicyRequest,
 };
 use crate::db::repositories::{
     ApprovalPolicyRepository, TransferApprovalRepository, TransferRepository,
@@ -151,6 +152,57 @@ impl ApprovalService {
             .await?
             .ok_or_else(|| AppError::NotFound(format!("approval_policy {} not found", id)))?;
         self.policy_repo.set_enabled(id, enabled).await
+    }
+
+    pub async fn update_policy(
+        &self,
+        id: i32,
+        req: UpdateApprovalPolicyRequest,
+    ) -> AppResult<ApprovalPolicy> {
+        // 404 first so a PATCH on a missing row doesn't silently no-op.
+        self.policy_repo
+            .find_by_id(id)
+            .await?
+            .ok_or_else(|| AppError::NotFound(format!("approval_policy {} not found", id)))?;
+
+        let threshold = req
+            .amount_threshold
+            .as_deref()
+            .map(Decimal::from_str)
+            .transpose()
+            .map_err(|e| {
+                AppError::ValidationError(format!("invalid amount_threshold: {}", e))
+            })?;
+        if let Some(t) = threshold {
+            if t <= Decimal::ZERO {
+                return Err(AppError::ValidationError(
+                    "amount_threshold must be positive".to_string(),
+                ));
+            }
+        }
+        if let Some(sla) = req.sla_minutes {
+            if sla < 5 {
+                return Err(AppError::ValidationError(
+                    "sla_minutes must be >= 5".to_string(),
+                ));
+            }
+        }
+        if let Some(rc) = req.required_count {
+            if !(1..=10).contains(&rc) {
+                return Err(AppError::ValidationError(
+                    "required_count must be 1..=10".to_string(),
+                ));
+            }
+        }
+
+        self.policy_repo
+            .update(id, threshold, req.sla_minutes, req.required_count, req.enabled)
+            .await?;
+
+        self.policy_repo
+            .find_by_id(id)
+            .await?
+            .ok_or_else(|| AppError::InternalError("policy vanished after update".to_string()))
     }
 
     // -----------------------------------------------------------------------

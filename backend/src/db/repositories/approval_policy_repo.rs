@@ -113,4 +113,51 @@ impl ApprovalPolicyRepository {
             .await?;
         Ok(())
     }
+
+    /// PATCH-style update of mutable fields.  scope / chain / token /
+    /// created_by are immutable by design (see UpdateApprovalPolicyRequest).
+    pub async fn update(
+        &self,
+        id: i32,
+        amount_threshold: Option<Decimal>,
+        sla_minutes: Option<i32>,
+        required_count: Option<i32>,
+        enabled: Option<bool>,
+    ) -> AppResult<()> {
+        let mut sets: Vec<&str> = Vec::new();
+        if amount_threshold.is_some() {
+            sets.push("amount_threshold = ?");
+        }
+        if sla_minutes.is_some() {
+            sets.push("sla_minutes = ?");
+        }
+        if required_count.is_some() {
+            sets.push("required_count = ?");
+        }
+        if enabled.is_some() {
+            sets.push("enabled = ?");
+        }
+        if sets.is_empty() {
+            return Ok(());
+        }
+        let sql = format!(
+            "UPDATE approval_policies SET {} WHERE id = ?",
+            sets.join(", ")
+        );
+        let mut q = sqlx::query(&sql);
+        if let Some(v) = amount_threshold {
+            q = q.bind(v);
+        }
+        if let Some(v) = sla_minutes {
+            q = q.bind(v);
+        }
+        if let Some(v) = required_count {
+            q = q.bind(v);
+        }
+        if let Some(v) = enabled {
+            q = q.bind(if v { 1i8 } else { 0i8 });
+        }
+        q.bind(id).execute(&self.pool).await?;
+        Ok(())
+    }
 }

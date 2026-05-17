@@ -195,10 +195,23 @@ pub struct ApprovalPolicy {
     pub amount_threshold: Decimal,
     pub sla_minutes: i32,
     pub required_count: i32,
-    pub enabled: i8,
+    pub enabled: bool,
     pub created_by: i32,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
+}
+
+/// PATCH-style update.  `scope` / `chain` / `token` / `created_by` are
+/// intentionally immutable — changing them would invalidate every prior
+/// approval decision that referenced this policy snapshot.  Operators who
+/// need a different scope/chain/token should create a new policy and
+/// disable the old one.
+#[derive(Debug, Clone, Deserialize)]
+pub struct UpdateApprovalPolicyRequest {
+    pub amount_threshold: Option<String>,
+    pub sla_minutes: Option<i32>,
+    pub required_count: Option<i32>,
+    pub enabled: Option<bool>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
