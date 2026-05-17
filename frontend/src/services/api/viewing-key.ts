@@ -13,6 +13,7 @@ import type {
   DisclosureResponse,
   ViewingKeyExportRequest,
   ViewingKeyExportResponse,
+  ViewingKeyDownloadResponse,
 } from '../../types/viewing-key';
 
 export const viewingKeyService = {
@@ -21,18 +22,40 @@ export const viewingKeyService = {
   // ===========================================================
 
   /**
-   * POST /wallets/{id}/viewing-keys/exports — Admin only.
-   * Creates a new viewing-key export record (auditable).
+   * POST /wallets/{id}/viewing-keys/export — Admin only.
+   * Creates a new viewing-key export record (auditable). Requires
+   * password re-verify (defense-in-depth against leaked JWTs).
+   * Returns a one-time download_token; the actual key material is
+   * fetched via downloadKey() below and the row is then zeroed.
    */
-  async exportViewingKey(req: ViewingKeyExportRequest): Promise<ViewingKeyExportResponse> {
-    return api.post(`/wallets/${req.wallet_id}/viewing-keys/exports`, req);
+  async exportViewingKey(walletId: number, req: ViewingKeyExportRequest): Promise<ViewingKeyExportResponse> {
+    return api.post(`/wallets/${walletId}/viewing-keys/export`, req);
   },
 
   /**
-   * GET /wallets/{id}/viewing-keys/exports — list past exports.
+   * GET /viewing-keys/download/{token} — single-use, returns text/plain.
+   * The backend response header is text/plain, so we hit a different
+   * shape: axios returns the raw string body (our axios interceptor
+   * returns response.data; for text/plain that is the body string).
+   * After this call the token is invalidated server-side.
+   */
+  async downloadKey(token: string): Promise<ViewingKeyDownloadResponse> {
+    const text = await api.get(`/viewing-keys/download/${token}`, {
+      // override the default JSON accept; the response is text/plain
+      headers: { Accept: 'text/plain' },
+      responseType: 'text',
+      transformResponse: [(d: unknown) => d as string],
+    });
+    return { key_text: text as unknown as string };
+  },
+
+  /**
+   * GET /wallets/{id}/viewing-keys — list past export audit rows.
+   * Note: the actual key material is zeroed after download; this surface
+   * is purely audit metadata (who exported what, when, downloaded yet).
    */
   async listExports(walletId: number): Promise<ViewingKeyExportResponse[]> {
-    return api.get(`/wallets/${walletId}/viewing-keys/exports`);
+    return api.get(`/wallets/${walletId}/viewing-keys`);
   },
 
   /**

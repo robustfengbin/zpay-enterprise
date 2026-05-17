@@ -11,22 +11,42 @@ export type DisclosureGranularity = 'single_tx' | 'single_address' | 'time_range
 
 export type DisclosureFormat = 'pdf' | 'csv' | 'json';
 
+/**
+ * Orchard viewing key type selector.
+ *   - ovk: Outgoing viewing key — auditor sees outgoing spends only
+ *   - ivk: Incoming viewing key — auditor sees incoming notes only
+ *   - ufvk: Unified full viewing key — both directions (most powerful)
+ */
+export type ViewingKeyType = 'ovk' | 'ivk' | 'ufvk';
+
 export interface ViewingKeyExportRequest {
-  wallet_id: number;
-  // Standard ZIP-316 unified full viewing key encoding. The internal
-  // custom "ufvk:account:birthday:hex" encoding is also available via
-  // include_legacy=true for round-trip into the existing platform.
-  include_legacy?: boolean;
+  /** Re-verifies the admin's password so a leaked JWT alone can't export keys. */
+  password: string;
+  key_type: ViewingKeyType;
 }
 
+/**
+ * Response from POST /wallets/{id}/viewing-keys/export.
+ * The actual key material is NOT returned here — it requires a follow-up
+ * GET /viewing-keys/download/{token} which is single-use.
+ */
 export interface ViewingKeyExportResponse {
-  wallet_id: number;
-  ufvk_standard: string;       // ZIP-316 UFVK string (Zashi-compatible)
-  ufvk_legacy?: string;        // Internal custom encoding (optional)
-  birthday_height: number;
-  exported_at: string;
-  exported_by: number;
-  warning: string;
+  export_id: number;
+  /** Base64url, URL-safe ~43 chars. One-time download token, 24h TTL. */
+  download_token: string;
+  expires_at: string;
+}
+
+/**
+ * Response from GET /viewing-keys/download/{token}.
+ * The backend returns text/plain with a header-prefixed key string of
+ * the form `orchard-ufvk:account=0:birthday=2400000:hex=...`. NOT standard
+ * ZIP-316; Zashi/Zecwallet won't recognize it directly. Holders parse with
+ * Orchard-aware tooling. ZIP-316 emission is M2 polish.
+ */
+export interface ViewingKeyDownloadResponse {
+  /** Raw key string with the orchard-ufvk:... prefix. */
+  key_text: string;
 }
 
 export interface DisclosureRequest {
