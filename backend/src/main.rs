@@ -191,6 +191,7 @@ async fn main() -> std::io::Result<()> {
         PaymentDisclosureRepository::new(pool.clone()),
         WalletRepository::new(pool.clone()),
         OrchardRepository::new(pool.clone()),
+        chain_registry.clone(),
     ));
 
     // M1 F1.1 — ViewingKey export (Orchard OVK / IVK / UFVK).  Derives the

@@ -4,4 +4,4 @@ pub mod traits;
 pub mod zcash;
 
 pub use registry::ChainRegistry;
-pub use traits::{TransferParams, TxStatus};
+pub use traits::{ChainClient, TransferParams, TxStatus};

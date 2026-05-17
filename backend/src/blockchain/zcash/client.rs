@@ -116,6 +116,10 @@ struct GetTransactionResult {
 #[derive(Debug, Deserialize)]
 struct GetBlockResult {
     height: u64,
+    /// Unix timestamp (seconds) of the block.  Optional in the RPC schema
+    /// for older Zcash forks; we treat absence as "unknown".
+    #[serde(default)]
+    time: Option<i64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1046,7 +1050,7 @@ impl ChainClient for ZcashClient {
                         let block: GetBlockResult = self
                             .rpc_call("getblock", (blockhash,))
                             .await
-                            .unwrap_or(GetBlockResult { height: 0 });
+                            .unwrap_or(GetBlockResult { height: 0, time: None });
                         block.height
                     } else {
                         0
@@ -1109,6 +1113,62 @@ impl ChainClient for ZcashClient {
 
     async fn get_block_height(&self) -> AppResult<u64> {
         self.get_block_count().await
+    }
+
+    /// Binary-search the chain for the lowest block whose `time >= timestamp`.
+    /// Anchor at the chain tip so we never wander past it.  Costs ~log2(tip)
+    /// RPC round-trips — at mainnet tip 3.3M that is ~22 `getblock` calls,
+    /// well inside the disclosure async-job budget.
+    async fn block_at_timestamp(&self, timestamp: i64) -> AppResult<u64> {
+        // Helper: fetch the block's unix timestamp.  `getblock <height>` with
+        // default verbosity (1) returns an object containing `time`.
+        async fn block_time(client: &ZcashClient, height: u64) -> AppResult<i64> {
+            let block: GetBlockResult = client
+                .rpc_call("getblock", (height.to_string(),))
+                .await?;
+            block.time.ok_or_else(|| {
+                AppError::BlockchainError(format!(
+                    "block {} has no time field in RPC response",
+                    height
+                ))
+            })
+        }
+
+        let tip = self.get_block_count().await?;
+        if tip == 0 {
+            return Err(AppError::BlockchainError(
+                "chain tip is 0 — cannot resolve timestamp".to_string(),
+            ));
+        }
+
+        // If the request is past the tip, return the tip — disclosure
+        // `to=now` is the common case and should not error.
+        let tip_time = block_time(self, tip).await?;
+        if timestamp >= tip_time {
+            return Ok(tip);
+        }
+
+        // Genesis check — if the request is before the chain even started,
+        // anchor at block 1.  Block 0 is technically valid but `getblock 0`
+        // behaves oddly across zcashd / zebra; 1 is the safe floor here.
+        let mut low: u64 = 1;
+        let mut high: u64 = tip;
+        let low_time = block_time(self, low).await?;
+        if timestamp <= low_time {
+            return Ok(low);
+        }
+
+        // Standard binary search for the lowest height whose time >= ts.
+        while low < high {
+            let mid = low + (high - low) / 2;
+            let t = block_time(self, mid).await?;
+            if t < timestamp {
+                low = mid + 1;
+            } else {
+                high = mid;
+            }
+        }
+        Ok(low)
     }
 
     async fn broadcast_raw_transaction(&self, raw_tx_hex: &str) -> AppResult<String> {

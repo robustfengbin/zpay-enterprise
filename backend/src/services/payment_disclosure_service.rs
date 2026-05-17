@@ -15,8 +15,10 @@
 
 use std::sync::Arc;
 
+use chrono::{DateTime, Utc};
 use serde_json::json;
 
+use crate::blockchain::ChainRegistry;
 use crate::db::models_m1::{CreatePaymentDisclosureRequest, PaymentDisclosure};
 use crate::db::repositories::{
     OrchardRepository, PaymentDisclosureRepository, WalletRepository,
@@ -28,6 +30,7 @@ pub struct PaymentDisclosureService {
     repo: PaymentDisclosureRepository,
     wallet_repo: WalletRepository,
     orchard_repo: OrchardRepository,
+    chain_registry: Arc<ChainRegistry>,
 }
 
 impl PaymentDisclosureService {
@@ -35,11 +38,13 @@ impl PaymentDisclosureService {
         repo: PaymentDisclosureRepository,
         wallet_repo: WalletRepository,
         orchard_repo: OrchardRepository,
+        chain_registry: Arc<ChainRegistry>,
     ) -> Self {
         Self {
             repo,
             wallet_repo,
             orchard_repo,
+            chain_registry,
         }
     }
 
@@ -122,15 +127,19 @@ impl PaymentDisclosureService {
         // handles the update rather than holding the request connection.
         let repo = self.repo.clone();
         let orchard_repo = self.orchard_repo.clone();
+        let chain_registry = self.chain_registry.clone();
         let granularity = req.granularity.clone();
         let format = req.format.clone();
         let scope_param = req.scope_param.clone();
         let wallet_address = wallet.address.clone();
+        let wallet_chain = wallet.chain.clone();
         tokio::spawn(async move {
             let outcome = build_disclosure_body(
                 &orchard_repo,
+                &chain_registry,
                 wallet_id,
                 &wallet_address,
+                &wallet_chain,
                 &granularity,
                 &format,
                 &scope_param,
@@ -173,14 +182,21 @@ impl PaymentDisclosureService {
 /// is M2 scope.  For the enterprise audit workflow this is sufficient
 /// because the receiver already has the notes verifiably in their
 /// wallet and the revealed nullifier anchors each entry to the chain.
+#[allow(clippy::too_many_arguments)]
 async fn build_disclosure_body(
     orchard_repo: &OrchardRepository,
+    chain_registry: &ChainRegistry,
     wallet_id: i32,
     wallet_address: &str,
+    wallet_chain: &str,
     granularity: &str,
     format: &str,
     scope_param: &serde_json::Value,
 ) -> AppResult<(serde_json::Value, i32)> {
+    // resolved_range carries (from_height, to_height, optional from_ts, optional to_ts)
+    // so we can echo both representations in the body for the auditor.
+    let mut resolved_range: Option<(u64, u64, Option<DateTime<Utc>>, Option<DateTime<Utc>>)> = None;
+
     let notes: Vec<StoredOrchardNote> = match granularity {
         "tx" => {
             let tx_hash = scope_param
@@ -201,29 +217,20 @@ async fn build_disclosure_body(
             orchard_repo.list_all_notes_by_wallet(wallet_id).await?
         }
         "range" => {
-            let from = scope_param
-                .get("from")
-                .and_then(|v| v.as_u64())
-                .ok_or_else(|| {
-                    AppError::ValidationError(
-                        "scope_param.from must be a u64 block height".to_string(),
-                    )
-                })?;
-            let to = scope_param
-                .get("to")
-                .and_then(|v| v.as_u64())
-                .ok_or_else(|| {
-                    AppError::ValidationError(
-                        "scope_param.to must be a u64 block height".to_string(),
-                    )
-                })?;
-            if from > to {
-                return Err(AppError::ValidationError(
-                    "scope_param.from must be <= scope_param.to".to_string(),
-                ));
+            let chain_client = chain_registry.get(wallet_chain)?;
+            let (from_h, from_ts) =
+                resolve_range_endpoint(chain_client.as_ref(), scope_param, "from").await?;
+            let (to_h, to_ts) =
+                resolve_range_endpoint(chain_client.as_ref(), scope_param, "to").await?;
+            if from_h > to_h {
+                return Err(AppError::ValidationError(format!(
+                    "resolved from_height ({}) must be <= to_height ({})",
+                    from_h, to_h
+                )));
             }
+            resolved_range = Some((from_h, to_h, from_ts, to_ts));
             orchard_repo
-                .list_notes_in_height_range(wallet_id, from, to)
+                .list_notes_in_height_range(wallet_id, from_h, to_h)
                 .await?
         }
         other => {
@@ -256,6 +263,15 @@ async fn build_disclosure_body(
         .collect();
     let tx_count = actions.len() as i32;
 
+    let resolved_range_json = resolved_range.map(|(fh, th, fts, tts)| {
+        json!({
+            "from_height": fh,
+            "to_height": th,
+            "from_ts": fts.map(|t| t.to_rfc3339()),
+            "to_ts": tts.map(|t| t.to_rfc3339()),
+        })
+    });
+
     let body = json!({
         "zip_version": "307-enterprise",
         "generated_at": now.to_rfc3339(),
@@ -263,6 +279,7 @@ async fn build_disclosure_body(
         "granularity": granularity,
         "format": format,
         "scope": scope_param,
+        "resolved_range": resolved_range_json,
         "actions": actions,
         "action_count": tx_count,
         "notes": "ZIP-307 inspired enterprise audit body. Records derive from \
@@ -272,6 +289,40 @@ async fn build_disclosure_body(
                   sender-side spending-key cooperation."
     });
     Ok((body, tx_count))
+}
+
+/// Parse one endpoint of a `range` scope.  Accepts:
+///   * u64 — interpreted directly as a block height
+///   * ISO 8601 string — converted to a block height via the chain's
+///     `block_at_timestamp` method, with the parsed DateTime echoed back
+///     so the body can show both representations.
+async fn resolve_range_endpoint(
+    chain_client: &dyn crate::blockchain::ChainClient,
+    scope_param: &serde_json::Value,
+    key: &str,
+) -> AppResult<(u64, Option<DateTime<Utc>>)> {
+    let value = scope_param
+        .get(key)
+        .ok_or_else(|| AppError::ValidationError(format!("scope_param.{} missing", key)))?;
+
+    if let Some(n) = value.as_u64() {
+        return Ok((n, None));
+    }
+    if let Some(s) = value.as_str() {
+        let parsed = DateTime::parse_from_rfc3339(s).map_err(|e| {
+            AppError::ValidationError(format!(
+                "scope_param.{} must be a u64 height or ISO 8601 string: {}",
+                key, e
+            ))
+        })?;
+        let ts_utc = parsed.with_timezone(&Utc);
+        let height = chain_client.block_at_timestamp(ts_utc.timestamp()).await?;
+        return Ok((height, Some(ts_utc)));
+    }
+    Err(AppError::ValidationError(format!(
+        "scope_param.{} must be a u64 height or ISO 8601 string",
+        key
+    )))
 }
 
 // Re-export the Arc-friendly alias so handlers / main wire it uniformly.
