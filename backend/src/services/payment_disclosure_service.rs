@@ -1,31 +1,46 @@
-//! M1 F1.1 — PaymentDisclosure (ZIP-307) async generation framework.
+//! M1 F1.1 — PaymentDisclosure (ZIP-307 inspired) generation service.
 //!
-//! M1.W1 ship: the `generate` API records a disclosure row + spawns an
-//! async task that does the heavy work and updates status to `ready`
-//! (or `failed`).  The task body in M1.W1 produces a placeholder
-//! disclosure JSON keyed by scope so the frontend can render the
-//! report page end-to-end.  M1.W2 wires the real librustzcash payment
-//! disclosure builder (depends on viewing key export being ready first).
+//! M1.W2 ship: replaces the M1.W1 placeholder body with a real
+//! enterprise-audit disclosure assembled from on-chain scanned notes.
+//! The disclosure JSON follows the shape of a ZIP-307 payment disclosure
+//! (per-action records keyed by tx_hash, with value / memo / nullifier
+//! revealed) but skips the Halo 2 cryptographic proof component — that
+//! requires sender-side spending-key cooperation and is M2 scope.  The
+//! result is fully usable for the enterprise audit workflow because the
+//! receiver already has the notes verifiably in their wallet, and the
+//! revealed nullifier + block_height anchors each entry to the chain.
 //!
-//! Status FSM:  generating  ->  ready  | failed
-//! TTL: 7 days (NFR-4).  An out-of-scope cleaner job (M2) deletes expired
-//! rows + files.
+//! Status FSM: generating -> ready | failed.
+//! TTL: 7 days (NFR-4) — cleaner job deletes expired rows in M2.
 
 use std::sync::Arc;
 
 use serde_json::json;
 
 use crate::db::models_m1::{CreatePaymentDisclosureRequest, PaymentDisclosure};
-use crate::db::repositories::PaymentDisclosureRepository;
+use crate::db::repositories::{
+    OrchardRepository, PaymentDisclosureRepository, WalletRepository,
+};
+use crate::db::repositories::orchard_repo::StoredOrchardNote;
 use crate::error::{AppError, AppResult};
 
 pub struct PaymentDisclosureService {
     repo: PaymentDisclosureRepository,
+    wallet_repo: WalletRepository,
+    orchard_repo: OrchardRepository,
 }
 
 impl PaymentDisclosureService {
-    pub fn new(repo: PaymentDisclosureRepository) -> Self {
-        Self { repo }
+    pub fn new(
+        repo: PaymentDisclosureRepository,
+        wallet_repo: WalletRepository,
+        orchard_repo: OrchardRepository,
+    ) -> Self {
+        Self {
+            repo,
+            wallet_repo,
+            orchard_repo,
+        }
     }
 
     pub async fn generate(
@@ -78,6 +93,19 @@ impl PaymentDisclosureService {
             _ => {}
         }
 
+        // Wallet must exist + be ZCash — disclosure pulls from Orchard notes.
+        let wallet = self
+            .wallet_repo
+            .find_by_id(wallet_id)
+            .await?
+            .ok_or_else(|| AppError::NotFound(format!("wallet {} not found", wallet_id)))?;
+        if wallet.chain != "zcash" {
+            return Err(AppError::ValidationError(format!(
+                "payment disclosure only supported for zcash wallets (this is {})",
+                wallet.chain
+            )));
+        }
+
         let id = self
             .repo
             .create(
@@ -93,11 +121,21 @@ impl PaymentDisclosureService {
         // We re-fetch in the spawned task so a fresh connection from the pool
         // handles the update rather than holding the request connection.
         let repo = self.repo.clone();
+        let orchard_repo = self.orchard_repo.clone();
         let granularity = req.granularity.clone();
         let format = req.format.clone();
         let scope_param = req.scope_param.clone();
+        let wallet_address = wallet.address.clone();
         tokio::spawn(async move {
-            let outcome = build_disclosure_body(&granularity, &format, &scope_param).await;
+            let outcome = build_disclosure_body(
+                &orchard_repo,
+                wallet_id,
+                &wallet_address,
+                &granularity,
+                &format,
+                &scope_param,
+            )
+            .await;
             match outcome {
                 Ok((body, tx_count)) => {
                     let _ = repo.mark_ready(id, &body, tx_count, None).await;
@@ -126,34 +164,114 @@ impl PaymentDisclosureService {
     }
 }
 
-/// M1.W1 placeholder body.  Real librustzcash ZIP-307 payment_disclosure
-/// build_payment_disclosure() integration is M1.W2; this returns a typed
-/// JSON shaped like the eventual output so the frontend report page can
-/// render the same fields end-to-end.
+/// Assemble the disclosure JSON from scanned Orchard notes filtered by
+/// the requested granularity.  Returns (body, action_count).
+///
+/// The body shape is ZIP-307 inspired (per-action records keyed by
+/// tx_hash with value / memo / nullifier revealed) but omits the
+/// Halo 2 cryptographic proof — that requires sender cooperation and
+/// is M2 scope.  For the enterprise audit workflow this is sufficient
+/// because the receiver already has the notes verifiably in their
+/// wallet and the revealed nullifier anchors each entry to the chain.
 async fn build_disclosure_body(
+    orchard_repo: &OrchardRepository,
+    wallet_id: i32,
+    wallet_address: &str,
     granularity: &str,
     format: &str,
     scope_param: &serde_json::Value,
 ) -> AppResult<(serde_json::Value, i32)> {
-    // Simulate generation latency so the frontend can exercise the
-    // polling state machine.  2s is short enough for dev test, long
-    // enough that the UI definitely renders the generating state.
-    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+    let notes: Vec<StoredOrchardNote> = match granularity {
+        "tx" => {
+            let tx_hash = scope_param
+                .get("tx_hash")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| {
+                    AppError::ValidationError("scope_param.tx_hash missing".to_string())
+                })?;
+            orchard_repo
+                .list_notes_by_tx_hash(wallet_id, tx_hash)
+                .await?
+        }
+        "address" => {
+            // M1: a wallet has a single primary address; the auditor's
+            // granularity=address request is interpreted as "everything
+            // the wallet received" which maps to all scanned notes.  M2
+            // can refine when multi-address-per-wallet ships.
+            orchard_repo.list_all_notes_by_wallet(wallet_id).await?
+        }
+        "range" => {
+            let from = scope_param
+                .get("from")
+                .and_then(|v| v.as_u64())
+                .ok_or_else(|| {
+                    AppError::ValidationError(
+                        "scope_param.from must be a u64 block height".to_string(),
+                    )
+                })?;
+            let to = scope_param
+                .get("to")
+                .and_then(|v| v.as_u64())
+                .ok_or_else(|| {
+                    AppError::ValidationError(
+                        "scope_param.to must be a u64 block height".to_string(),
+                    )
+                })?;
+            if from > to {
+                return Err(AppError::ValidationError(
+                    "scope_param.from must be <= scope_param.to".to_string(),
+                ));
+            }
+            orchard_repo
+                .list_notes_in_height_range(wallet_id, from, to)
+                .await?
+        }
+        other => {
+            return Err(AppError::ValidationError(format!(
+                "unsupported granularity '{}'",
+                other
+            )));
+        }
+    };
 
     let now = chrono::Utc::now();
+    let actions: Vec<serde_json::Value> = notes
+        .iter()
+        .map(|n| {
+            json!({
+                "tx_hash": n.tx_hash,
+                "block_height": n.block_height,
+                "position_in_block": n.position_in_block,
+                "value_zatoshis": n.value_zatoshis,
+                // 1 ZEC = 1e8 zatoshis; we emit both so PDF/CSV layers
+                // do not have to redo the conversion.
+                "value_zec": (n.value_zatoshis as f64) / 100_000_000.0,
+                "memo": n.memo,
+                "nullifier": n.nullifier,
+                "is_spent": n.is_spent,
+                "spent_in_tx": n.spent_in_tx,
+                "recipient_address_hex": n.recipient,
+            })
+        })
+        .collect();
+    let tx_count = actions.len() as i32;
+
     let body = json!({
-        "zip_version": "307-draft",
+        "zip_version": "307-enterprise",
         "generated_at": now.to_rfc3339(),
+        "wallet_address": wallet_address,
         "granularity": granularity,
         "format": format,
         "scope": scope_param,
-        // Placeholder until M1.W2: real bundles will go here, one per
-        // disclosed Orchard action.
-        "actions": [],
-        "stub": true,
-        "note": "M1.W1 framework: librustzcash payment_disclosure wired in W2"
+        "actions": actions,
+        "action_count": tx_count,
+        "notes": "ZIP-307 inspired enterprise audit body. Records derive from \
+                  the wallet's scanned Orchard notes (receiver-side IVK \
+                  decryption already performed during sync). Halo 2 \
+                  cryptographic proof component is M2 scope and requires \
+                  sender-side spending-key cooperation."
     });
-    Ok((body, 0))
+    Ok((body, tx_count))
 }
 
 // Re-export the Arc-friendly alias so handlers / main wire it uniformly.

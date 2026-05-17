@@ -16,9 +16,10 @@ use api::handlers::load_rpc_config_from_db;
 use blockchain::{ethereum::EthereumClient, zcash::ZcashClient, ChainRegistry};
 use config::AppConfig;
 use db::repositories::{
-    ApprovalPolicyRepository, AuditorRepository, EmployeeRepository, PaymentDisclosureRepository,
-    PayrollRepository, SettingsRepository, TransferApprovalRepository, TransferRepository,
-    UserRepository, ViewingKeyExportRepository, WalletRepository,
+    ApprovalPolicyRepository, AuditorRepository, EmployeeRepository, OrchardRepository,
+    PaymentDisclosureRepository, PayrollRepository, SettingsRepository,
+    TransferApprovalRepository, TransferRepository, UserRepository, ViewingKeyExportRepository,
+    WalletRepository,
 };
 use services::{
     ApprovalService, AuditorService, AuthService, EmployeeService, PaymentDisclosureService,
@@ -182,12 +183,14 @@ async fn main() -> std::io::Result<()> {
     let transfer_repo_for_auditor = TransferRepository::new(pool.clone());
     let disclosure_repo_for_auditor = PaymentDisclosureRepository::new(pool.clone());
 
-    // M1 F1.1 — Payment disclosure (ZIP-307) async generation framework.
-    // The real disclosure body builder (librustzcash) is M1.W2; this stage
-    // wires the row + status state machine + async spawn pattern so the
-    // frontend disclosure report page is fully exercised end-to-end.
+    // M1 F1.1 — Payment disclosure (ZIP-307 inspired enterprise body).
+    // W2: real body assembled from scanned Orchard notes via OrchardRepository.
+    // Halo 2 cryptographic proof component is M2 scope (requires sender
+    // spending-key cooperation).
     let payment_disclosure_service = Arc::new(PaymentDisclosureService::new(
         PaymentDisclosureRepository::new(pool.clone()),
+        WalletRepository::new(pool.clone()),
+        OrchardRepository::new(pool.clone()),
     ));
 
     // M1 F1.1 — ViewingKey export (Orchard OVK / IVK / UFVK).  Derives the

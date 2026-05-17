@@ -59,6 +59,7 @@ pub struct NoteWitnessInfo {
     pub witness_state: Option<Vec<u8>>,
 }
 
+#[derive(Clone)]
 pub struct OrchardRepository {
     pool: MySqlPool,
 }
@@ -261,6 +262,78 @@ impl OrchardRepository {
     }
 
     /// Get all unspent notes for a wallet
+    // -----------------------------------------------------------------
+    // F1.1 disclosure queries — include spent notes (audit needs history),
+    // bounded by tx / wallet / block-height range.  Witness columns are
+    // not needed by the disclosure body and would inflate payload size.
+    // -----------------------------------------------------------------
+
+    pub async fn list_notes_by_tx_hash(
+        &self,
+        wallet_id: i32,
+        tx_hash: &str,
+    ) -> AppResult<Vec<StoredOrchardNote>> {
+        let notes = sqlx::query_as::<_, StoredOrchardNote>(
+            r#"
+            SELECT id, wallet_id, nullifier, value_zatoshis, block_height, tx_hash,
+                   position_in_block, is_spent, spent_in_tx, memo, recipient, rho, rseed,
+                   witness_position, witness_auth_path, witness_root
+            FROM orchard_notes
+            WHERE wallet_id = ? AND tx_hash = ?
+            ORDER BY position_in_block ASC
+            "#,
+        )
+        .bind(wallet_id)
+        .bind(tx_hash)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(notes)
+    }
+
+    pub async fn list_all_notes_by_wallet(
+        &self,
+        wallet_id: i32,
+    ) -> AppResult<Vec<StoredOrchardNote>> {
+        let notes = sqlx::query_as::<_, StoredOrchardNote>(
+            r#"
+            SELECT id, wallet_id, nullifier, value_zatoshis, block_height, tx_hash,
+                   position_in_block, is_spent, spent_in_tx, memo, recipient, rho, rseed,
+                   witness_position, witness_auth_path, witness_root
+            FROM orchard_notes
+            WHERE wallet_id = ?
+            ORDER BY block_height ASC, position_in_block ASC
+            "#,
+        )
+        .bind(wallet_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(notes)
+    }
+
+    pub async fn list_notes_in_height_range(
+        &self,
+        wallet_id: i32,
+        from_height: u64,
+        to_height: u64,
+    ) -> AppResult<Vec<StoredOrchardNote>> {
+        let notes = sqlx::query_as::<_, StoredOrchardNote>(
+            r#"
+            SELECT id, wallet_id, nullifier, value_zatoshis, block_height, tx_hash,
+                   position_in_block, is_spent, spent_in_tx, memo, recipient, rho, rseed,
+                   witness_position, witness_auth_path, witness_root
+            FROM orchard_notes
+            WHERE wallet_id = ? AND block_height >= ? AND block_height <= ?
+            ORDER BY block_height ASC, position_in_block ASC
+            "#,
+        )
+        .bind(wallet_id)
+        .bind(from_height)
+        .bind(to_height)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(notes)
+    }
+
     pub async fn get_unspent_notes(&self, wallet_id: i32) -> AppResult<Vec<StoredOrchardNote>> {
         let notes = sqlx::query_as::<_, StoredOrchardNote>(
             r#"
