@@ -147,7 +147,14 @@
     "recipientReceives": "对方将收到",
     "yourBalanceAfter": "转账后余额",
     "totalCost": "总花费",
-    "selectToken": "选择代币"
+    "selectToken": "选择代币",
+    "tx_hash": "交易哈希",
+    "status": {
+      "pending": "待处理",
+      "submitted": "已提交",
+      "confirmed": "已确认",
+      "failed": "失败"
+    }
   },
   "history": {
     "title": "转账历史",
@@ -205,7 +212,9 @@
   "chains": {
     "configureRpc": "配置 {{chain}} 的 RPC 节点连接",
     "manageWallets": "管理 {{chain}} 钱包",
-    "transfer": "{{chain}} 转账"
+    "transfer": "{{chain}} 转账",
+    "addressFormat": "地址格式",
+    "sendTokens": "发送代币"
   },
   "status": {
     "pending": "待处理",
@@ -216,6 +225,13 @@
   "zcash": {
     "transparentBalance": "透明",
     "shieldedBalance": "隐私",
+    "viewNotes": "查看 notes",
+    "privacyNotes": "隐私 notes",
+    "noNotes": "未发现隐私 notes",
+    "blockHeight": "区块",
+    "txHash": "交易哈希",
+    "memo": "Memo",
+    "totalShielded": "隐私余额合计",
     "transfer": {
       "transparent": "透明转账",
       "privacy": "隐私转账",
@@ -342,15 +358,6 @@
       "executing": "发送中...",
       "confirmAnyway": "仍然发送",
       "confirm": "确认并发送"
-    }
-  },
-  "transfer": {
-    "tx_hash": "交易哈希",
-    "status": {
-      "pending": "待处理",
-      "submitted": "已提交",
-      "confirmed": "已确认",
-      "failed": "失败"
     }
   },
   "approval": {
@@ -543,7 +550,7 @@
       "downloaded_title": "Viewing Key 已领取",
       "downloaded_body": "服务端已清空该行——这是唯一一次显示。审计元数据（谁、何时）保留。",
       "key_string": "Viewing Key",
-      "key_string_hint": "格式：orchard-ufvk:account=N:birthday=H:hex=...——非标准 ZIP-316，请用 Orchard 工具解析。ZIP-316 标准编码留 M2 实现。"
+      "key_string_hint": "UFVK 导出为标准 ZIP-316 `uview1…` 字符串，可直接粘贴到 Zashi / Zecwallet 导入。开头那行 `# orchard-ufvk account=N birthday=H` 注释是审计元信息，保留或删除都行。"
     },
     "disclosure": {
       "new_title": "新建支付披露",

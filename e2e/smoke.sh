@@ -235,8 +235,8 @@ else
 fi
 OUT=$(api GET "/viewing-keys/download/$DTOK" "$TOKEN")
 parse_api "$OUT"
-if [[ "$STATUS" == "200" ]] && [[ "$RESP" == orchard-ufvk:* ]]; then
-  assert_pass "VK download returned orchard-ufvk string"
+if [[ "$STATUS" == "200" ]] && [[ "$RESP" == *uview1* ]]; then
+  assert_pass "VK download returned ZIP-316 uview1 string"
 else
   assert_fail "VK download" "$RESP ($STATUS)"; exit 1
 fi

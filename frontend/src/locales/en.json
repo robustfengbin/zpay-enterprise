@@ -147,7 +147,14 @@
     "recipientReceives": "Recipient Receives",
     "yourBalanceAfter": "Your Balance After",
     "totalCost": "Total Cost",
-    "selectToken": "Select Token"
+    "selectToken": "Select Token",
+    "tx_hash": "Tx Hash",
+    "status": {
+      "pending": "Pending",
+      "submitted": "Submitted",
+      "confirmed": "Confirmed",
+      "failed": "Failed"
+    }
   },
   "history": {
     "title": "Transfer History",
@@ -205,7 +212,9 @@
   "chains": {
     "configureRpc": "Configure RPC connection for {{chain}}",
     "manageWallets": "Manage {{chain}} wallets",
-    "transfer": "{{chain}} transfer"
+    "transfer": "{{chain}} transfer",
+    "addressFormat": "Address format",
+    "sendTokens": "Send tokens"
   },
   "status": {
     "pending": "Pending",
@@ -216,6 +225,13 @@
   "zcash": {
     "transparentBalance": "Transparent",
     "shieldedBalance": "Shielded",
+    "viewNotes": "View notes",
+    "privacyNotes": "Privacy notes",
+    "noNotes": "No privacy notes found",
+    "blockHeight": "Block",
+    "txHash": "TX",
+    "memo": "Memo",
+    "totalShielded": "Total shielded",
     "transfer": {
       "transparent": "Transparent Transfer",
       "privacy": "Privacy Transfer",
@@ -342,15 +358,6 @@
       "executing": "Sending...",
       "confirmAnyway": "Send Anyway",
       "confirm": "Confirm & Send"
-    }
-  },
-  "transfer": {
-    "tx_hash": "Tx Hash",
-    "status": {
-      "pending": "Pending",
-      "submitted": "Submitted",
-      "confirmed": "Confirmed",
-      "failed": "Failed"
     }
   },
   "approval": {
@@ -543,7 +550,7 @@
       "downloaded_title": "Viewing key downloaded",
       "downloaded_body": "The server has now zeroed the row — this is the only view. Audit metadata (who, when) remains.",
       "key_string": "Viewing key",
-      "key_string_hint": "Format: orchard-ufvk:account=N:birthday=H:hex=... — not standard ZIP-316; parse with Orchard-aware tooling. ZIP-316 emission is planned for M2."
+      "key_string_hint": "UFVK exports are standard ZIP-316 uview1… strings — paste directly into Zashi / Zecwallet. The leading `# orchard-ufvk account=N birthday=H` comment is metadata for the audit trail and can be left in or stripped."
     },
     "disclosure": {
       "new_title": "New payment disclosure",

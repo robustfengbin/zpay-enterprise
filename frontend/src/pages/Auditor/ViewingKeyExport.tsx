@@ -25,11 +25,11 @@ type Step = 'form' | 'token' | 'downloaded';
  *   3. downloaded — show the actual key string with copy-to-clipboard and
  *                   a strong reminder that this is a one-time view.
  *
- * IMPORTANT contract note from france: the key string returned is a
- * hex+metadata header (orchard-ufvk:account=0:birthday=2400000:hex=...),
- * NOT a standard ZIP-316 UFVK. Zashi/Zecwallet won't recognize it
- * directly — the auditor must use Orchard-aware tooling. ZIP-316 emission
- * is M2 polish.
+ * Output format (france 485ef80): UFVK exports return a standard ZIP-316
+ * `uview1...` string that Zashi / Zecwallet can import directly, preceded
+ * by a one-line `# orchard-ufvk account=N birthday=H` metadata comment for
+ * audit trail. OVK / IVK still ship as hex with the metadata header (no
+ * standard text encoding exists for those sub-keys).
  */
 export function ViewingKeyExportModal({ walletId, walletName, open, onClose }: ViewingKeyExportModalProps) {
   const { t } = useTranslation();
