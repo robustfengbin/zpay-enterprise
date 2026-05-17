@@ -72,7 +72,13 @@
     "activeWallets": "活跃钱包",
     "recentTransfers": "最近转账",
     "noWallets": "暂无钱包",
-    "noTransfers": "暂无转账记录"
+    "noTransfers": "暂无转账记录",
+    "m1": {
+      "pending_approvals": "待我审批",
+      "my_awaiting": "我发起待审",
+      "employees": "员工数",
+      "auditors": "审计师"
+    }
   },
   "wallets": {
     "title": "钱包管理",

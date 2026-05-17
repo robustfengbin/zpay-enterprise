@@ -72,7 +72,13 @@
     "activeWallets": "Active Wallets",
     "recentTransfers": "Recent Transfers",
     "noWallets": "No wallets found",
-    "noTransfers": "No transfers found"
+    "noTransfers": "No transfers found",
+    "m1": {
+      "pending_approvals": "Pending my approval",
+      "my_awaiting": "My awaiting approval",
+      "employees": "Employees",
+      "auditors": "Auditors"
+    }
   },
   "wallets": {
     "title": "Wallets",
