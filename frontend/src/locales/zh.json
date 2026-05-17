@@ -135,6 +135,7 @@
     "noActiveWallet": "当前链没有活跃钱包，请先设置活跃钱包。",
     "adminOnly": "只有管理员可以发起转账。",
     "initiateSuccess": "转账已发起，请确认执行。",
+    "awaiting_approval_redirect": "转账金额触发审批策略，已进入审批队列——正在跳转到「我的审批」追踪状态…",
     "executeSuccess": "转账已提交！请在历史记录中查看状态。",
     "currentBalance": "当前余额",
     "available": "可用",

@@ -136,6 +136,7 @@
     "adminOnly": "Only administrators can initiate transfers.",
     "initiateSuccess": "Transfer initiated. Please review and execute.",
     "executeSuccess": "Transfer submitted successfully! Check history for status.",
+    "awaiting_approval_redirect": "Transfer amount triggered an approval policy. Sent for checker review — redirecting you to track its status…",
     "currentBalance": "Current Balance",
     "available": "Available",
     "feeDetails": "Fee Details",
