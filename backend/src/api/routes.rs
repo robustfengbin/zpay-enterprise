@@ -3,10 +3,14 @@ use actix_web::web;
 use std::sync::Arc;
 
 use super::handlers;
-use super::middleware::AuthMiddleware;
-use crate::services::AuthService;
+use super::middleware::{AuditorAuthMiddleware, AuthMiddleware};
+use crate::services::{AuditorService, AuthService};
 
-pub fn configure_routes(cfg: &mut web::ServiceConfig, auth_service: Arc<AuthService>) {
+pub fn configure_routes(
+    cfg: &mut web::ServiceConfig,
+    auth_service: Arc<AuthService>,
+    auditor_service: Arc<AuditorService>,
+) {
     // Throttle /auth/login to roughly 5 attempts per minute per peer IP.
     // The default key extractor (PeerIpKeyExtractor) buckets by client IP.
     // seconds_per_request(12) replenishes one slot every 12 s, burst_size(5)
@@ -34,20 +38,34 @@ pub fn configure_routes(cfg: &mut web::ServiceConfig, auth_service: Arc<AuthServ
             )
             .route("/health", web::get().to(health_check))
             // ============================================================
-            // M1 — F1.1 Auditor side (independent prefix).  These MUST
-            // sit before the catch-all `web::scope("")` below, because
-            // that scope's empty prefix matches every path and would
-            // otherwise swallow these routes with a 404 (and a 401 from
-            // its AuthMiddleware before the handler is even reached).
-            // Auditor handlers do their own token verification via
-            // `require_auditor()` (separate JWT kind=`auditor`).
+            // M1 — F1.1 Auditor side (independent prefix).
+            // /auditor/login is public so an auditor can obtain a token.
+            // Every other /auditor/* route is wrapped in AuditorAuthMiddleware
+            // which verifies kind=auditor JWTs (separate from the user-side
+            // AuthMiddleware below).  Scoping protects the catch-all
+            // `web::scope("")` from accidentally swallowing these routes.
             // ============================================================
             .route("/auditor/login", web::post().to(handlers::m1::auditor_login))
-            .route("/auditor/me", web::get().to(handlers::m1::auditor_me))
-            .route("/auditor/wallets", web::get().to(handlers::m1::auditor_list_wallets))
-            .route("/auditor/wallets/{id}/balance", web::get().to(handlers::m1::auditor_wallet_balance))
-            .route("/auditor/wallets/{id}/transfers", web::get().to(handlers::m1::auditor_wallet_transfers))
-            .route("/auditor/wallets/{id}/disclosures", web::get().to(handlers::m1::auditor_wallet_disclosures))
+            .service(
+                web::scope("/auditor")
+                    .wrap(AuditorAuthMiddleware {
+                        auditor_service: auditor_service.clone(),
+                    })
+                    .route("/me", web::get().to(handlers::m1::auditor_me))
+                    .route("/wallets", web::get().to(handlers::m1::auditor_list_wallets))
+                    .route(
+                        "/wallets/{id}/balance",
+                        web::get().to(handlers::m1::auditor_wallet_balance),
+                    )
+                    .route(
+                        "/wallets/{id}/transfers",
+                        web::get().to(handlers::m1::auditor_wallet_transfers),
+                    )
+                    .route(
+                        "/wallets/{id}/disclosures",
+                        web::get().to(handlers::m1::auditor_wallet_disclosures),
+                    ),
+            )
             // Protected routes
             .service(
                 web::scope("")

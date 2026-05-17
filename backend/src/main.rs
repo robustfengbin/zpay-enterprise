@@ -312,7 +312,13 @@ async fn main() -> std::io::Result<()> {
             .app_data(web::Data::new(chain_registry.clone()))
             .app_data(web::Data::new(settings_repo_for_app.clone()))
             .app_data(web::Data::new(eth_client_for_app.clone()))
-            .configure(|cfg| api::configure_routes(cfg, auth_service_for_routes.clone()))
+            .configure(|cfg| {
+                api::configure_routes(
+                    cfg,
+                    auth_service_for_routes.clone(),
+                    auditor_service.clone(),
+                )
+            })
     })
     .bind((server_host, server_port))?
     .run()

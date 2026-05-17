@@ -9,15 +9,12 @@
 
 use std::sync::Arc;
 
-use actix_web::{web, HttpResponse};
+use actix_web::{web, HttpRequest, HttpResponse};
 use serde_json::json;
 
-use actix_web::{HttpMessage, HttpRequest};
-
-use crate::api::middleware::AuthenticatedUser;
+use crate::api::middleware::{AuthenticatedAuditor, AuthenticatedUser};
 use crate::db::repositories::WalletRepository;
 use crate::error::{AppError, AppResult};
-use crate::services::auditor_service::AuditorClaims;
 use crate::services::{
     ApprovalService, AuditorService, EmployeeService, PayrollService, PaymentDisclosureService,
     ViewingKeyService,
@@ -165,33 +162,11 @@ pub async fn list_payment_disclosures(
 }
 
 // ===========================================================================
-// F1.1 — Auditor side (independent prefix /api/v1/auditor/*)
-// Token guard is inline (no separate AuditorAuthMiddleware in M1.W1 —
-// scheduled for W2 once ViewingKey + Disclosure flows ship).
+// F1.1 — Auditor side (independent prefix /api/v1/auditor/*).  All routes
+// except /login sit behind AuditorAuthMiddleware which verifies the
+// kind=auditor JWT and exposes AuthenticatedAuditor as a FromRequest
+// extractor — handlers below stay free of inline token verification.
 // ===========================================================================
-
-/// Extract + verify auditor JWT from Authorization header.  Returns 401 on
-/// missing / invalid / wrong-kind tokens.
-fn require_auditor(
-    req: &HttpRequest,
-    auditor_service: &AuditorService,
-) -> AppResult<AuditorClaims> {
-    let header = req
-        .headers()
-        .get(actix_web::http::header::AUTHORIZATION)
-        .and_then(|h| h.to_str().ok())
-        .ok_or_else(|| AppError::Unauthorized("missing Authorization header".to_string()))?;
-
-    let token = header
-        .strip_prefix("Bearer ")
-        .ok_or_else(|| AppError::Unauthorized("malformed Authorization header".to_string()))?;
-
-    let claims = auditor_service.verify_token(token)?;
-    // Stash claims into request extensions for downstream handlers in the
-    // same call, matching the AuthMiddleware pattern.
-    req.extensions_mut().insert(claims.clone());
-    Ok(claims)
-}
 
 pub async fn auditor_login(
     body: web::Json<crate::db::models_m1::AuditorLoginRequest>,
@@ -202,28 +177,26 @@ pub async fn auditor_login(
 }
 
 pub async fn auditor_me(
-    req: HttpRequest,
+    auditor: AuthenticatedAuditor,
     auditor_service: web::Data<Arc<AuditorService>>,
 ) -> AppResult<HttpResponse> {
-    let claims = require_auditor(&req, &auditor_service)?;
-    let auditor = auditor_service
-        .find_by_id(claims.sub)
+    let row = auditor_service
+        .find_by_id(auditor.auditor_id)
         .await?
-        .ok_or_else(|| AppError::NotFound(format!("auditor {} not found", claims.sub)))?;
-    let scopes = auditor_service.list_scopes(claims.sub).await?;
+        .ok_or_else(|| AppError::NotFound(format!("auditor {} not found", auditor.auditor_id)))?;
+    let scopes = auditor_service.list_scopes(auditor.auditor_id).await?;
     Ok(HttpResponse::Ok().json(json!({
-        "auditor": crate::db::models_m1::AuditorResponse::from(auditor),
+        "auditor": crate::db::models_m1::AuditorResponse::from(row),
         "scopes": scopes,
     })))
 }
 
 pub async fn auditor_list_wallets(
-    req: HttpRequest,
+    auditor: AuthenticatedAuditor,
     auditor_service: web::Data<Arc<AuditorService>>,
     wallet_repo: web::Data<WalletRepository>,
 ) -> AppResult<HttpResponse> {
-    let claims = require_auditor(&req, &auditor_service)?;
-    let scopes = auditor_service.list_scopes(claims.sub).await?;
+    let scopes = auditor_service.list_scopes(auditor.auditor_id).await?;
 
     // Look up each wallet for the auditor's scopes.  Wallets are still the
     // authoritative source — scope only carries the wallet_id + time window.
@@ -245,13 +218,12 @@ pub async fn auditor_list_wallets(
 }
 
 pub async fn auditor_wallet_balance(
-    req: HttpRequest,
+    auditor: AuthenticatedAuditor,
     path: web::Path<i32>,
     auditor_service: web::Data<Arc<AuditorService>>,
 ) -> AppResult<HttpResponse> {
-    let claims = require_auditor(&req, &auditor_service)?;
     auditor_service
-        .assert_wallet_in_scope(claims.sub, path.into_inner())
+        .assert_wallet_in_scope(auditor.auditor_id, path.into_inner())
         .await?;
     // Real balance read requires the wallet's viewing key to be decrypted —
     // deferred to W2 (paired with ViewingKey export real impl).  Return a
@@ -266,26 +238,24 @@ pub async fn auditor_wallet_balance(
 }
 
 pub async fn auditor_wallet_transfers(
-    req: HttpRequest,
+    auditor: AuthenticatedAuditor,
     path: web::Path<i32>,
     auditor_service: web::Data<Arc<AuditorService>>,
 ) -> AppResult<HttpResponse> {
-    let claims = require_auditor(&req, &auditor_service)?;
     auditor_service
-        .assert_wallet_in_scope(claims.sub, path.into_inner())
+        .assert_wallet_in_scope(auditor.auditor_id, path.into_inner())
         .await?;
     // Real transfers query (filtered by scope_start..scope_end) wired in W2.
     Ok(HttpResponse::Ok().json(json!([])))
 }
 
 pub async fn auditor_wallet_disclosures(
-    req: HttpRequest,
+    auditor: AuthenticatedAuditor,
     path: web::Path<i32>,
     auditor_service: web::Data<Arc<AuditorService>>,
 ) -> AppResult<HttpResponse> {
-    let claims = require_auditor(&req, &auditor_service)?;
     auditor_service
-        .assert_wallet_in_scope(claims.sub, path.into_inner())
+        .assert_wallet_in_scope(auditor.auditor_id, path.into_inner())
         .await?;
     Ok(HttpResponse::Ok().json(json!([])))
 }

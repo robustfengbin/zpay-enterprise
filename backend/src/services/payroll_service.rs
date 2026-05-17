@@ -325,9 +325,11 @@ impl PayrollService {
     }
 
     // -----------------------------------------------------------------------
-    // cancel_run — only legal from `pending`. Anything that has touched the
-    // chain (executing / partial / completed) must not be retroactively
-    // canceled; the operator should retry individual failed items instead.
+    // cancel_run — advisory close.  Always legal from pending /
+    // awaiting_approval; legal from `executing` too as a force-recover path
+    // for runs stuck after a backend crash mid-execute.  Items already
+    // submitted on-chain are NOT reversed (impossible) — the cancel just
+    // stops further attempts and surfaces the terminal state in the UI.
     // -----------------------------------------------------------------------
 
     pub async fn cancel_run(&self, run_id: i32) -> AppResult<PayrollRun> {
@@ -336,9 +338,12 @@ impl PayrollService {
             .find_run_by_id(run_id)
             .await?
             .ok_or_else(|| AppError::NotFound(format!("payroll_run {} not found", run_id)))?;
-        if run.status != "pending" && run.status != "awaiting_approval" {
+        if !matches!(
+            run.status.as_str(),
+            "pending" | "awaiting_approval" | "executing"
+        ) {
             return Err(AppError::ValidationError(format!(
-                "payroll_run in state '{}' cannot be canceled",
+                "payroll_run in terminal state '{}' cannot be canceled",
                 run.status
             )));
         }
