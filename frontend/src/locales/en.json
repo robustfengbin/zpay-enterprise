@@ -470,6 +470,7 @@
       "subtitle": "Read-only view across scoped wallets. Generate disclosures to inspect amounts.",
       "empty": "No wallets are scoped to you yet.",
       "request_disclosure": "Request disclosure",
+      "export_viewing_key": "Export viewing key",
       "col": {
         "wallet": "Wallet",
         "chain": "Chain",

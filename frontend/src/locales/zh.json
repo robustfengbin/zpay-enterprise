@@ -470,6 +470,7 @@
       "subtitle": "对授权钱包的只读视图。生成披露报告以查看具体金额。",
       "empty": "尚未授权任何钱包给当前审计师。",
       "request_disclosure": "生成披露",
+      "export_viewing_key": "导出 viewing key",
       "col": {
         "wallet": "钱包",
         "chain": "链",

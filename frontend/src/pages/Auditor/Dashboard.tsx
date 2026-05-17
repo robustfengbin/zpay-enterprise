@@ -1,22 +1,33 @@
 import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
-import { Eye, FileText } from 'lucide-react';
+import { Eye, FileText, Key } from 'lucide-react';
 import { Card, LoadingSpinner } from '../../components/Common';
+import { ViewingKeyExportModal } from './ViewingKeyExport';
 import { viewingKeyService } from '../../services/api';
 import type { AuditorTenantSummary } from '../../types/viewing-key';
+import { useAuth } from '../../hooks/useAuth';
 
 /**
  * F1.1 §2 Auditor Dashboard — read-only summary across tenants.
- * Auditor role can see aggregate counts + last activity, but to view actual
+ * Auditor role sees only aggregate counts + last activity; to view actual
  * amounts they must request a payment disclosure (which is logged).
+ *
+ * Admins viewing this page also get an "Export viewing key" CTA on each
+ * row so they can hand a one-time download token to an external auditor
+ * via the modal flow. This entry-point is admin-only (gated by role check
+ * below) — auditors never see it.
  */
 export function AuditorDashboard() {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [tenants, setTenants] = useState<AuditorTenantSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [exportFor, setExportFor] = useState<AuditorTenantSummary | null>(null);
+
+  const isAdmin = user?.role === 'admin';
 
   useEffect(() => {
     (async () => {
@@ -64,7 +75,16 @@ export function AuditorDashboard() {
                 <td className="p-2 font-mono text-xs truncate max-w-xs">{t1.address}</td>
                 <td className="p-2 text-right">{t1.total_tx_count}</td>
                 <td className="p-2 text-xs">{t1.last_activity_at ? new Date(t1.last_activity_at).toLocaleString() : '—'}</td>
-                <td className="p-2 text-right">
+                <td className="p-2 text-right space-x-1">
+                  {isAdmin && (
+                    <button
+                      className="btn-ghost"
+                      onClick={() => setExportFor(t1)}
+                      title={t('auditor.dashboard.export_viewing_key')}
+                    >
+                      <Key className="w-4 h-4 inline" />
+                    </button>
+                  )}
                   <button
                     className="btn-secondary"
                     onClick={() => navigate(`/auditor/disclosure/new?wallet_id=${t1.wallet_id}`)}
@@ -82,6 +102,15 @@ export function AuditorDashboard() {
           </tbody>
         </table>
       </Card>
+
+      {exportFor && (
+        <ViewingKeyExportModal
+          walletId={exportFor.wallet_id}
+          walletName={exportFor.wallet_name}
+          open={true}
+          onClose={() => setExportFor(null)}
+        />
+      )}
     </div>
   );
 }

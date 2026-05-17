@@ -26,14 +26,14 @@ export function generateIdempotencyKey(): string {
 
 export const approvalService = {
   /**
-   * GET /transfers/approvals/pending — list transfers I can approve.
+   * GET /approvals/pending — list transfers awaiting my approval.
    * Backend filters out transfers where I am the maker.
-   * Route shape aligned with france's actual handler routing (2026-05-16).
+   * Route shape aligned with france's c7cea2c handler routing.
    */
   async listPending(limit = 20, cursor?: string): Promise<PendingApprovalListResponse> {
     const params: Record<string, string | number> = { limit };
     if (cursor) params.cursor = cursor;
-    return api.get('/transfers/approvals/pending', { params });
+    return api.get('/approvals/pending', { params });
   },
 
   /**
