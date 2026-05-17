@@ -534,7 +534,8 @@
   },
   "payroll": {
     "run_status": {
-      "draft": "草稿",
+      "pending": "待执行",
+      "draft": "待执行",
       "awaiting_approval": "等待审批",
       "approved": "已批准",
       "rejected": "已拒绝",
@@ -559,18 +560,64 @@
     "create": {
       "title": "新建发薪批次",
       "pay_period": "周期",
-      "source_chain": "源链",
-      "source_token": "源币种",
+      "source_wallet": "资金钱包",
+      "pick_wallet": "选择钱包…",
+      "notes": "备注",
+      "notes_placeholder": "可选的内部备注",
       "csv_help": "上传 CSV，每行一名员工。列：",
+      "csv_read_error": "无法读取文件。",
       "upload_csv": "上传 CSV",
       "preview_summary": "预览",
       "valid": "有效",
       "invalid": "无效",
       "total": "总数",
-      "create_draft": "创建草稿批次",
+      "submit": "创建发薪批次",
+      "server_validation": "服务器拒绝以下行",
       "confirm_with_invalid": "有 {{count}} 行校验错误将被跳过。继续？",
-      "in_address_book": "已在地址簿",
-      "chain_mismatch_warn": "地址格式与所选链不匹配",
+      "err_no_wallet": "请先选择资金钱包。",
+      "err_no_period": "周期不能为空。",
+      "err_no_valid_rows": "无有效行可提交。",
+      "err_server_validation": "服务器拒绝了 {{count}} 行，详情见下。",
+      "col": {
+        "code": "编号",
+        "employee": "员工",
+        "address": "地址",
+        "chain": "链",
+        "token": "币种",
+        "amount": "金额",
+        "memo": "备注",
+        "privacy": "隐私模式",
+        "checks": "校验"
+      }
+    },
+    "detail": {
+      "title": "发薪批次",
+      "source_wallet": "资金钱包",
+      "source_amount": "源金额",
+      "total_amount": "总金额",
+      "status": "状态",
+      "item_count": "条目数",
+      "items_total": "条目数",
+      "created_by": "创建人",
+      "created_at": "创建时间",
+      "executed_by": "执行人",
+      "executed_at": "执行时间",
+      "approved_by": "审批人",
+      "notes": "备注",
+      "execute_outcome": "执行结果",
+      "confirm_cancel": "确认取消此批次？未上链的条目将标记为失败。",
+      "outcome": {
+        "awaiting": "批次总额超过策略 #{{policy_id}} 阈值 {{threshold}} — 已转入审批队列。",
+        "executed": "已提交 {{submitted}} 条，失败 {{failed}} 条。最终状态：{{status}}。"
+      },
+      "items": "条目",
+      "empty_items": "此批次无条目。",
+      "action": {
+        "execute": "执行",
+        "retry_failed": "重试 {{count}} 个失败",
+        "cancel": "取消批次",
+        "view_approval": "查看审批队列"
+      },
       "col": {
         "employee": "员工",
         "address": "地址",
@@ -578,36 +625,8 @@
         "token": "币种",
         "amount": "金额",
         "privacy": "隐私模式",
-        "checks": "校验"
-      }
-    },
-    "detail": {
-      "title": "发薪批次",
-      "source_amount": "源金额",
-      "status": "状态",
-      "items_total": "条目数",
-      "created_by": "创建人",
-      "created_at": "创建时间",
-      "approved_by": "审批人",
-      "quote": "报价",
-      "estimated_fee": "预估手续费",
-      "estimated_proof_time": "预估证明时间",
-      "items": "条目",
-      "empty_items": "此批次无条目。",
-      "action": {
-        "quote": "获取报价",
-        "execute": "执行",
-        "retry_failed": "重试失败条目",
-        "view_approval": "查看审批"
-      },
-      "col": {
-        "employee": "员工",
-        "chain": "链",
-        "token": "币种",
-        "amount": "金额",
-        "privacy": "隐私模式",
         "status": "状态",
-        "tx": "转账",
+        "tx": "交易哈希",
         "reason": "失败原因"
       }
     },

@@ -534,7 +534,8 @@
   },
   "payroll": {
     "run_status": {
-      "draft": "Draft",
+      "pending": "Pending",
+      "draft": "Pending",
       "awaiting_approval": "Awaiting approval",
       "approved": "Approved",
       "rejected": "Rejected",
@@ -559,18 +560,64 @@
     "create": {
       "title": "New payroll run",
       "pay_period": "Pay period",
-      "source_chain": "Source chain",
-      "source_token": "Source token",
+      "source_wallet": "Source wallet",
+      "pick_wallet": "Select a wallet…",
+      "notes": "Notes",
+      "notes_placeholder": "Optional internal note",
       "csv_help": "Upload a CSV with one row per employee. Columns:",
+      "csv_read_error": "Could not read the file.",
       "upload_csv": "Upload CSV",
       "preview_summary": "Preview",
       "valid": "valid",
       "invalid": "invalid",
       "total": "Total",
-      "create_draft": "Create draft run",
+      "submit": "Create payroll run",
+      "server_validation": "Server rejected the following rows",
       "confirm_with_invalid": "{{count}} rows have validation errors and will be skipped. Continue?",
-      "in_address_book": "In address book",
-      "chain_mismatch_warn": "Address format does not match selected chain",
+      "err_no_wallet": "Pick a source wallet first.",
+      "err_no_period": "Pay period is required.",
+      "err_no_valid_rows": "No valid rows to submit.",
+      "err_server_validation": "Server rejected {{count}} row(s); see details below.",
+      "col": {
+        "code": "Code",
+        "employee": "Employee",
+        "address": "Address",
+        "chain": "Chain",
+        "token": "Token",
+        "amount": "Amount",
+        "memo": "Memo",
+        "privacy": "Privacy",
+        "checks": "Checks"
+      }
+    },
+    "detail": {
+      "title": "Payroll run",
+      "source_wallet": "Source wallet",
+      "source_amount": "Source amount",
+      "total_amount": "Total amount",
+      "status": "Status",
+      "item_count": "Items",
+      "items_total": "Items",
+      "created_by": "Created by",
+      "created_at": "Created",
+      "executed_by": "Executed by",
+      "executed_at": "Executed",
+      "approved_by": "Approved by",
+      "notes": "Notes",
+      "execute_outcome": "Execute outcome",
+      "confirm_cancel": "Cancel this payroll run? Items not yet submitted on-chain will be marked failed.",
+      "outcome": {
+        "awaiting": "Run total exceeds threshold {{threshold}} on policy #{{policy_id}} — routed to maker/checker queue.",
+        "executed": "Submitted {{submitted}} item(s), {{failed}} failed. Final status: {{status}}."
+      },
+      "items": "Items",
+      "empty_items": "No items in this run.",
+      "action": {
+        "execute": "Execute",
+        "retry_failed": "Retry {{count}} failed",
+        "cancel": "Cancel run",
+        "view_approval": "View approval queue"
+      },
       "col": {
         "employee": "Employee",
         "address": "Address",
@@ -578,36 +625,8 @@
         "token": "Token",
         "amount": "Amount",
         "privacy": "Privacy",
-        "checks": "Checks"
-      }
-    },
-    "detail": {
-      "title": "Payroll run",
-      "source_amount": "Source amount",
-      "status": "Status",
-      "items_total": "Items",
-      "created_by": "Created by",
-      "created_at": "Created",
-      "approved_by": "Approved by",
-      "quote": "Quote",
-      "estimated_fee": "Estimated fee",
-      "estimated_proof_time": "Estimated proof time",
-      "items": "Items",
-      "empty_items": "No items in this run.",
-      "action": {
-        "quote": "Get quote",
-        "execute": "Execute",
-        "retry_failed": "Retry failed items",
-        "view_approval": "View approval"
-      },
-      "col": {
-        "employee": "Employee",
-        "chain": "Chain",
-        "token": "Token",
-        "amount": "Amount",
-        "privacy": "Privacy",
         "status": "Status",
-        "tx": "Transfers",
+        "tx": "Tx hash",
         "reason": "Failure reason"
       }
     },

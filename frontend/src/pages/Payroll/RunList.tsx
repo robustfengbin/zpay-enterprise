@@ -3,24 +3,30 @@ import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { Plus, RefreshCw } from 'lucide-react';
 import { Card, LoadingSpinner } from '../../components/Common';
-import { payrollService } from '../../services/api';
+import { payrollService, walletService } from '../../services/api';
 import type { PayrollRun } from '../../types/payroll';
+import type { Wallet } from '../../types';
 
 /**
- * F3.1 — Payroll Run list. Shows all runs with status + counts.
+ * F3.1 — Payroll Run list. M1 simplified: one run = one source_wallet.
  */
 export function PayrollRunList() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const [runs, setRuns] = useState<PayrollRun[]>([]);
+  const [wallets, setWallets] = useState<Wallet[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   async function load() {
     setLoading(true);
     try {
-      const data = await payrollService.listRuns(20, 0);
-      setRuns(data.runs);
+      const [runList, walletList] = await Promise.all([
+        payrollService.listRuns(20, 0),
+        walletService.listWallets(),
+      ]);
+      setRuns(runList);
+      setWallets(walletList);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -31,6 +37,8 @@ export function PayrollRunList() {
   useEffect(() => { load(); }, []);
 
   if (loading) return <LoadingSpinner />;
+
+  const walletById = new Map(wallets.map(w => [w.id, w]));
 
   return (
     <div className="p-6 space-y-4 max-w-5xl">
@@ -63,28 +71,28 @@ export function PayrollRunList() {
             </tr>
           </thead>
           <tbody>
-            {runs.map(r => (
-              <tr
-                key={r.id}
-                className="border-t border-gray-100 hover:bg-gray-50 cursor-pointer"
-                onClick={() => navigate(`/payroll/runs/${r.id}`)}
-              >
-                <td className="p-2 font-mono text-xs">{r.id}</td>
-                <td className="p-2">{r.pay_period || '—'}</td>
-                <td className="p-2">{r.source_chain} / {r.source_token}</td>
-                <td className="p-2 text-right font-mono">{r.source_amount}</td>
-                <td className="p-2">
-                  <span className={`text-xs px-2 py-0.5 rounded ${statusColorClass(r.status)}`}>
-                    {t(`payroll.run_status.${r.status}`)}
-                  </span>
-                </td>
-                <td className="p-2 text-right text-xs">
-                  {r.succeeded_items ?? 0} / {r.total_items ?? 0}
-                  {r.failed_items ? <span className="text-red-600"> ({r.failed_items} ⚠️)</span> : null}
-                </td>
-                <td className="p-2 text-xs">{new Date(r.created_at).toLocaleString()}</td>
-              </tr>
-            ))}
+            {runs.map(r => {
+              const w = walletById.get(r.source_wallet_id);
+              return (
+                <tr
+                  key={r.id}
+                  className="border-t border-gray-100 hover:bg-gray-50 cursor-pointer"
+                  onClick={() => navigate(`/payroll/runs/${r.id}`)}
+                >
+                  <td className="p-2 font-mono text-xs">{r.id}</td>
+                  <td className="p-2">{r.pay_period}</td>
+                  <td className="p-2">{w ? `${w.name} (${w.chain})` : `#${r.source_wallet_id}`}</td>
+                  <td className="p-2 text-right font-mono">{r.total_amount}</td>
+                  <td className="p-2">
+                    <span className={`text-xs px-2 py-0.5 rounded ${statusColorClass(r.status)}`}>
+                      {t(`payroll.run_status.${r.status}`)}
+                    </span>
+                  </td>
+                  <td className="p-2 text-right text-xs">{r.item_count}</td>
+                  <td className="p-2 text-xs">{new Date(r.created_at).toLocaleString()}</td>
+                </tr>
+              );
+            })}
             {runs.length === 0 && (
               <tr><td colSpan={7} className="p-4 text-center text-gray-400">{t('payroll.run_list.empty')}</td></tr>
             )}
@@ -104,7 +112,7 @@ function statusColorClass(status: string): string {
     case 'approved':        return 'bg-yellow-100 text-yellow-800';
     case 'rejected':
     case 'failed':          return 'bg-red-100 text-red-800';
-    case 'draft':           return 'bg-gray-100 text-gray-800';
+    case 'pending':         return 'bg-gray-100 text-gray-800';
     default:                return 'bg-gray-100 text-gray-700';
   }
 }

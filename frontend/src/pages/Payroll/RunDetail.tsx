@@ -1,34 +1,32 @@
 import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useParams, useNavigate } from 'react-router-dom';
-import { Play, RefreshCw, Clock, RotateCw } from 'lucide-react';
+import { Play, RefreshCw, RotateCw, XCircle } from 'lucide-react';
 import { Card, LoadingSpinner } from '../../components/Common';
 import { payrollService } from '../../services/api';
-import type { PayrollItem, PayrollRun } from '../../types/payroll';
-
-type RunDetail = PayrollRun & { items: PayrollItem[] };
+import type { ExecuteRunOutcome, PayrollRunSummary } from '../../types/payroll';
 
 /**
- * F3.1 — Payroll Run detail: shows all items + status + actions
- *   - quote (estimate fee + proof time)
- *   - request approval (creates F2.1 run-level approval if amount exceeds policy)
- *   - execute (after approved or low-amount)
- *   - retry failed items
+ * F3.1 — Payroll Run detail.
+ *
+ * Backend GET /payroll/runs/{id} returns `{run, items}` (nested).
+ * Execute responds with a tagged union — awaiting_approval routes the user
+ * to the pending-approval queue; executed shows submitted/failed counts.
  */
 export function PayrollRunDetail() {
   const { t } = useTranslation();
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const [run, setRun] = useState<RunDetail | null>(null);
+  const [summary, setSummary] = useState<PayrollRunSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [quote, setQuote] = useState<{ estimated_fee: string; estimated_proof_seconds: number } | null>(null);
+  const [outcome, setOutcome] = useState<ExecuteRunOutcome | null>(null);
 
   async function load() {
     setLoading(true);
     try {
-      setRun(await payrollService.getRun(Number(id)));
+      setSummary(await payrollService.getRun(Number(id)));
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -51,19 +49,41 @@ export function PayrollRunDetail() {
     }
   }
 
-  if (loading) return <LoadingSpinner />;
-  if (!run) return <div className="p-6 text-red-600">{error || t('common.not_found')}</div>;
+  async function onExecute() {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await payrollService.executeRun(Number(id));
+      setOutcome(res);
+      if (res.result === 'awaiting_approval') {
+        // Brief flash before routing, so the user sees the pivot.
+        setTimeout(() => navigate('/approval/pending'), 1200);
+      }
+      await load();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
 
-  const canQuote = run.status === 'draft';
-  const canExecute = run.status === 'approved' || (run.status === 'draft' && run.items.length > 0); // assuming low-amount = no approval needed
-  const canRetry = run.status === 'partial_success' || (run.failed_items ?? 0) > 0;
+  if (loading) return <LoadingSpinner />;
+  if (!summary) return <div className="p-6 text-red-600">{error || t('common.not_found')}</div>;
+
+  const { run, items } = summary;
+  const canExecute = run.status === 'pending';
+  const canCancel = run.status === 'pending' || run.status === 'awaiting_approval';
+  const failedCount = items.filter(it => it.status === 'failed' || it.status === 'compensation_pending').length;
+  const canRetry = failedCount > 0 && run.status !== 'executing';
 
   return (
     <div className="p-6 max-w-6xl space-y-4">
       <header className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold">{t('payroll.detail.title')} #{run.id}</h1>
-          <p className="text-sm text-gray-500">{run.pay_period || '—'} · {run.source_chain} / {run.source_token}</p>
+          <p className="text-sm text-gray-500">
+            {run.pay_period} · {t('payroll.detail.source_wallet')} #{run.source_wallet_id}
+          </p>
         </div>
         <button className="btn-ghost" onClick={load} aria-label={t('common.refresh')}>
           <RefreshCw className="w-4 h-4" />
@@ -72,55 +92,68 @@ export function PayrollRunDetail() {
 
       <Card>
         <dl className="grid grid-cols-4 gap-y-2 text-sm">
-          <dt className="text-gray-500">{t('payroll.detail.source_amount')}</dt>
-          <dd className="font-mono">{run.source_amount} {run.source_token}</dd>
+          <dt className="text-gray-500">{t('payroll.detail.total_amount')}</dt>
+          <dd className="font-mono">{run.total_amount}</dd>
           <dt className="text-gray-500">{t('payroll.detail.status')}</dt>
-          <dd>{t(`payroll.run_status.${run.status}`)}</dd>
-          <dt className="text-gray-500">{t('payroll.detail.items_total')}</dt>
-          <dd>{run.items.length}</dd>
+          <dd>
+            <span className="px-2 py-0.5 rounded bg-gray-100 text-gray-800 text-xs">
+              {t(`payroll.run_status.${run.status}`)}
+            </span>
+          </dd>
+          <dt className="text-gray-500">{t('payroll.detail.item_count')}</dt>
+          <dd>{run.item_count}</dd>
           <dt className="text-gray-500">{t('payroll.detail.created_by')}</dt>
-          <dd>user#{run.created_by}</dd>
+          <dd>user#{run.created_by_user_id}</dd>
           <dt className="text-gray-500">{t('payroll.detail.created_at')}</dt>
           <dd>{new Date(run.created_at).toLocaleString()}</dd>
-          {run.approved_by && (
+          {run.executed_at && (
             <>
-              <dt className="text-gray-500">{t('payroll.detail.approved_by')}</dt>
-              <dd>user#{run.approved_by}</dd>
+              <dt className="text-gray-500">{t('payroll.detail.executed_at')}</dt>
+              <dd>{new Date(run.executed_at).toLocaleString()}</dd>
+            </>
+          )}
+          {run.executed_by_user_id && (
+            <>
+              <dt className="text-gray-500">{t('payroll.detail.executed_by')}</dt>
+              <dd>user#{run.executed_by_user_id}</dd>
+            </>
+          )}
+          {run.notes && (
+            <>
+              <dt className="text-gray-500">{t('payroll.detail.notes')}</dt>
+              <dd className="col-span-3 whitespace-pre-wrap text-gray-700">{run.notes}</dd>
             </>
           )}
         </dl>
       </Card>
 
-      {quote && (
+      {outcome && (
         <Card>
-          <h2 className="font-semibold text-sm mb-2 flex items-center gap-1">
-            <Clock className="w-4 h-4" /> {t('payroll.detail.quote')}
-          </h2>
-          <p className="text-sm">
-            {t('payroll.detail.estimated_fee')}: <span className="font-mono">{quote.estimated_fee}</span>
-            <span className="ml-4">{t('payroll.detail.estimated_proof_time')}: ~{quote.estimated_proof_seconds}s</span>
-          </p>
+          <h2 className="font-semibold text-sm mb-1">{t('payroll.detail.execute_outcome')}</h2>
+          {outcome.result === 'awaiting_approval' ? (
+            <p className="text-sm text-yellow-800">
+              {t('payroll.detail.outcome.awaiting', {
+                threshold: outcome.threshold,
+                policy_id: outcome.policy_id,
+              })}
+            </p>
+          ) : (
+            <p className="text-sm">
+              {t('payroll.detail.outcome.executed', {
+                submitted: outcome.submitted,
+                failed: outcome.failed,
+                status: outcome.final_status,
+              })}
+            </p>
+          )}
         </Card>
       )}
 
       {error && <div className="rounded bg-red-50 text-red-800 px-4 py-2 text-sm">{error}</div>}
 
       <div className="flex gap-2">
-        {canQuote && (
-          <button
-            className="btn-secondary"
-            disabled={busy}
-            onClick={() => action(async () => setQuote(await payrollService.quoteRun(run.id)))}
-          >
-            <Clock className="w-4 h-4 inline mr-1" /> {t('payroll.detail.action.quote')}
-          </button>
-        )}
         {canExecute && (
-          <button
-            className="btn-primary"
-            disabled={busy}
-            onClick={() => action(() => payrollService.executeRun(run.id))}
-          >
+          <button className="btn-primary" disabled={busy} onClick={onExecute}>
             <Play className="w-4 h-4 inline mr-1" /> {t('payroll.detail.action.execute')}
           </button>
         )}
@@ -129,19 +162,27 @@ export function PayrollRunDetail() {
             className="btn-secondary"
             disabled={busy}
             onClick={() => action(async () => {
-              // Backend exposes per-item retry only — fan out client-side.
-              const failed = run.items.filter(it => it.status === 'failed' || it.status === 'compensation_pending');
+              const failed = items.filter(it => it.status === 'failed' || it.status === 'compensation_pending');
               await Promise.all(failed.map(it => payrollService.retryItem(run.id, it.id)));
             })}
           >
-            <RotateCw className="w-4 h-4 inline mr-1" /> {t('payroll.detail.action.retry_failed')}
+            <RotateCw className="w-4 h-4 inline mr-1" /> {t('payroll.detail.action.retry_failed', { count: failedCount })}
+          </button>
+        )}
+        {canCancel && (
+          <button
+            className="btn-ghost text-red-600"
+            disabled={busy}
+            onClick={() => {
+              if (!confirm(t('payroll.detail.confirm_cancel'))) return;
+              void action(() => payrollService.cancelRun(run.id));
+            }}
+          >
+            <XCircle className="w-4 h-4 inline mr-1" /> {t('payroll.detail.action.cancel')}
           </button>
         )}
         {run.status === 'awaiting_approval' && (
-          <button
-            className="btn-ghost"
-            onClick={() => navigate(`/approval/${run.id}`)}
-          >
+          <button className="btn-ghost" onClick={() => navigate('/approval/pending')}>
             {t('payroll.detail.action.view_approval')}
           </button>
         )}
@@ -154,37 +195,37 @@ export function PayrollRunDetail() {
             <tr>
               <th className="text-left p-2">#</th>
               <th className="text-left p-2">{t('payroll.detail.col.employee')}</th>
-              <th className="text-left p-2">{t('payroll.detail.col.chain')}</th>
-              <th className="text-left p-2">{t('payroll.detail.col.token')}</th>
+              <th className="text-left p-2">{t('payroll.detail.col.address')}</th>
               <th className="text-right p-2">{t('payroll.detail.col.amount')}</th>
-              <th className="text-left p-2">{t('payroll.detail.col.privacy')}</th>
               <th className="text-left p-2">{t('payroll.detail.col.status')}</th>
               <th className="text-left p-2">{t('payroll.detail.col.tx')}</th>
               <th className="text-left p-2">{t('payroll.detail.col.reason')}</th>
             </tr>
           </thead>
           <tbody>
-            {run.items.map(item => (
+            {items.map(item => (
               <tr key={item.id} className="border-t border-gray-100">
                 <td className="p-2 font-mono">{item.id}</td>
-                <td className="p-2">{item.employee_name}</td>
-                <td className="p-2">{item.target_chain}</td>
-                <td className="p-2">{item.target_token}</td>
-                <td className="p-2 text-right font-mono">{item.amount_target || item.amount_source || '—'}</td>
-                <td className="p-2">{item.privacy_mode}</td>
+                <td className="p-2">{item.employee_id ? `#${item.employee_id}` : '—'}</td>
+                <td className="p-2 font-mono truncate max-w-[180px]" title={item.employee_address}>
+                  {item.employee_address}
+                </td>
+                <td className="p-2 text-right font-mono">{item.amount}</td>
                 <td className="p-2">
                   <span className={`text-xs px-1.5 py-0.5 rounded ${itemStatusColor(item.status)}`}>
                     {item.status}
                   </span>
                 </td>
-                <td className="p-2 font-mono truncate max-w-[120px]">
-                  {item.linked_transfer_ids.length > 0 ? `#${item.linked_transfer_ids.join(',')}` : '—'}
+                <td className="p-2 font-mono truncate max-w-[160px]" title={item.tx_hash || ''}>
+                  {item.tx_hash || '—'}
                 </td>
-                <td className="p-2 text-red-700 text-xs truncate max-w-[160px]">{item.failure_reason || '—'}</td>
+                <td className="p-2 text-red-700 text-xs truncate max-w-[200px]" title={item.error_message || ''}>
+                  {item.error_message || '—'}
+                </td>
               </tr>
             ))}
-            {run.items.length === 0 && (
-              <tr><td colSpan={9} className="p-4 text-center text-gray-400">{t('payroll.detail.empty_items')}</td></tr>
+            {items.length === 0 && (
+              <tr><td colSpan={7} className="p-4 text-center text-gray-400">{t('payroll.detail.empty_items')}</td></tr>
             )}
           </tbody>
         </table>

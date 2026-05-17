@@ -1,11 +1,13 @@
-// Types for F3.1 Payroll Run (batch ZEC payroll, no swap)
-// Aligned with docs/PRD-F3.1-payroll-run.md
-
-export type PayrollPrivacyMode = 'shielded' | 'direct';
+// Types for F3.1 Payroll Run (batch payroll, single-wallet homogeneous batch)
+// Aligned with backend models_m1.rs after france's 5664717 ship.
+//
+// M1 model: one run = one source wallet (source_wallet_id), chain implied by
+// wallet. Per-item target_chain / target_token / privacy_mode is M2 multi-chain
+// scope (PRD-F3.1 §4.1).
 
 export type PayrollRunStatus =
-  | 'draft'
-  | 'awaiting_approval'   // shares F2.1 status namespace at the run level
+  | 'pending'
+  | 'awaiting_approval'
   | 'approved'
   | 'rejected'
   | 'executing'
@@ -27,17 +29,11 @@ export type PayrollItemStatus =
  */
 export interface EmployeeTags {
   preferred_token?: string;
-  privacy_mode?: PayrollPrivacyMode;
+  privacy_mode?: 'shielded' | 'direct';
   kyc_status?: 'none' | 'pending' | 'verified';
   [key: string]: unknown;
 }
 
-/**
- * Aligned with backend struct in `backend/src/db/models_m1.rs`
- * (commit 03dfdbc): the canonical Employee carries employee_code + chain
- * + a flexible tags JSON blob. preferred_token / privacy_mode / kyc_status
- * live inside tags so the schema can evolve without migrations.
- */
 export interface Employee {
   id: number;
   employee_code: string;
@@ -52,77 +48,97 @@ export interface Employee {
 
 export interface PayrollRun {
   id: number;
-  tenant_id: number;
-  pay_period: string | null;
-  source_chain: string;
-  source_token: string;
-  source_amount: string;
+  pay_period: string;
+  source_wallet_id: number;
+  total_amount: string;
+  item_count: number;
   status: PayrollRunStatus;
-  created_by: number;
-  approved_by: number | null;
-  idempotency_key: string | null;
+  created_by_user_id: number;
+  executed_by_user_id: number | null;
+  executed_at: string | null;
+  notes: string | null;
   created_at: string;
   updated_at: string;
-  // Aggregate counts for list view
-  total_items?: number;
-  succeeded_items?: number;
-  failed_items?: number;
 }
 
 export interface PayrollItem {
   id: number;
   run_id: number;
-  employee_id: number;
-  employee_name: string;
-  target_chain: string;
-  target_token: string;
-  amount_source: string | null;
-  amount_target: string | null;
-  privacy_mode: PayrollPrivacyMode;
+  employee_id: number | null;
+  employee_address: string;
+  amount: string;
+  memo: string | null;
   status: PayrollItemStatus;
-  linked_transfer_ids: number[];
-  failure_reason: string | null;
+  tx_hash: string | null;
+  block_number: number | null;
+  transfer_id: number | null;
+  error_message: string | null;
+  retry_count: number;
+  last_attempt_at: string | null;
   created_at: string;
+  updated_at: string;
+}
+
+export interface PayrollRunSummary {
+  run: PayrollRun;
+  items: PayrollItem[];
 }
 
 export interface CreatePayrollRunRequest {
-  pay_period?: string;
-  source_chain: string;
-  source_token: string;
-  source_amount: string;
-  items: CreatePayrollItem[];
+  pay_period: string;
+  source_wallet_id: number;
+  items: PayrollItemInput[];
+  notes?: string;
 }
 
-export interface CreatePayrollItem {
-  // Either reference an existing employee or inline new
-  employee_id?: number;
-  // Inline employee creation (created on the fly during CSV upload)
-  employee_name?: string;
-  wallet_address?: string;
-  target_chain: string;
-  target_token: string;
-  amount_source: string;
-  privacy_mode: PayrollPrivacyMode;
+export interface PayrollItemInput {
+  employee_code?: string;
+  employee_address: string;
+  amount: string;
+  memo?: string;
 }
 
+export interface CreatePayrollRunResponse {
+  run_id: number;
+  item_count: number;
+  validation_errors: ValidationError[];
+}
+
+export interface ValidationError {
+  row_index: number;
+  field: string;
+  message: string;
+}
+
+/**
+ * Tagged union from POST /payroll/runs/{id}/execute.
+ * Backend uses `#[serde(tag = "result", rename_all = "snake_case")]`.
+ */
+export type ExecuteRunOutcome =
+  | {
+      result: 'awaiting_approval';
+      run_id: number;
+      policy_id: number;
+      threshold: string;
+    }
+  | {
+      result: 'executed';
+      run_id: number;
+      submitted: number;
+      failed: number;
+      final_status: string;
+    };
+
+/**
+ * Client-side CSV preview row — backend has no /payroll/csv/preview endpoint
+ * (M2 will add it). For now the frontend parses CSV in-browser and shows a
+ * preview before POST /payroll/runs.
+ */
 export interface CsvPreviewRow {
   row_index: number;
-  employee_name: string;
-  wallet_address: string;
-  target_chain: string;
-  target_token: string;
+  employee_code: string;
+  employee_address: string;
   amount: string;
-  privacy_mode: PayrollPrivacyMode;
-  // Pre-validation results
-  address_valid: boolean;
-  address_chain_match: boolean;
-  in_address_book: boolean;
+  memo: string;
   errors: string[];
-}
-
-export interface CsvPreviewResponse {
-  total_rows: number;
-  valid_rows: number;
-  invalid_rows: number;
-  rows: CsvPreviewRow[];
 }
