@@ -1,6 +1,6 @@
 [package]
 name = "web3_wallet_service"
-version = "0.1.0"
+version = "0.3.0"
 edition = "2021"
 description = "A modular Web3 wallet management service with multi-chain support"
 authors = ["robust"]
