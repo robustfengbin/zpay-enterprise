@@ -367,9 +367,10 @@ api DELETE "/approval-policies/$PIVOT_POL_ID" "$TOKEN" >/dev/null || true
 step "F1.1 Disclosure async lifecycle (granularity=address)"
 OUT=$(api POST "/wallets/$ZEC_WALLET_ID/payment-disclosures" "$TOKEN" '{"granularity":"address","scope_param":{"address":"u1abc"},"format":"json"}')
 parse_api "$OUT"
-if [[ "$STATUS" =~ ^20[0-2]$ ]] && [[ "$(echo "$RESP" | jget status)" == "generating" ]]; then
+INIT_STATUS=$(echo "$RESP" | jget status 2>/dev/null || echo "")
+if [[ "$STATUS" =~ ^20[0-2]$ ]] && [[ "$INIT_STATUS" == "generating" || "$INIT_STATUS" == "ready" ]]; then
   DID=$(echo "$RESP" | jget disclosure_id)
-  assert_pass "disclosure POST → 202 status=generating id=$DID"
+  assert_pass "disclosure POST → 202 (status=$INIT_STATUS, often races to ready) id=$DID"
 else
   assert_fail "disclosure POST" "$RESP ($STATUS)"; exit 1
 fi
