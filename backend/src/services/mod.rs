@@ -1,6 +1,7 @@
 pub mod approval_service;
 pub mod auditor_service;
 pub mod auth_service;
+pub mod disclosure_export;
 pub mod employee_service;
 pub mod payment_disclosure_service;
 pub mod payroll_service;

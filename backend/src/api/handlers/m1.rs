@@ -141,14 +141,37 @@ pub async fn download_payment_disclosure(
             row.id, row.status
         )));
     }
-    // M1.W1 — return the JSON body directly with format-tagged content type.
-    // PDF / CSV serialization is M1.W2 when the real disclosure body lands.
     let body = row
         .disclosure_json
         .unwrap_or_else(|| json!({"error": "no body"}));
-    Ok(HttpResponse::Ok()
-        .content_type("application/json")
-        .json(body))
+
+    let filename_stem = format!("disclosure_{}", row.id);
+    use crate::services::disclosure_export;
+    match row.format.as_str() {
+        "csv" => {
+            let bytes = disclosure_export::render_csv(&body)?;
+            Ok(HttpResponse::Ok()
+                .content_type("text/csv; charset=utf-8")
+                .append_header((
+                    "Content-Disposition",
+                    format!("attachment; filename=\"{}.csv\"", filename_stem),
+                ))
+                .body(bytes))
+        }
+        "pdf" => {
+            let bytes = disclosure_export::render_pdf(&body)?;
+            Ok(HttpResponse::Ok()
+                .content_type("application/pdf")
+                .append_header((
+                    "Content-Disposition",
+                    format!("attachment; filename=\"{}.pdf\"", filename_stem),
+                ))
+                .body(bytes))
+        }
+        _ => Ok(HttpResponse::Ok()
+            .content_type("application/json")
+            .json(body)),
+    }
 }
 
 pub async fn list_payment_disclosures(
