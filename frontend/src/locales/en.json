@@ -23,6 +23,8 @@
     "action": "Action",
     "load_more": "Load more",
     "back": "Back",
+    "previous": "Previous",
+    "next": "Next",
     "not_found": "Not found",
     "copied": "Copied!"
   },
@@ -468,17 +470,50 @@
     },
     "dashboard": {
       "title": "Auditor dashboard",
-      "subtitle": "Read-only view across scoped wallets. Generate disclosures to inspect amounts.",
+      "subtitle": "Read-only view across scoped wallets. Click a row for balance + transfers, or generate a disclosure to inspect amounts.",
       "empty": "No wallets are scoped to you yet.",
       "request_disclosure": "Request disclosure",
       "export_viewing_key": "Export viewing key",
+      "view_detail": "View detail",
+      "budget_exhausted": "Disclosure budget exhausted for this wallet.",
+      "pending_disclosures": "Pending disclosure jobs in flight.",
       "col": {
         "wallet": "Wallet",
         "chain": "Chain",
         "address": "Address",
+        "scope_window": "Scope window",
         "tx_count": "Tx count",
         "last_activity": "Last activity",
+        "budget": "Disclosure budget",
         "actions": "Actions"
+      }
+    },
+    "detail": {
+      "back": "Back to dashboard",
+      "wallet": "Wallet",
+      "scope_section": "Scope window",
+      "scope_start": "Window start",
+      "scope_end": "Window end",
+      "balance_section": "Live on-chain balance",
+      "native_balance": "Native balance",
+      "chain": "Chain",
+      "transfers_section": "Transfers",
+      "transfers_window": "Showing transfers between {{start}} and {{end}}.",
+      "empty_transfers": "No transfers in the scope window.",
+      "dir_out": "Out",
+      "dir_in": "In",
+      "page_label": "Showing {{from}} – {{to}}",
+      "col": {
+        "time": "Time",
+        "direction": "Direction",
+        "counterparty": "Counterparty",
+        "amount": "Amount",
+        "token": "Token",
+        "status": "Status",
+        "tx": "Tx hash",
+        "token_symbol": "Token",
+        "token_contract": "Contract",
+        "token_balance": "Balance"
       }
     },
     "viewing_key": {

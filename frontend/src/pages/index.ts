@@ -25,6 +25,7 @@ export {
 // F1.1 Viewing Key audit + ZIP-307 disclosure pages
 export {
   AuditorDashboard,
+  AuditorWalletDetail,
   ViewingKeyExportModal,
   DisclosureNew,
   AuditorList,

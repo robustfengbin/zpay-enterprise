@@ -85,15 +85,73 @@ export interface DisclosureResponse {
 }
 
 /**
- * Auditor read-only summary view of a tenant (per PRD-F1.1 §2).
+ * Auditor read-only wallet entry — one row per scoped wallet from
+ * GET /auditor/wallets. Carries identity + scope window + disclosure budget
+ * + aggregate counters. Raw amounts require a balance / transfers /
+ * disclosure call.
  */
 export interface AuditorTenantSummary {
   wallet_id: number;
   wallet_name: string;
   chain: string;
   address: string;
-  // Aggregates only, not raw amounts — Auditor needs disclosure to decrypt
+  // Scope window (set when admin grants this auditor access)
+  scope_start: string;
+  scope_end: string;
+  // Disclosure budget — how many ZIP-307 payloads this auditor may issue
+  max_disclosure_count: number;
+  current_count: number;
+  // Aggregates over the scope window
   total_tx_count: number;
   last_activity_at: string | null;
   pending_disclosures: number;
+}
+
+/**
+ * GET /auditor/wallets/{id}/balance.
+ *
+ * Native balance is always present. For Zcash the value is the combined
+ * (transparent + shielded) total; for other chains it is the transparent
+ * native balance. ERC-20 / token balances (if any) ride along on `tokens`.
+ */
+export interface AuditorWalletBalance {
+  address: string;
+  chain: string;
+  native_balance: string;
+  tokens: AuditorTokenBalance[];
+}
+
+export interface AuditorTokenBalance {
+  symbol: string;
+  contract: string;
+  balance: string;
+  decimals: number;
+}
+
+/**
+ * One transfer row inside the auditor transfers window.
+ * Echoes the same Transfer model the admin side sees; fields are
+ * intentionally loose because backend Transfer carries many optional
+ * approval / payroll linkage fields.
+ */
+export interface AuditorTransfer {
+  id: number;
+  wallet_id: number;
+  chain: string;
+  token: string;
+  from_address: string;
+  to_address: string;
+  amount: string;
+  status: string;
+  tx_hash: string | null;
+  block_number: number | null;
+  created_at: string;
+  [key: string]: unknown;
+}
+
+export interface AuditorTransfersResponse {
+  wallet_id: number;
+  scope_start: string;
+  scope_end: string;
+  transfers: AuditorTransfer[];
 }

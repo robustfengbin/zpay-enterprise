@@ -23,6 +23,8 @@
     "action": "操作",
     "load_more": "加载更多",
     "back": "返回",
+    "previous": "上一页",
+    "next": "下一页",
     "not_found": "未找到",
     "copied": "已复制！"
   },
@@ -468,17 +470,50 @@
     },
     "dashboard": {
       "title": "审计师视图",
-      "subtitle": "对授权钱包的只读视图。生成披露报告以查看具体金额。",
+      "subtitle": "对授权钱包的只读视图。点击一行查看余额与转账，或生成披露报告查看具体金额。",
       "empty": "尚未授权任何钱包给当前审计师。",
       "request_disclosure": "生成披露",
       "export_viewing_key": "导出 viewing key",
+      "view_detail": "查看详情",
+      "budget_exhausted": "此钱包披露额度已用完。",
+      "pending_disclosures": "正在生成的披露任务。",
       "col": {
         "wallet": "钱包",
         "chain": "链",
         "address": "地址",
+        "scope_window": "授权窗口",
         "tx_count": "交易数",
         "last_activity": "最近活动",
+        "budget": "披露额度",
         "actions": "操作"
+      }
+    },
+    "detail": {
+      "back": "返回审计视图",
+      "wallet": "钱包",
+      "scope_section": "授权窗口",
+      "scope_start": "起始",
+      "scope_end": "结束",
+      "balance_section": "链上真实余额",
+      "native_balance": "原生币余额",
+      "chain": "链",
+      "transfers_section": "转账记录",
+      "transfers_window": "显示 {{start}} 至 {{end}} 之间的转账。",
+      "empty_transfers": "授权窗口内无转账记录。",
+      "dir_out": "转出",
+      "dir_in": "转入",
+      "page_label": "显示第 {{from}} – {{to}} 条",
+      "col": {
+        "time": "时间",
+        "direction": "方向",
+        "counterparty": "对手方",
+        "amount": "金额",
+        "token": "币种",
+        "status": "状态",
+        "tx": "交易哈希",
+        "token_symbol": "代币",
+        "token_contract": "合约",
+        "token_balance": "余额"
       }
     },
     "viewing_key": {

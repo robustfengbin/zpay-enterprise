@@ -9,6 +9,8 @@
 import api from './axios';
 import type {
   AuditorTenantSummary,
+  AuditorTransfersResponse,
+  AuditorWalletBalance,
   DisclosureRequest,
   DisclosureResponse,
   ViewingKeyExportRequest,
@@ -94,15 +96,23 @@ export const viewingKeyService = {
 
   /**
    * GET /auditor/wallets/{id}/transfers — auditor reads scoped wallet transfers.
+   * Backend bounds the query to the scope's half-open [start, end) window.
+   * limit clamps to 1..200 server-side; offset is paged.
    */
-  async getAuditorWalletTransfers(walletId: number): Promise<unknown[]> {
-    return api.get(`/auditor/wallets/${walletId}/transfers`);
+  async getAuditorWalletTransfers(
+    walletId: number,
+    limit = 50,
+    offset = 0,
+  ): Promise<AuditorTransfersResponse> {
+    return api.get(`/auditor/wallets/${walletId}/transfers`, { params: { limit, offset } });
   },
 
   /**
-   * GET /auditor/wallets/{id}/balance — auditor reads scoped balance aggregate.
+   * GET /auditor/wallets/{id}/balance — real on-chain balance for the scoped
+   * wallet. Zcash returns combined transparent + shielded; other chains
+   * return native + ERC-20 token balances.
    */
-  async getAuditorWalletBalance(walletId: number): Promise<unknown> {
+  async getAuditorWalletBalance(walletId: number): Promise<AuditorWalletBalance> {
     return api.get(`/auditor/wallets/${walletId}/balance`);
   },
 };
