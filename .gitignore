@@ -40,3 +40,6 @@ npm-debug.log*
 # Claude Code
 .claude/
 .cc/
+
+# Internal-only documentation (workflow notes, freeze decisions, etc.)
+docs/internal/

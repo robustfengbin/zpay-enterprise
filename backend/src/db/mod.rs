@@ -1,4 +1,6 @@
+pub mod migrations_m1;
 pub mod models;
+pub mod models_m1;
 pub mod repositories;
 
 use crate::config::DatabaseConfig;
@@ -366,6 +368,10 @@ pub async fn run_migrations(pool: &MySqlPool) -> AppResult<()> {
         .await?;
         tracing::info!("Added witness_state column to orchard_notes table for incremental sync");
     }
+
+    // M1 (2026-06) migrations: F1.1 viewing-key audit, F2.1 maker/checker,
+    // F3.1 payroll run.  All additive — does not modify existing schema.
+    migrations_m1::run_m1_migrations(pool).await?;
 
     tracing::info!("Database migrations completed successfully");
     Ok(())

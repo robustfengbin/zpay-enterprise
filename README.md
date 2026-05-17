@@ -7,7 +7,7 @@
 [![Contributions welcome](https://img.shields.io/badge/contributions-welcome-brightgreen.svg)](CONTRIBUTING.md)
 [![Security policy](https://img.shields.io/badge/security-disclosure-red.svg)](SECURITY.md)
 
-A modular Web3 wallet management service with multi-chain support, featuring a Rust backend and React frontend. **Now with full Zcash Orchard privacy protocol support.**
+A modular Web3 wallet management service with multi-chain support, featuring a Rust backend and React frontend. **Now with full Zcash Orchard privacy protocol support — plus M1 enterprise features: viewing-key audit, maker-checker approvals, and bulk payroll.**
 
 > 🚀 **5-Minute Quick Start (Docker):**
 >
@@ -28,8 +28,14 @@ A modular Web3 wallet management service with multi-chain support, featuring a R
 > only matches a local dev frontend).
 >
 > Full walkthrough: [QUICKSTART.md](QUICKSTART.md) · Recent changes: [CHANGELOG.md](CHANGELOG.md) · Latest stable tag: **v0.2.1**
+>
+> 📘 **End-user operations**: [User Manual (English)](docs/USER-MANUAL-EN.md) | [中文](docs/USER-MANUAL-CN.md)
+> 📦 **Deploy to staging in 30 min**: [STAGING-DEPLOYMENT.md](docs/STAGING-DEPLOYMENT.md)
+> 📐 **M1 enterprise feature PRDs**: [F1.1 Audit](docs/public/PRD-F1.1.md) · [F2.1 Maker-Checker](docs/public/PRD-F2.1.md) · [F3.1 Payroll](docs/public/PRD-F3.1.md)
 
 ## Features
+
+### Core wallet (M0)
 
 - **Wallet Management** - Create, import, and manage multiple wallets with encrypted private key storage
 - **Multi-Chain Support** - Extensible architecture for multiple blockchain networks (Ethereum, Zcash)
@@ -41,6 +47,13 @@ A modular Web3 wallet management service with multi-chain support, featuring a R
 - **RPC Management** - Dynamic RPC endpoint configuration with fallback support
 - **Role-Based Access** - Admin and Operator roles with permission controls
 - **Internationalization** - Multi-language frontend support
+
+### Enterprise M1 (2026-06)
+
+- **Viewing-Key Audit (F1.1)** - One-click OVK/IVK/UFVK export (ZIP-316 standard `uview...` string), independent Auditor role with dual-JWT physical isolation, scope-bounded wallet visibility, ZIP-307 inspired disclosure reports (PDF / CSV / JSON). See [PRD-F1.1](docs/public/PRD-F1.1.md).
+- **Maker-Checker Approvals (F2.1)** - Configurable approval policies (scope: global/wallet/user × chain × token × amount threshold × SLA), SQL-level `maker ≠ checker` enforcement, auto-pivot on `POST /transfers`, SLA worker auto-expires stalled requests every 5 min. See [PRD-F2.1](docs/public/PRD-F2.1.md).
+- **Bulk Payroll (F3.1)** - Employee roster (CSV import / soft delete), batch payroll runs with two-stage validation (client + server), per-item Orchard fan-out (real on-chain), F2.1 threshold hook triggers approval on run total, partial-failure single-item retry, force-cancel from stuck `executing` state. See [PRD-F3.1](docs/public/PRD-F3.1.md).
+- **End-to-end smoke** - `e2e/smoke.sh` (when present) covers 11 steps / 34 assertions across all M1 features.
 
 ---
 
@@ -534,6 +547,41 @@ After you log in the first time, change the admin password via the UI
 |--------|----------|-------------|
 | GET | `/api/v1/health` | Health check |
 
+### M1 — Viewing Key audit & disclosure (F1.1)
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/v1/wallets/{id}/viewing-keys/export` | Export OVK / IVK / UFVK (ZIP-316) under one-time token |
+| GET | `/api/v1/wallets/{id}/viewing-keys/exports` | List prior exports |
+| GET | `/api/v1/viewing-keys/download/{token}` | One-time download (returns 410 on second hit) |
+| POST | `/api/v1/auditors` | Invite an auditor with scope and disclosure budget |
+| GET | `/api/v1/auditors` | List auditors |
+| PUT / POST | `/api/v1/auditors/{id}/deactivate` | Deactivate an auditor account |
+| POST | `/api/v1/wallets/{id}/payment-disclosures` | Request a disclosure (granularity = tx / address / range) |
+| GET | `/api/v1/payment-disclosures/{id}` | Poll disclosure status |
+| GET | `/api/v1/payment-disclosures/{id}/download` | Download PDF / CSV / JSON |
+| POST | `/api/v1/auditor/login` | Auditor JWT (kind=auditor) |
+| GET | `/api/v1/auditor/me` · `/wallets` · `/wallets/{id}/balance` · `/wallets/{id}/transfers` | Auditor read-only views |
+
+### M1 — Maker-checker approvals (F2.1)
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET / POST / PUT / DELETE | `/api/v1/approval-policies[/{id}]` | Approval policy CRUD |
+| POST | `/api/v1/transfers/{id}/approve` | Approver decision (note optional) |
+| POST | `/api/v1/transfers/{id}/reject` | Approver decision (reason ≥ 5 chars) |
+| GET | `/api/v1/transfers/{id}/approvals` | List decisions for a transfer |
+| GET | `/api/v1/approvals/pending` | Checker's queue (excludes self-initiated) |
+
+### M1 — Bulk payroll (F3.1)
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET / POST / PUT / DELETE | `/api/v1/payroll/employees[/{id}]` | Employee roster CRUD |
+| POST | `/api/v1/payroll/runs` | Create payroll run (server-side row validation, 422 with `validation_errors`) |
+| GET | `/api/v1/payroll/runs` · `/payroll/runs/{id}` | List / detail |
+| POST | `/api/v1/payroll/runs/{id}/execute` | Execute → tagged-union outcome (awaiting_approval / executed) |
+| POST | `/api/v1/payroll/runs/{id}/cancel` | Cancel from pending / awaiting_approval / executing (stuck recovery) |
+| POST | `/api/v1/payroll/runs/{run_id}/items/{item_id}/retry` | Retry a failed item |
+| GET | `/api/v1/payroll/runs/{id}/report` | Aggregate counts + per-item detail |
+
 ## Security
 
 - **Private Key Encryption:** AES-256-GCM encryption for all private keys at rest
@@ -554,14 +602,24 @@ After you log in the first time, change the admin password via the UI
 
 The service automatically creates the required tables on startup:
 
+**Core (M0)**
+
 - `users` - User accounts and roles
 - `wallets` - Wallet information with encrypted private keys
-- `transfers` - Transaction history and status
+- `transfers` - Transaction history and status (M1 adds 5 nullable columns: `approval_required`, `expiry_at`, `approved_by`, `approved_at`, `rejection_reason`)
 - `audit_logs` - Security audit trail
 - `settings` - Application configuration
 - `orchard_sync_state` - Zcash blockchain sync progress per wallet
 - `orchard_notes` - Shielded notes (unspent outputs) with witness data
 - `orchard_tree_state` - Commitment tree state for proof generation
+
+**M1 Enterprise**
+
+- `auditors` + `auditor_wallet_scopes` - Independent auditor identity (separate from `users`) with per-wallet scope, time window, and disclosure budget
+- `viewing_key_exports` - One-time-download viewing-key audit trail (encrypted payload + SHA-256 hash + 24h TTL)
+- `payment_disclosures` - Async ZIP-307 disclosure rows (granularity / scope / format / status FSM + 7-day TTL)
+- `approval_policies` + `transfer_approvals` - Maker-checker policy storage and decision log
+- `employees` + `payroll_runs` + `payroll_items` - Employee roster + payroll batch lifecycle
 
 ## Configuration
 

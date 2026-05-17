@@ -103,6 +103,11 @@ secp256k1 = { version = "0.28", features = ["rand"] }
 # Lazy static initialization
 once_cell = "1.19"
 
+# F1.1 disclosure export — CSV table writer (zero-config) + PDF generator
+# for offline audit archive (printpdf is pure-Rust, no system deps).
+csv = "1.3"
+printpdf = "0.7"
+
 [dev-dependencies]
 actix-rt = "2"
 dotenv = "0.15"

@@ -15,8 +15,16 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use api::handlers::load_rpc_config_from_db;
 use blockchain::{ethereum::EthereumClient, zcash::ZcashClient, ChainRegistry};
 use config::AppConfig;
-use db::repositories::{SettingsRepository, TransferRepository, UserRepository, WalletRepository};
-use services::{AuthService, TransferService, WalletService};
+use db::repositories::{
+    ApprovalPolicyRepository, AuditorRepository, EmployeeRepository, OrchardRepository,
+    PaymentDisclosureRepository, PayrollRepository, SettingsRepository,
+    TransferApprovalRepository, TransferRepository, UserRepository, ViewingKeyExportRepository,
+    WalletRepository,
+};
+use services::{
+    ApprovalService, AuditorService, AuthService, EmployeeService, PaymentDisclosureService,
+    PayrollService, TransferService, ViewingKeyService, WalletService,
+};
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
@@ -125,6 +133,76 @@ async fn main() -> std::io::Result<()> {
         transfer_repo,
         wallet_service.clone(),
         chain_registry.clone(),
+        ApprovalPolicyRepository::new(pool.clone()),
+    ));
+
+    // M1 F3.1 — Employee CRUD service (independent, no RPC dependency).
+    let employee_service = Arc::new(EmployeeService::new(
+        EmployeeRepository::new(pool.clone()),
+        chain_registry.clone(),
+    ));
+
+    // M1 F3.1 — Payroll run service.  Owns its own repo handles so it stays
+    // independent of EmployeeService (decoupled lifecycle, separate validation
+    // surface).  Reuses WalletService for private-key access and
+    // ApprovalPolicyRepository so a large run can pivot to awaiting_approval
+    // exactly like single transfers do.
+    let payroll_service = Arc::new(PayrollService::new(
+        PayrollRepository::new(pool.clone()),
+        EmployeeRepository::new(pool.clone()),
+        WalletRepository::new(pool.clone()),
+        wallet_service.clone(),
+        chain_registry.clone(),
+        ApprovalPolicyRepository::new(pool.clone()),
+    ));
+
+    // M1 F2.1 — Approval policy + decision service.  Stage 2 adds the
+    // approve / reject flow on top of policy CRUD; the upstream side
+    // (POST /transfers pivoting status to awaiting_approval when amount
+    // crosses a policy threshold) lands in the next increment.
+    let approval_service = Arc::new(ApprovalService::new(
+        ApprovalPolicyRepository::new(pool.clone()),
+        TransferApprovalRepository::new(pool.clone()),
+        TransferRepository::new(pool.clone()),
+        chain_registry.clone(),
+        pool.clone(),
+    ));
+
+    // M1 F1.1 — Auditor identity service.  Independent JWT (kind="auditor")
+    // sharing the same secret as user JWTs for v1; AuditorAuthMiddleware is
+    // queued for W2 (handlers inline-verify the token in the interim).
+    let auditor_service = Arc::new(AuditorService::new(
+        AuditorRepository::new(pool.clone()),
+        config.jwt.clone(),
+    ));
+    let wallet_repo_for_auditor = WalletRepository::new(pool.clone());
+    // Repos shared with the auditor dashboard handler — aggregate stats
+    // (tx count / last activity / pending disclosures).  Cloned here so
+    // the handler can request them via web::Data without needing to
+    // construct another service layer.
+    let transfer_repo_for_auditor = TransferRepository::new(pool.clone());
+    let disclosure_repo_for_auditor = PaymentDisclosureRepository::new(pool.clone());
+
+    // M1 F1.1 — Payment disclosure (ZIP-307 inspired enterprise body).
+    // W2: real body assembled from scanned Orchard notes via OrchardRepository.
+    // Halo 2 cryptographic proof component is M2 scope (requires sender
+    // spending-key cooperation).
+    let payment_disclosure_service = Arc::new(PaymentDisclosureService::new(
+        PaymentDisclosureRepository::new(pool.clone()),
+        WalletRepository::new(pool.clone()),
+        OrchardRepository::new(pool.clone()),
+        chain_registry.clone(),
+    ));
+
+    // M1 F1.1 — ViewingKey export (Orchard OVK / IVK / UFVK).  Derives the
+    // viewing key from the wallet's stored private key, encrypts at rest
+    // with the global ENCRYPTION_KEY, and serves via a one-time download
+    // token with 24h TTL.
+    let viewing_key_service = Arc::new(ViewingKeyService::new(
+        WalletRepository::new(pool.clone()),
+        ViewingKeyExportRepository::new(pool.clone()),
+        auth_service.clone(),
+        config.security.clone(),
     ));
 
     // Create default admin user using the password supplied via
@@ -142,6 +220,25 @@ async fn main() -> std::io::Result<()> {
             interval.tick().await;
             if let Err(e) = transfer_service_bg.check_pending_transfers().await {
                 tracing::error!("Error checking pending transfers: {}", e);
+            }
+        }
+    });
+
+    // M1 F2.1 — SLA worker. Every 5 minutes, sweep awaiting_approval
+    // transfers whose expiry_at has passed and flip them to `expired` so the
+    // operator UI shows them in the right bucket and the approve endpoint
+    // refuses to act on them.  Frequency is intentionally coarse — SLA
+    // accuracy of ~5min matches PRD §2.3 and avoids hammering the DB.
+    let sla_pool = pool.clone();
+    tokio::spawn(async move {
+        let sla_repo = TransferRepository::new(sla_pool);
+        let mut sla_interval = interval(Duration::from_secs(300));
+        loop {
+            sla_interval.tick().await;
+            match sla_repo.expire_overdue_awaiting_approval().await {
+                Ok(0) => {}
+                Ok(n) => tracing::info!("[sla] expired {} overdue awaiting_approval transfers", n),
+                Err(e) => tracing::error!("[sla] expire sweep failed: {}", e),
             }
         }
     });
@@ -215,10 +312,25 @@ async fn main() -> std::io::Result<()> {
             .app_data(web::Data::new(auth_service.clone()))
             .app_data(web::Data::new(wallet_service.clone()))
             .app_data(web::Data::new(transfer_service.clone()))
+            .app_data(web::Data::new(employee_service.clone()))
+            .app_data(web::Data::new(payroll_service.clone()))
+            .app_data(web::Data::new(approval_service.clone()))
+            .app_data(web::Data::new(auditor_service.clone()))
+            .app_data(web::Data::new(payment_disclosure_service.clone()))
+            .app_data(web::Data::new(viewing_key_service.clone()))
+            .app_data(web::Data::new(wallet_repo_for_auditor.clone()))
+            .app_data(web::Data::new(transfer_repo_for_auditor.clone()))
+            .app_data(web::Data::new(disclosure_repo_for_auditor.clone()))
             .app_data(web::Data::new(chain_registry.clone()))
             .app_data(web::Data::new(settings_repo_for_app.clone()))
             .app_data(web::Data::new(eth_client_for_app.clone()))
-            .configure(|cfg| api::configure_routes(cfg, auth_service_for_routes.clone()))
+            .configure(|cfg| {
+                api::configure_routes(
+                    cfg,
+                    auth_service_for_routes.clone(),
+                    auditor_service.clone(),
+                )
+            })
     })
     .bind((server_host, server_port))?
     .run()

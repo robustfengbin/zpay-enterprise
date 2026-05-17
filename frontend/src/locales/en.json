@@ -14,11 +14,19 @@
     "active": "Active",
     "admin": "Admin",
     "operator": "Operator",
+    "auditor": "Auditor",
     "optional": "Optional",
     "recommended": "Recommended",
     "max": "Max",
     "enabling": "Enabling...",
-    "close": "Close"
+    "close": "Close",
+    "action": "Action",
+    "load_more": "Load more",
+    "back": "Back",
+    "previous": "Previous",
+    "next": "Next",
+    "not_found": "Not found",
+    "copied": "Copied!"
   },
   "login": {
     "title": "Web3 Wallet Service",
@@ -29,7 +37,9 @@
     "passwordPlaceholder": "Enter your password",
     "signIn": "Sign In",
     "defaultCredentials": "Default admin account is configured via backend/.env (WEB3_SECURITY__ADMIN_INITIAL_PASSWORD)",
-    "failed": "Login failed"
+    "failed": "Login failed",
+    "auditor_hint": "Auditor?",
+    "auditor_link": "Sign in here"
   },
   "sidebar": {
     "title": "Web3 Wallet",
@@ -42,7 +52,16 @@
     "loggedInAs": "Logged in as",
     "chains": "Chains",
     "general": "General",
-    "rpcSettings": "RPC Settings"
+    "rpcSettings": "RPC Settings",
+    "governance": "Governance",
+    "approval_queue": "Approval queue",
+    "my_approvals": "My approvals",
+    "approval_policies": "Approval policies",
+    "auditor_dashboard": "Auditor view",
+    "auditor_manage": "Manage auditors",
+    "payroll": "Payroll",
+    "payroll_runs": "Payroll runs",
+    "employees": "Employees"
   },
   "header": {
     "title": "Ethereum Wallet Manager",
@@ -57,7 +76,13 @@
     "activeWallets": "Active Wallets",
     "recentTransfers": "Recent Transfers",
     "noWallets": "No wallets found",
-    "noTransfers": "No transfers found"
+    "noTransfers": "No transfers found",
+    "m1": {
+      "pending_approvals": "Pending my approval",
+      "my_awaiting": "My awaiting approval",
+      "employees": "Employees",
+      "auditors": "Auditors"
+    }
   },
   "wallets": {
     "title": "Wallets",
@@ -113,6 +138,7 @@
     "adminOnly": "Only administrators can initiate transfers.",
     "initiateSuccess": "Transfer initiated. Please review and execute.",
     "executeSuccess": "Transfer submitted successfully! Check history for status.",
+    "awaiting_approval_redirect": "Transfer amount triggered an approval policy. Sent for checker review — redirecting you to track its status…",
     "currentBalance": "Current Balance",
     "available": "Available",
     "feeDetails": "Fee Details",
@@ -121,7 +147,14 @@
     "recipientReceives": "Recipient Receives",
     "yourBalanceAfter": "Your Balance After",
     "totalCost": "Total Cost",
-    "selectToken": "Select Token"
+    "selectToken": "Select Token",
+    "tx_hash": "Tx Hash",
+    "status": {
+      "pending": "Pending",
+      "submitted": "Submitted",
+      "confirmed": "Confirmed",
+      "failed": "Failed"
+    }
   },
   "history": {
     "title": "Transfer History",
@@ -179,7 +212,9 @@
   "chains": {
     "configureRpc": "Configure RPC connection for {{chain}}",
     "manageWallets": "Manage {{chain}} wallets",
-    "transfer": "{{chain}} transfer"
+    "transfer": "{{chain}} transfer",
+    "addressFormat": "Address format",
+    "sendTokens": "Send tokens"
   },
   "status": {
     "pending": "Pending",
@@ -190,6 +225,13 @@
   "zcash": {
     "transparentBalance": "Transparent",
     "shieldedBalance": "Shielded",
+    "viewNotes": "View notes",
+    "privacyNotes": "Privacy notes",
+    "noNotes": "No privacy notes found",
+    "blockHeight": "Block",
+    "txHash": "TX",
+    "memo": "Memo",
+    "totalShielded": "Total shielded",
     "transfer": {
       "transparent": "Transparent Transfer",
       "privacy": "Privacy Transfer",
@@ -316,6 +358,397 @@
       "executing": "Sending...",
       "confirmAnyway": "Send Anyway",
       "confirm": "Confirm & Send"
+    }
+  },
+  "approval": {
+    "empty": "Nothing here yet.",
+    "expires_at": "Expires",
+    "expired": "Expired",
+    "rejected_reason": "Rejection reason",
+    "recall": "Recall",
+    "confirm_recall": "Recall this pending approval? The transfer will be cancelled.",
+    "status": {
+      "awaiting": "Awaiting approval",
+      "approved": "Approved",
+      "rejected": "Rejected",
+      "expired": "Expired"
+    },
+    "event": {
+      "create": "Created",
+      "approve": "Approved",
+      "reject": "Rejected",
+      "expire": "Expired",
+      "execute": "Executed",
+      "confirm": "Confirmed on chain",
+      "fail": "Failed"
+    },
+    "my_pending": {
+      "title": "My Approvals",
+      "section": {
+        "awaiting_approval": "Awaiting approval",
+        "approved": "Approved",
+        "rejected": "Rejected",
+        "expired": "Expired"
+      }
+    },
+    "queue": {
+      "title": "Pending my approval",
+      "empty": "Nothing awaiting your decision.",
+      "review": "Review",
+      "col": {
+        "amount": "Amount",
+        "token": "Token",
+        "maker": "Maker",
+        "remaining": "Remaining"
+      }
+    },
+    "detail": {
+      "title": "Approval detail",
+      "amount": "Amount",
+      "from": "From",
+      "to": "To",
+      "memo": "Memo",
+      "matched_policy": "Matched policy",
+      "expires_at": "Expires",
+      "risk_tags": "Risk tags",
+      "risk_tag": {
+        "placeholder": "Risk signals will appear here once F2.1 wiring lands."
+      },
+      "note_optional": "Optional note",
+      "approve": "Approve",
+      "reject": "Reject",
+      "reject_reason_required": "Rejection reason (required, min 5 chars)",
+      "reject_reason_placeholder": "e.g. recipient not on KYB whitelist",
+      "confirm_reject": "Confirm reject"
+    },
+    "error": {
+      "reason_too_short": "Reason must be at least 5 characters."
+    },
+    "history": {
+      "title": "Transfer history",
+      "timeline": "Approval timeline"
+    },
+    "policies": {
+      "title": "Approval policies",
+      "new": "New policy",
+      "empty": "No policies yet. Create one to require maker/checker approval above a threshold.",
+      "confirm_delete": "Delete this approval policy? Existing pending approvals are unaffected.",
+      "pick_wallet": "Select a wallet on this chain…",
+      "user_id_placeholder": "Numeric user id",
+      "user_id_m2_hint": "User dropdown lands in M2; type the numeric id for now.",
+      "scope": {
+        "global": "Global (all wallets, all users)",
+        "wallet": "Specific wallet",
+        "user": "Specific user"
+      },
+      "col": {
+        "scope": "Scope",
+        "scope_id_optional": "Scope id (wallet/user)",
+        "scope_id_wallet": "Wallet (on selected chain)",
+        "scope_id_user": "User id",
+        "chain": "Chain",
+        "token": "Token",
+        "threshold": "Amount threshold",
+        "sla": "SLA (minutes)",
+        "required_count": "Required approvers"
+      }
+    }
+  },
+  "auditor": {
+    "login": {
+      "title": "Auditor sign-in",
+      "subtitle": "Read-only access to scoped wallets.",
+      "email": "Email",
+      "password": "Temporary password",
+      "submit": "Sign in",
+      "not_auditor": "Not an auditor?",
+      "go_main": "Main sign-in"
+    },
+    "list": {
+      "title": "Manage auditors",
+      "new": "Invite auditor",
+      "empty": "No auditors yet.",
+      "deactivate": "Deactivate",
+      "confirm_deactivate": "Deactivate this auditor? Their token will be revoked.",
+      "created_title": "Auditor created",
+      "temp_password": "Temporary password",
+      "temp_password_warning_title": "One-time view",
+      "temp_password_warning_body": "Copy now and share securely (out-of-band). The password is not stored in plaintext server-side.",
+      "invitation_link": "Invitation link",
+      "open_login_new_tab": "Open auditor login (new tab)",
+      "next_steps_hint": "To preview the auditor's own view, copy the temporary password and open the invitation link in a private/incognito window — admin and auditor sessions are strictly isolated.",
+      "scope_wallets": "Scoped wallet IDs (comma-separated)",
+      "col": {
+        "email": "Email",
+        "name": "Name",
+        "scope_start": "Scope start",
+        "scope_end": "Scope end",
+        "max_count": "Max queries",
+        "last_login": "Last login"
+      }
+    },
+    "dashboard": {
+      "title": "Auditor dashboard",
+      "subtitle": "Read-only view across scoped wallets. Click a row for balance + transfers, or generate a disclosure to inspect amounts.",
+      "empty": "No wallets are scoped to you yet.",
+      "request_disclosure": "Request disclosure",
+      "export_viewing_key": "Export viewing key",
+      "view_detail": "View detail",
+      "budget_exhausted": "Disclosure budget exhausted for this wallet.",
+      "pending_disclosures": "Pending disclosure jobs in flight.",
+      "col": {
+        "wallet": "Wallet",
+        "chain": "Chain",
+        "address": "Address",
+        "scope_window": "Scope window",
+        "tx_count": "Tx count",
+        "last_activity": "Last activity",
+        "budget": "Disclosure budget",
+        "actions": "Actions"
+      }
+    },
+    "detail": {
+      "back": "Back to dashboard",
+      "wallet": "Wallet",
+      "scope_section": "Scope window",
+      "scope_start": "Window start",
+      "scope_end": "Window end",
+      "balance_section": "Live on-chain balance",
+      "native_balance": "Native balance",
+      "chain": "Chain",
+      "transfers_section": "Transfers",
+      "transfers_window": "Showing transfers between {{start}} and {{end}}.",
+      "empty_transfers": "No transfers in the scope window.",
+      "dir_out": "Out",
+      "dir_in": "In",
+      "page_label": "Showing {{from}} – {{to}}",
+      "col": {
+        "time": "Time",
+        "direction": "Direction",
+        "counterparty": "Counterparty",
+        "amount": "Amount",
+        "token": "Token",
+        "status": "Status",
+        "tx": "Tx hash",
+        "token_symbol": "Token",
+        "token_contract": "Contract",
+        "token_balance": "Balance"
+      }
+    },
+    "viewing_key": {
+      "export_title": "Export Viewing Key",
+      "warning_title": "Heads up",
+      "warning_body": "A viewing key grants permanent read access to shielded notes for this wallet. Share only with the intended auditor over a secure channel.",
+      "wallet": "Wallet",
+      "key_type": "Key type",
+      "key_type.ufvk": "UFVK (full — incoming + outgoing)",
+      "key_type.ivk": "IVK (incoming only)",
+      "key_type.ovk": "OVK (outgoing only)",
+      "key_type.ufvk.hint": "Auditor sees every incoming note + every outgoing spend.",
+      "key_type.ivk.hint": "Auditor sees only incoming notes — outgoing spends remain private.",
+      "key_type.ovk.hint": "Auditor sees only outgoing spends — incoming notes remain private.",
+      "password_reverify": "Re-enter your password",
+      "password_hint": "Defense-in-depth — a leaked JWT alone cannot export keys.",
+      "confirm_understand": "I understand this exposes shielded transaction visibility.",
+      "export_now": "Issue export token",
+      "exported_at": "Exported",
+      "export_created": "Export record created",
+      "export_id": "Export id",
+      "expires_at": "Expires",
+      "token_explainer": "The viewing key isn't shown yet. Use the one-time download token below — either claim it now to view, or copy it and pass to the auditor (they can claim it once before the TTL).",
+      "download_token": "One-time download token",
+      "claim_download_now": "Claim download now",
+      "give_token_to_auditor": "I'll pass the token to the auditor",
+      "downloaded_title": "Viewing key downloaded",
+      "downloaded_body": "The server has now zeroed the row — this is the only view. Audit metadata (who, when) remains.",
+      "key_string": "Viewing key",
+      "key_string_hint": "UFVK exports are standard ZIP-316 uview1… strings — paste directly into Zashi / Zecwallet. The leading `# orchard-ufvk account=N birthday=H` comment is metadata for the audit trail and can be left in or stripped."
+    },
+    "disclosure": {
+      "new_title": "New payment disclosure",
+      "generating_title": "Generating disclosure",
+      "generated_title": "Disclosure ready",
+      "failed_title": "Disclosure failed",
+      "detail_title": "Disclosure",
+      "history_title": "Disclosure history",
+      "history_new": "New disclosure",
+      "history_empty": "No disclosures for this wallet yet.",
+      "history_back_wallet": "Back to wallet",
+      "generating_body": "Disclosure #{{id}} is building from scanned Orchard notes. This page polls every 2s.",
+      "poll_hint": "ZCash binary-search via getblock typically completes within a few seconds; leave this open or come back later.",
+      "id": "Disclosure id",
+      "items_count": "Items",
+      "generated_at": "Generated",
+      "expires_at": "Expires",
+      "error": "Error",
+      "status": "Status",
+      "status_generating": "Generating",
+      "status_ready": "Ready",
+      "status_failed": "Failed",
+      "wallet_id": "Wallet id",
+      "granularity": "Granularity",
+      "granularity.tx": "Single transaction",
+      "granularity.address": "Single address",
+      "granularity.range": "Block / time range",
+      "tx_hash": "Transaction hash",
+      "address": "Address",
+      "start_at": "Start",
+      "end_at": "End",
+      "range_mode_timestamp": "Date / time",
+      "range_mode_height": "Block height",
+      "format": "Format",
+      "format_m2_note": "(M2)",
+      "generate": "Generate",
+      "preview": "Preview (first 20 items)",
+      "more_items": "more items in full report",
+      "download": "Download",
+      "action_new": "New disclosure",
+      "actions_title": "Actions (Orchard notes)",
+      "actions_note": "Decrypted from receiver IVK during sync. Halo 2 cryptographic proof component is M2 scope (requires sender-side spending-key cooperation).",
+      "empty_actions": "No notes match this scope.",
+      "spent_yes": "Spent",
+      "spent_no": "Live",
+      "resolved_range": "Resolved range (auto-mapped from your input)",
+      "from_ts": "From (timestamp)",
+      "to_ts": "To (timestamp)",
+      "from_height": "From height",
+      "to_height": "To height",
+      "err_wallet_required": "Wallet id is required.",
+      "err_tx_hash_required": "Transaction hash is required for tx granularity.",
+      "err_address_required": "Address is required for address granularity.",
+      "err_range_required": "Both start and end are required for range granularity.",
+      "err_generation_failed": "Disclosure generation failed; check backend logs.",
+      "col": {
+        "granularity": "Granularity",
+        "scope_param": "Scope",
+        "format": "Format",
+        "tx_count": "Items",
+        "status": "Status",
+        "created_at": "Created",
+        "expires_at": "Expires",
+        "tx_hash": "Tx hash",
+        "block_height": "Block",
+        "value_zec": "Value (ZEC)",
+        "value_zatoshi": "Value (zat)",
+        "recipient": "Recipient",
+        "memo": "Memo",
+        "spent": "Spent?"
+      }
+    }
+  },
+  "payroll": {
+    "run_status": {
+      "pending": "Pending",
+      "draft": "Pending",
+      "awaiting_approval": "Awaiting approval",
+      "approved": "Approved",
+      "rejected": "Rejected",
+      "executing": "Executing",
+      "partial_success": "Partial success",
+      "completed": "Completed",
+      "failed": "Failed"
+    },
+    "run_list": {
+      "title": "Payroll runs",
+      "new_run": "New run",
+      "empty": "No payroll runs yet.",
+      "col": {
+        "period": "Pay period",
+        "source": "Source",
+        "amount": "Amount",
+        "status": "Status",
+        "items": "Items (ok/total)",
+        "created_at": "Created"
+      }
+    },
+    "create": {
+      "title": "New payroll run",
+      "pay_period": "Pay period",
+      "source_wallet": "Source wallet",
+      "pick_wallet": "Select a wallet…",
+      "notes": "Notes",
+      "notes_placeholder": "Optional internal note",
+      "csv_help": "Upload a CSV with one row per employee. Columns:",
+      "csv_read_error": "Could not read the file.",
+      "upload_csv": "Upload CSV",
+      "preview_summary": "Preview",
+      "valid": "valid",
+      "invalid": "invalid",
+      "total": "Total",
+      "submit": "Create payroll run",
+      "server_validation": "Server rejected the following rows",
+      "confirm_with_invalid": "{{count}} rows have validation errors and will be skipped. Continue?",
+      "err_no_wallet": "Pick a source wallet first.",
+      "err_no_period": "Pay period is required.",
+      "err_no_valid_rows": "No valid rows to submit.",
+      "err_server_validation": "Server rejected {{count}} row(s); see details below.",
+      "col": {
+        "code": "Code",
+        "employee": "Employee",
+        "address": "Address",
+        "chain": "Chain",
+        "token": "Token",
+        "amount": "Amount",
+        "memo": "Memo",
+        "privacy": "Privacy",
+        "checks": "Checks"
+      }
+    },
+    "detail": {
+      "title": "Payroll run",
+      "source_wallet": "Source wallet",
+      "source_amount": "Source amount",
+      "total_amount": "Total amount",
+      "status": "Status",
+      "item_count": "Items",
+      "items_total": "Items",
+      "created_by": "Created by",
+      "created_at": "Created",
+      "executed_by": "Executed by",
+      "executed_at": "Executed",
+      "approved_by": "Approved by",
+      "notes": "Notes",
+      "execute_outcome": "Execute outcome",
+      "confirm_cancel": "Cancel this payroll run? Items not yet submitted on-chain will be marked failed.",
+      "outcome": {
+        "awaiting": "Run total exceeds threshold {{threshold}} on policy #{{policy_id}} — routed to maker/checker queue.",
+        "executed": "Submitted {{submitted}} item(s), {{failed}} failed. Final status: {{status}}."
+      },
+      "items": "Items",
+      "empty_items": "No items in this run.",
+      "action": {
+        "execute": "Execute",
+        "retry_failed": "Retry {{count}} failed",
+        "cancel": "Cancel run",
+        "view_approval": "View approval queue"
+      },
+      "col": {
+        "employee": "Employee",
+        "address": "Address",
+        "chain": "Chain",
+        "token": "Token",
+        "amount": "Amount",
+        "privacy": "Privacy",
+        "status": "Status",
+        "tx": "Tx hash",
+        "reason": "Failure reason"
+      }
+    },
+    "employees": {
+      "title": "Employees",
+      "new": "New employee",
+      "empty": "No employees yet. Add one to use in payroll runs.",
+      "confirm_delete": "Delete this employee record? Linked payroll items remain.",
+      "col": {
+        "code": "Code",
+        "name": "Name",
+        "address": "Wallet address",
+        "chain": "Chain",
+        "active": "Active",
+        "token": "Preferred token",
+        "privacy": "Privacy mode",
+        "kyc": "KYC"
+      }
     }
   }
 }

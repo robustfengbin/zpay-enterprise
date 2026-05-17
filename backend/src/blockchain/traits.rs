@@ -113,6 +113,16 @@ pub trait ChainClient: Send + Sync {
         Ok(0)
     }
 
+    /// Resolve a unix timestamp (seconds) to a block height for disclosure
+    /// range scoping.  Default returns NotImplemented — chains without
+    /// per-block timestamps (or where the use-case doesn't apply) should
+    /// stay on the default; the caller falls back to height-only scoping.
+    async fn block_at_timestamp(&self, _timestamp: i64) -> AppResult<u64> {
+        Err(crate::error::AppError::NotImplemented(
+            "block_at_timestamp not supported for this chain".to_string(),
+        ))
+    }
+
     /// Broadcast a raw signed transaction
     /// Default implementation returns an error (should be overridden for chains that support this)
     async fn broadcast_raw_transaction(&self, _raw_tx_hex: &str) -> AppResult<String> {

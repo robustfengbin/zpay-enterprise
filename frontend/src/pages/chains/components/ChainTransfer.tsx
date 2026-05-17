@@ -1,12 +1,21 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowRight, AlertCircle, CheckCircle, Wallet, Fuel, Calculator } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { ArrowRight, AlertCircle, CheckCircle, Wallet, Fuel, Calculator, Clock } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Card, LoadingSpinner } from '../../../components/Common';
 import { walletService, transferService } from '../../../services/api';
 import { Wallet as WalletType, Transfer as TransferType, BalanceResponse } from '../../../types';
+import type { TransferApprovalFields } from '../../../types/approval';
 import { useAuth } from '../../../hooks/useAuth';
 import { getChain, ChainConfig, isNativeToken } from '../../../config/chains';
 import type { GasEstimateResponse } from '../../../services/api/transfer';
+
+/**
+ * Transfer DTO augmented with F2.1 approval fields. Backend returns these
+ * on the initiate response when the amount triggers a matching
+ * approval_policies row (backend auto-pivot path, PRD-F2.1 §3.2).
+ */
+type TransferInitiateResponse = TransferType & Partial<TransferApprovalFields>;
 
 interface ChainTransferProps {
   chainId: string;
@@ -15,6 +24,7 @@ interface ChainTransferProps {
 export function ChainTransfer({ chainId }: ChainTransferProps) {
   const { t } = useTranslation();
   const { user } = useAuth();
+  const navigate = useNavigate();
   const chain = getChain(chainId) as ChainConfig;
 
   const [wallets, setWallets] = useState<WalletType[]>([]);
@@ -104,16 +114,31 @@ export function ChainTransfer({ chainId }: ChainTransferProps) {
       setIsEstimating(false);
 
       // Then initiate transfer
-      const transfer = await transferService.initiateTransfer({
+      const transfer = (await transferService.initiateTransfer({
         chain: chainId,
         to_address: toAddress,
         token,
         amount,
         gas_price_gwei: gasPriceGwei || undefined,
         gas_limit: gasLimit ? parseInt(gasLimit) : undefined,
-      });
-      setPendingTransfer(transfer);
-      setSuccess(t('transfer.initiateSuccess'));
+      })) as TransferInitiateResponse;
+
+      // F2.1 auto-pivot: if the amount triggered an approval policy on
+      // the backend auto-pivot path, the response carries
+      // approval_required=true and status='awaiting_approval'. In that
+      // case the user can NOT execute directly — redirect them to their
+      // "my pending" list so they can track the checker's decision.
+      if (transfer.approval_required || (transfer.status as string) === 'awaiting_approval') {
+        setSuccess(t('transfer.awaiting_approval_redirect'));
+        resetForm();
+        setGasEstimate(null);
+        setPendingTransfer(null);
+        // brief pause so the user sees the success banner before navigation
+        setTimeout(() => navigate('/approval/pending'), 1200);
+      } else {
+        setPendingTransfer(transfer);
+        setSuccess(t('transfer.initiateSuccess'));
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to initiate transfer');
       setIsEstimating(false);

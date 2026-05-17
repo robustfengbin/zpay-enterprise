@@ -2,6 +2,7 @@ use crate::db::models::Wallet;
 use crate::error::AppResult;
 use sqlx::MySqlPool;
 
+#[derive(Clone)]
 pub struct WalletRepository {
     pool: MySqlPool,
 }

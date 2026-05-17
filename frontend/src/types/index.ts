@@ -1,7 +1,13 @@
+/**
+ * `auditor` was added in M1 (F1.1) as a read-only scoped role.
+ * Existing 'admin' / 'operator' roles preserved per NFR-2 backward-compat.
+ */
+export type UserRole = 'admin' | 'operator' | 'auditor';
+
 export interface User {
   id: number;
   username: string;
-  role: 'admin' | 'operator';
+  role: UserRole;
 }
 
 export interface LoginResponse {

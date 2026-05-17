@@ -9,6 +9,11 @@ import {
   Server,
   ChevronDown,
   ChevronRight,
+  CheckSquare,
+  Inbox,
+  Eye,
+  Users,
+  FileText,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../hooks/useAuth';
@@ -149,6 +154,114 @@ export function Sidebar() {
           ))}
         </div>
 
+        {/* M1 Governance & Compliance */}
+        <div className="mt-4">
+          <div className="px-6 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+            {t('sidebar.governance')}
+          </div>
+          {/* Approval — visible to admin (checker) + operator (maker views own pending) */}
+          {(user?.role === 'admin' || user?.role === 'operator') && (
+            <>
+              {user?.role === 'admin' && (
+                <NavLink
+                  to="/approval/queue"
+                  className={({ isActive }) =>
+                    `flex items-center px-6 py-3 text-sm transition-colors ${
+                      isActive
+                        ? 'bg-blue-600 text-white'
+                        : 'text-gray-300 hover:bg-gray-800 hover:text-white'
+                    }`
+                  }
+                >
+                  <Inbox className="w-5 h-5 mr-3 flex-shrink-0" />
+                  <span>{t('sidebar.approval_queue')}</span>
+                </NavLink>
+              )}
+              <NavLink
+                to="/approval/pending"
+                className={({ isActive }) =>
+                  `flex items-center px-6 py-3 text-sm transition-colors ${
+                    isActive
+                      ? 'bg-blue-600 text-white'
+                      : 'text-gray-300 hover:bg-gray-800 hover:text-white'
+                  }`
+                }
+              >
+                <CheckSquare className="w-5 h-5 mr-3 flex-shrink-0" />
+                <span>{t('sidebar.my_approvals')}</span>
+              </NavLink>
+              {user?.role === 'admin' && (
+                <NavLink
+                  to="/approval/policies"
+                  className={({ isActive }) =>
+                    `flex items-center px-6 py-3 text-sm transition-colors ${
+                      isActive
+                        ? 'bg-blue-600 text-white'
+                        : 'text-gray-300 hover:bg-gray-800 hover:text-white'
+                    }`
+                  }
+                >
+                  <Settings className="w-5 h-5 mr-3 flex-shrink-0" />
+                  <span>{t('sidebar.approval_policies')}</span>
+                </NavLink>
+              )}
+            </>
+          )}
+
+          {/* Auditor management. The /auditor dashboard is the auditor's own
+              read-only view (gated by AuditorAuthMiddleware on kind="auditor"
+              JWT), so admins shouldn't link there from the sidebar — they
+              manage auditors at /auditor/manage instead. */}
+          {user?.role === 'admin' && (
+            <NavLink
+              to="/auditor/manage"
+              className={({ isActive }) =>
+                `flex items-center px-6 py-3 text-sm transition-colors ${
+                  isActive
+                    ? 'bg-blue-600 text-white'
+                    : 'text-gray-300 hover:bg-gray-800 hover:text-white'
+                }`
+              }
+            >
+              <Users className="w-5 h-5 mr-3 flex-shrink-0" />
+              <span>{t('sidebar.auditor_manage')}</span>
+            </NavLink>
+          )}
+        </div>
+
+        {/* M1 Payroll */}
+        <div className="mt-4">
+          <div className="px-6 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+            {t('sidebar.payroll')}
+          </div>
+          <NavLink
+            to="/payroll/runs"
+            className={({ isActive }) =>
+              `flex items-center px-6 py-3 text-sm transition-colors ${
+                isActive
+                  ? 'bg-blue-600 text-white'
+                  : 'text-gray-300 hover:bg-gray-800 hover:text-white'
+              }`
+            }
+          >
+            <FileText className="w-5 h-5 mr-3 flex-shrink-0" />
+            <span>{t('sidebar.payroll_runs')}</span>
+          </NavLink>
+          <NavLink
+            to="/payroll/employees"
+            className={({ isActive }) =>
+              `flex items-center px-6 py-3 text-sm transition-colors ${
+                isActive
+                  ? 'bg-blue-600 text-white'
+                  : 'text-gray-300 hover:bg-gray-800 hover:text-white'
+              }`
+            }
+          >
+            <Users className="w-5 h-5 mr-3 flex-shrink-0" />
+            <span>{t('sidebar.employees')}</span>
+          </NavLink>
+        </div>
+
         {/* History & Settings */}
         <div className="mt-4">
           <div className="px-6 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">
@@ -189,7 +302,11 @@ export function Sidebar() {
           <p className="text-gray-400">{t('sidebar.loggedInAs')}</p>
           <p className="font-medium">{user?.username}</p>
           <p className="text-xs text-gray-500">
-            {user?.role === 'admin' ? t('common.admin') : t('common.operator')}
+            {user?.role === 'admin'
+              ? t('common.admin')
+              : user?.role === 'auditor'
+              ? t('common.auditor')
+              : t('common.operator')}
           </p>
         </div>
       </div>
