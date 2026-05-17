@@ -17,7 +17,7 @@ use crate::db::repositories::WalletRepository;
 use crate::error::{AppError, AppResult};
 use crate::services::{
     ApprovalService, AuditorService, EmployeeService, PayrollService, PaymentDisclosureService,
-    ViewingKeyService,
+    TransferService, ViewingKeyService, WalletService,
 };
 
 // ===========================================================================
@@ -221,32 +221,71 @@ pub async fn auditor_wallet_balance(
     auditor: AuthenticatedAuditor,
     path: web::Path<i32>,
     auditor_service: web::Data<Arc<AuditorService>>,
+    wallet_service: web::Data<Arc<WalletService>>,
+    wallet_repo: web::Data<WalletRepository>,
 ) -> AppResult<HttpResponse> {
+    let wallet_id = path.into_inner();
     auditor_service
-        .assert_wallet_in_scope(auditor.auditor_id, path.into_inner())
+        .assert_wallet_in_scope(auditor.auditor_id, wallet_id)
         .await?;
-    // Real balance read requires the wallet's viewing key to be decrypted —
-    // deferred to W2 (paired with ViewingKey export real impl).  Return a
-    // typed stub so the frontend can render the page; not a security gap
-    // because we have already enforced scope and auditor identity above.
-    Ok(HttpResponse::Ok().json(json!({
-        "native_balance": "0",
-        "tokens": [],
-        "stub": true,
-        "note": "wallet balance read via viewing key — wired in M1.W2",
-    })))
+
+    let wallet = wallet_repo
+        .find_by_id(wallet_id)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("wallet {} not found", wallet_id)))?;
+
+    // For Zcash wallets surface both transparent and shielded balance via
+    // the combined helper (it falls back gracefully when Orchard isn't
+    // enabled).  For other chains fall back to the canonical balance call.
+    if wallet.chain == "zcash" {
+        let combined = wallet_service.get_combined_zcash_balance(wallet_id).await?;
+        Ok(HttpResponse::Ok().json(combined))
+    } else {
+        let balance = wallet_service.get_balance(&wallet.address, &wallet.chain).await?;
+        Ok(HttpResponse::Ok().json(balance))
+    }
+}
+
+#[derive(serde::Deserialize)]
+pub struct AuditorTransfersQuery {
+    pub limit: Option<i32>,
+    pub offset: Option<i32>,
 }
 
 pub async fn auditor_wallet_transfers(
     auditor: AuthenticatedAuditor,
     path: web::Path<i32>,
+    query: web::Query<AuditorTransfersQuery>,
     auditor_service: web::Data<Arc<AuditorService>>,
+    transfer_service: web::Data<Arc<TransferService>>,
 ) -> AppResult<HttpResponse> {
-    auditor_service
-        .assert_wallet_in_scope(auditor.auditor_id, path.into_inner())
+    let wallet_id = path.into_inner();
+    // Scope check returns the row so we can use its time window directly —
+    // no need to re-query, and we are guaranteed the window matches the
+    // identity that was just verified by AuditorAuthMiddleware.
+    let scope = auditor_service
+        .assert_wallet_in_scope(auditor.auditor_id, wallet_id)
         .await?;
-    // Real transfers query (filtered by scope_start..scope_end) wired in W2.
-    Ok(HttpResponse::Ok().json(json!([])))
+
+    let limit = query.limit.unwrap_or(50).clamp(1, 200);
+    let offset = query.offset.unwrap_or(0).max(0);
+
+    let transfers = transfer_service
+        .list_wallet_transfers_in_window(
+            wallet_id,
+            scope.scope_start_ts,
+            scope.scope_end_ts,
+            limit,
+            offset,
+        )
+        .await?;
+
+    Ok(HttpResponse::Ok().json(json!({
+        "wallet_id": wallet_id,
+        "scope_start": scope.scope_start_ts,
+        "scope_end": scope.scope_end_ts,
+        "transfers": transfers,
+    })))
 }
 
 pub async fn auditor_wallet_disclosures(

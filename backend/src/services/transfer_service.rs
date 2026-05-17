@@ -275,4 +275,18 @@ impl TransferService {
         let total = self.transfer_repo.count_by_wallet(wallet_id).await?;
         Ok((transfers, total))
     }
+
+    /// M1 F1.1 — list wallet transfers restricted to an auditor scope window.
+    pub async fn list_wallet_transfers_in_window(
+        &self,
+        wallet_id: i32,
+        start: chrono::DateTime<chrono::Utc>,
+        end: chrono::DateTime<chrono::Utc>,
+        limit: i32,
+        offset: i32,
+    ) -> AppResult<Vec<Transfer>> {
+        self.transfer_repo
+            .list_by_wallet_in_window(wallet_id, start, end, limit, offset)
+            .await
+    }
 }

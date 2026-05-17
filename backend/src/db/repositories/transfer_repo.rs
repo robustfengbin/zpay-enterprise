@@ -145,6 +145,35 @@ impl TransferRepository {
         Ok(transfers)
     }
 
+    /// M1 F1.1 — list wallet transfers within an auditor scope's time window.
+    /// `start` is inclusive, `end` exclusive so a scope ending at 00:00 of a
+    /// given day does not bleed into that day's traffic.
+    pub async fn list_by_wallet_in_window(
+        &self,
+        wallet_id: i32,
+        start: chrono::DateTime<chrono::Utc>,
+        end: chrono::DateTime<chrono::Utc>,
+        limit: i32,
+        offset: i32,
+    ) -> AppResult<Vec<Transfer>> {
+        let transfers = sqlx::query_as::<_, Transfer>(
+            r#"SELECT * FROM transfers
+               WHERE wallet_id = ?
+                 AND created_at >= ?
+                 AND created_at < ?
+               ORDER BY created_at DESC
+               LIMIT ? OFFSET ?"#,
+        )
+        .bind(wallet_id)
+        .bind(start)
+        .bind(end)
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(transfers)
+    }
+
     pub async fn list_all(&self, limit: i32, offset: i32) -> AppResult<Vec<Transfer>> {
         let transfers = sqlx::query_as::<_, Transfer>(
             "SELECT * FROM transfers ORDER BY created_at DESC LIMIT ? OFFSET ?"
