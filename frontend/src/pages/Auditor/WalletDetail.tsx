@@ -79,14 +79,23 @@ export function AuditorWalletDetail() {
             <RefreshCw className="w-4 h-4" />
           </button>
           {wallet && (
-            <button
-              className="btn-secondary"
-              disabled={wallet.current_count >= wallet.max_disclosure_count}
-              onClick={() => navigate(`/auditor/disclosure/new?wallet_id=${wallet.wallet_id}`)}
-            >
-              <FileText className="w-4 h-4 inline mr-1" />
-              {t('auditor.dashboard.request_disclosure')}
-            </button>
+            <>
+              <button
+                className="btn-ghost"
+                onClick={() => navigate(`/auditor/wallets/${wallet.wallet_id}/disclosures`)}
+              >
+                <FileText className="w-4 h-4 inline mr-1" />
+                {t('auditor.disclosure.history_title')}
+              </button>
+              <button
+                className="btn-secondary"
+                disabled={wallet.current_count >= wallet.max_disclosure_count}
+                onClick={() => navigate(`/auditor/disclosure/new?wallet_id=${wallet.wallet_id}`)}
+              >
+                <FileText className="w-4 h-4 inline mr-1" />
+                {t('auditor.dashboard.request_disclosure')}
+              </button>
+            </>
           )}
         </div>
       </header>

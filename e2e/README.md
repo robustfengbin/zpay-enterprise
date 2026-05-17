@@ -1,7 +1,7 @@
 # E2E smoke
 
 One-shot happy-path coverage of M1 features (F1.1 + F2.1 + F3.1).
-Runs 30 assertions across 10 steps.
+Runs 34 assertions across 11 steps.
 
 ## Usage
 
@@ -25,6 +25,7 @@ Exit code: `0` on full pass, `1` on first failed assertion.
 | 7 | F1.1 Auditor full flow | create / login / `/me` / `/wallets` 11-field shape / `/balance` / `/transfers` / admin token rejected from `/auditor/*` |
 | 8 | F3.1 PayrollRun | create + 422 invalid + `{run,items}` detail + execute tagged union |
 | 9 | F2.1 auto-pivot | create policy threshold 0.0001 → run total 0.001 → `execute` returns `result=awaiting_approval` → `cancel` |
+| 10 | F1.1 Disclosure async | POST `/payment-disclosures` → 202 `{status:"generating"}` → poll → `ready` → download returns `zip_version:"307-enterprise"` body with `actions[]`. Also asserts 400 on scope_param/granularity mismatch. |
 
 ## Env overrides
 

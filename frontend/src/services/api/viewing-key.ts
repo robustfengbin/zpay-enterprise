@@ -11,8 +11,10 @@ import type {
   AuditorTenantSummary,
   AuditorTransfersResponse,
   AuditorWalletBalance,
+  DisclosureBody,
+  DisclosureCreateResponse,
   DisclosureRequest,
-  DisclosureResponse,
+  DisclosureRow,
   ViewingKeyExportRequest,
   ViewingKeyExportResponse,
   ViewingKeyDownloadResponse,
@@ -62,16 +64,36 @@ export const viewingKeyService = {
 
   /**
    * POST /wallets/{id}/payment-disclosures — Admin only.
-   * Generates a ZIP-307 payment disclosure report for the wallet.
+   *
+   * Backend is async: returns 202 with a stub row whose `status:"generating"`,
+   * then a `tokio::spawn` builds the real body. Caller must poll
+   * getDisclosure() until `status === 'ready'`.
    */
-  async generateDisclosure(req: DisclosureRequest): Promise<DisclosureResponse> {
-    return api.post(`/wallets/${req.wallet_id}/payment-disclosures`, req);
+  async generateDisclosure(walletId: number, req: DisclosureRequest): Promise<DisclosureCreateResponse> {
+    return api.post(`/wallets/${walletId}/payment-disclosures`, req);
+  },
+
+  /**
+   * GET /payment-disclosures/{id} — full row with status. Body still null
+   * while generating; populated once status flips to 'ready'.
+   */
+  async getDisclosure(disclosureId: number): Promise<DisclosureRow> {
+    return api.get(`/payment-disclosures/${disclosureId}`);
+  },
+
+  /**
+   * GET /payment-disclosures/{id}/download — only valid once status='ready'.
+   * Returns the disclosure_json body (zip_version="307-enterprise" with
+   * actions[] + resolved_range if granularity=range).
+   */
+  async downloadDisclosure(disclosureId: number): Promise<DisclosureBody> {
+    return api.get(`/payment-disclosures/${disclosureId}/download`);
   },
 
   /**
    * GET /wallets/{id}/payment-disclosures — list past disclosures for a wallet.
    */
-  async listDisclosures(walletId: number): Promise<DisclosureResponse[]> {
+  async listDisclosures(walletId: number): Promise<DisclosureRow[]> {
     return api.get(`/wallets/${walletId}/payment-disclosures`);
   },
 
@@ -85,13 +107,6 @@ export const viewingKeyService = {
    */
   async listAuditorWallets(): Promise<AuditorTenantSummary[]> {
     return api.get('/auditor/wallets');
-  },
-
-  /**
-   * GET /auditor/disclosures/{id} — auditor reads a specific disclosure.
-   */
-  async getDisclosure(disclosureId: string): Promise<DisclosureResponse> {
-    return api.get(`/auditor/disclosures/${disclosureId}`);
   },
 
   /**

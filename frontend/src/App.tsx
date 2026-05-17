@@ -22,6 +22,8 @@ import {
   AuditorDashboard,
   AuditorWalletDetail,
   DisclosureNew,
+  DisclosureHistory,
+  DisclosureDetail,
   AuditorList,
   AuditorLogin,
   // F3.1
@@ -132,7 +134,9 @@ function App() {
           <Route path="/auditor" element={<ProtectedRoute requiredRole={["admin", "auditor"]}><AuditorDashboard /></ProtectedRoute>} />
           <Route path="/auditor/manage" element={<ProtectedRoute requiredRole="admin"><AuditorList /></ProtectedRoute>} />
           <Route path="/auditor/wallets/:id" element={<ProtectedRoute requiredRole={["admin", "auditor"]}><AuditorWalletDetail /></ProtectedRoute>} />
+          <Route path="/auditor/wallets/:walletId/disclosures" element={<ProtectedRoute requiredRole={["admin", "auditor"]}><DisclosureHistory /></ProtectedRoute>} />
           <Route path="/auditor/disclosure/new" element={<ProtectedRoute requiredRole={["admin", "auditor"]}><DisclosureNew /></ProtectedRoute>} />
+          <Route path="/auditor/disclosure/:id" element={<ProtectedRoute requiredRole={["admin", "auditor"]}><DisclosureDetail /></ProtectedRoute>} />
 
           {/* F3.1 — Payroll routes. Create requires operator+admin;
               list/detail/employees viewable by all authenticated users. */}

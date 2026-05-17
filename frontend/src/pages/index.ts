@@ -28,6 +28,8 @@ export {
   AuditorWalletDetail,
   ViewingKeyExportModal,
   DisclosureNew,
+  DisclosureHistory,
+  DisclosureDetail,
   AuditorList,
   AuditorLogin,
 } from './Auditor';

@@ -362,6 +362,44 @@ parse_api "$OUT"
 api DELETE "/approval-policies/$PIVOT_POL_ID" "$TOKEN" >/dev/null || true
 
 # ---------------------------------------------------------------------------
+# Step: F1.1 Disclosure async lifecycle — POST 202 + poll → ready + download
+# ---------------------------------------------------------------------------
+step "F1.1 Disclosure async lifecycle (granularity=address)"
+OUT=$(api POST "/wallets/$ZEC_WALLET_ID/payment-disclosures" "$TOKEN" '{"granularity":"address","scope_param":{"address":"u1abc"},"format":"json"}')
+parse_api "$OUT"
+if [[ "$STATUS" =~ ^20[0-2]$ ]] && [[ "$(echo "$RESP" | jget status)" == "generating" ]]; then
+  DID=$(echo "$RESP" | jget disclosure_id)
+  assert_pass "disclosure POST → 202 status=generating id=$DID"
+else
+  assert_fail "disclosure POST" "$RESP ($STATUS)"; exit 1
+fi
+# Poll up to 15s for status flip — address granularity is in-memory DB scan, usually <1s
+DSTATUS=""
+for _ in $(seq 1 15); do
+  sleep 1
+  OUT=$(api GET "/payment-disclosures/$DID" "$TOKEN")
+  parse_api "$OUT"
+  DSTATUS=$(echo "$RESP" | jget status)
+  [[ "$DSTATUS" == "ready" || "$DSTATUS" == "failed" ]] && break
+done
+[[ "$DSTATUS" == "ready" ]] && assert_pass "disclosure ready after polling" \
+  || assert_fail "disclosure did not become ready (final=$DSTATUS)" "$RESP"
+# Download body — verify the ZIP-307-enterprise shape
+OUT=$(api GET "/payment-disclosures/$DID/download" "$TOKEN")
+parse_api "$OUT"
+if [[ "$STATUS" == "200" ]] && [[ "$RESP" == *'"zip_version"'* ]] && [[ "$RESP" == *'"actions"'* ]]; then
+  assert_pass "disclosure download returns ZIP-307-enterprise body"
+else
+  assert_fail "disclosure download" "$RESP ($STATUS)"
+fi
+# Validation guard — scope_param must match granularity
+OUT=$(api POST "/wallets/$ZEC_WALLET_ID/payment-disclosures" "$TOKEN" '{"granularity":"tx","scope_param":{"address":"foo"},"format":"json"}')
+parse_api "$OUT"
+[[ "$STATUS" == "400" ]] && [[ "$RESP" == *"tx_hash"* ]] \
+  && assert_pass "scope_param mismatch → 400 with hint" \
+  || assert_fail "scope_param mismatch not rejected" "$RESP ($STATUS)"
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 TOTAL=$((PASS+FAIL))
