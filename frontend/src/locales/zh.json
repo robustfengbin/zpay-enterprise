@@ -433,13 +433,23 @@
       "new": "新建策略",
       "empty": "暂无策略。新建一条以对超阈值转账启用 maker/checker 审批。",
       "confirm_delete": "删除此审批策略？已发起的审批不受影响。",
+      "pick_wallet": "选择该链上的钱包…",
+      "user_id_placeholder": "用户 ID（数字）",
+      "user_id_m2_hint": "用户下拉选择 M2 加，目前先填数字 ID。",
+      "scope": {
+        "global": "全局（所有钱包、所有用户）",
+        "wallet": "指定钱包",
+        "user": "指定用户"
+      },
       "col": {
         "scope": "范围",
         "scope_id_optional": "范围 id（钱包/用户）",
+        "scope_id_wallet": "钱包（按所选链筛选）",
+        "scope_id_user": "用户 ID",
         "chain": "链",
         "token": "币种",
         "threshold": "金额阈值",
-        "sla": "SLA",
+        "sla": "SLA（分钟）",
         "required_count": "所需审批人数"
       }
     }

@@ -433,13 +433,23 @@
       "new": "New policy",
       "empty": "No policies yet. Create one to require maker/checker approval above a threshold.",
       "confirm_delete": "Delete this approval policy? Existing pending approvals are unaffected.",
+      "pick_wallet": "Select a wallet on this chain…",
+      "user_id_placeholder": "Numeric user id",
+      "user_id_m2_hint": "User dropdown lands in M2; type the numeric id for now.",
+      "scope": {
+        "global": "Global (all wallets, all users)",
+        "wallet": "Specific wallet",
+        "user": "Specific user"
+      },
       "col": {
         "scope": "Scope",
         "scope_id_optional": "Scope id (wallet/user)",
+        "scope_id_wallet": "Wallet (on selected chain)",
+        "scope_id_user": "User id",
         "chain": "Chain",
         "token": "Token",
         "threshold": "Amount threshold",
-        "sla": "SLA",
+        "sla": "SLA (minutes)",
         "required_count": "Required approvers"
       }
     }
