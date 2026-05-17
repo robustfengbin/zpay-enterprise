@@ -130,13 +130,18 @@ function App() {
 
           {/* F1.1 — Auditor / Viewing Key / Disclosure routes.
               Admin manages exports; Auditor logs in via separate /auditor/login. */}
+          {/* Auditor side — strict dual-JWT isolation (PRD-F1.1 §3.1 NFR).
+              Admin tokens cannot authenticate against the AuditorAuthMiddleware;
+              admins manage auditors at /auditor/manage and sign out + sign in
+              via /auditor/login if they need to preview the auditor's own
+              dashboard. */}
           <Route path="/auditor/login" element={<AuditorLogin />} />
-          <Route path="/auditor" element={<ProtectedRoute requiredRole={["admin", "auditor"]}><AuditorDashboard /></ProtectedRoute>} />
+          <Route path="/auditor" element={<ProtectedRoute requiredRole="auditor"><AuditorDashboard /></ProtectedRoute>} />
           <Route path="/auditor/manage" element={<ProtectedRoute requiredRole="admin"><AuditorList /></ProtectedRoute>} />
-          <Route path="/auditor/wallets/:id" element={<ProtectedRoute requiredRole={["admin", "auditor"]}><AuditorWalletDetail /></ProtectedRoute>} />
-          <Route path="/auditor/wallets/:walletId/disclosures" element={<ProtectedRoute requiredRole={["admin", "auditor"]}><DisclosureHistory /></ProtectedRoute>} />
-          <Route path="/auditor/disclosure/new" element={<ProtectedRoute requiredRole={["admin", "auditor"]}><DisclosureNew /></ProtectedRoute>} />
-          <Route path="/auditor/disclosure/:id" element={<ProtectedRoute requiredRole={["admin", "auditor"]}><DisclosureDetail /></ProtectedRoute>} />
+          <Route path="/auditor/wallets/:id" element={<ProtectedRoute requiredRole="auditor"><AuditorWalletDetail /></ProtectedRoute>} />
+          <Route path="/auditor/wallets/:walletId/disclosures" element={<ProtectedRoute requiredRole="auditor"><DisclosureHistory /></ProtectedRoute>} />
+          <Route path="/auditor/disclosure/new" element={<ProtectedRoute requiredRole="auditor"><DisclosureNew /></ProtectedRoute>} />
+          <Route path="/auditor/disclosure/:id" element={<ProtectedRoute requiredRole="auditor"><DisclosureDetail /></ProtectedRoute>} />
 
           {/* F3.1 — Payroll routes. Create requires operator+admin;
               list/detail/employees viewable by all authenticated users. */}

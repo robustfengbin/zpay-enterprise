@@ -465,6 +465,8 @@
       "temp_password_warning_title": "仅此一次显示",
       "temp_password_warning_body": "请立即复制并通过线下安全通道发送给审计师。密码不会在服务端明文保存。",
       "invitation_link": "邀请链接",
+      "open_login_new_tab": "在新标签打开审计师登录页",
+      "next_steps_hint": "想预览审计师视角，请复制临时密码并在隐私/无痕窗口中打开邀请链接——管理员和审计师会话严格隔离。",
       "scope_wallets": "授权钱包 ID（逗号分隔）",
       "col": {
         "email": "邮箱",

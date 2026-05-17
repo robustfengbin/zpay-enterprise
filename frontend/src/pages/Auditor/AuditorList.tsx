@@ -168,10 +168,21 @@ export function AuditorList() {
             <div>
               <p className="text-gray-600">{t('auditor.list.invitation_link')}</p>
               <div className="font-mono text-xs bg-gray-50 p-2 rounded border break-all">{created.invitation_link}</div>
-              <button className="btn-ghost mt-1" onClick={() => { navigator.clipboard.writeText(created.invitation_link); alert(t('common.copied')); }}>
-                <Copy className="w-3 h-3 inline mr-1" />{t('common.copy')}
-              </button>
+              <div className="flex gap-1 mt-1">
+                <button className="btn-ghost" onClick={() => { navigator.clipboard.writeText(created.invitation_link); alert(t('common.copied')); }}>
+                  <Copy className="w-3 h-3 inline mr-1" />{t('common.copy')}
+                </button>
+                <a
+                  href={created.invitation_link}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="btn-ghost"
+                >
+                  {t('auditor.list.open_login_new_tab')}
+                </a>
+              </div>
             </div>
+            <p className="text-xs text-gray-500">{t('auditor.list.next_steps_hint')}</p>
             <button className="btn-primary w-full" onClick={() => setCreated(null)}>{t('common.done')}</button>
           </div>
         )}

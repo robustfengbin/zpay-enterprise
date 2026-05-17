@@ -465,6 +465,8 @@
       "temp_password_warning_title": "One-time view",
       "temp_password_warning_body": "Copy now and share securely (out-of-band). The password is not stored in plaintext server-side.",
       "invitation_link": "Invitation link",
+      "open_login_new_tab": "Open auditor login (new tab)",
+      "next_steps_hint": "To preview the auditor's own view, copy the temporary password and open the invitation link in a private/incognito window — admin and auditor sessions are strictly isolated.",
       "scope_wallets": "Scoped wallet IDs (comma-separated)",
       "col": {
         "email": "Email",
