@@ -14,8 +14,8 @@ use sqlx::MySqlPool;
 use crate::blockchain::ChainRegistry;
 use crate::db::models::Transfer;
 use crate::db::models_m1::{
-    ApprovalDecisionRequest, ApprovalPolicy, CreateApprovalPolicyRequest, TransferApproval,
-    UpdateApprovalPolicyRequest,
+    ApprovalDecisionRequest, ApprovalPolicy, CreateApprovalPolicyRequest, PendingApprovalItem,
+    PendingApprovalListResponse, TransferApproval, UpdateApprovalPolicyRequest,
 };
 use crate::db::repositories::{
     ApprovalPolicyRepository, TransferApprovalRepository, TransferRepository,
@@ -407,16 +407,45 @@ impl ApprovalService {
         self.approval_repo.list_by_transfer(transfer_id).await
     }
 
-    /// Listing pending-approval transfers is a cross-table read that does
-    /// not fit any of the existing repositories cleanly, so we run it
-    /// inline against the shared pool rather than spawning a new repo.
-    pub async fn list_pending_for_user(&self, _viewer_user_id: i32) -> AppResult<Vec<Transfer>> {
-        let rows = sqlx::query_as::<_, Transfer>(
-            "SELECT * FROM transfers WHERE status = 'awaiting_approval' ORDER BY created_at ASC",
+    /// Listing pending-approval transfers is a cross-table read (transfers
+    /// JOIN users for `maker_username`) so we run it inline against the
+    /// shared pool rather than spawning a new repo.  Excludes transfers
+    /// where the viewer is the maker (NFR-7: maker != checker).
+    ///
+    /// `matched_policy_id` is intentionally null here — we don't re-run
+    /// policy matching for every row in the list view; the Detail page
+    /// surfaces it from the approval snapshot once recorded.
+    pub async fn list_pending_for_user(
+        &self,
+        viewer_user_id: i32,
+    ) -> AppResult<PendingApprovalListResponse> {
+        let items = sqlx::query_as::<_, PendingApprovalItem>(
+            r#"SELECT
+                 t.id            AS transfer_id,
+                 t.chain         AS chain,
+                 t.token         AS token,
+                 t.amount        AS amount,
+                 t.from_address  AS from_address,
+                 t.to_address    AS to_address,
+                 t.initiated_by  AS maker_user_id,
+                 u.username      AS maker_username,
+                 CAST(NULL AS CHAR) AS memo,
+                 CAST(NULL AS SIGNED) AS matched_policy_id,
+                 t.expiry_at     AS expiry_at,
+                 t.created_at    AS created_at
+               FROM transfers t
+               JOIN users u ON u.id = t.initiated_by
+               WHERE t.status = 'awaiting_approval'
+                 AND t.initiated_by <> ?
+               ORDER BY t.created_at ASC"#,
         )
+        .bind(viewer_user_id)
         .fetch_all(&self.pool)
         .await?;
-        Ok(rows)
+        Ok(PendingApprovalListResponse {
+            items,
+            next_cursor: None,
+        })
     }
 }
 

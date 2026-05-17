@@ -241,6 +241,32 @@ fn default_enabled() -> bool {
     true
 }
 
+/// Checker-view list row for `/approvals/pending`.  Joined against the
+/// users table so the UI can render the maker's name without a second
+/// round-trip per row.  Field names match the frontend
+/// `PendingApprovalItem` contract verbatim (see types/approval.ts).
+#[derive(Debug, Clone, Serialize, FromRow)]
+pub struct PendingApprovalItem {
+    pub transfer_id: i32,
+    pub chain: String,
+    pub token: String,
+    pub amount: Decimal,
+    pub from_address: String,
+    pub to_address: String,
+    pub maker_user_id: i32,
+    pub maker_username: String,
+    pub memo: Option<String>,
+    pub matched_policy_id: Option<i32>,
+    pub expiry_at: Option<DateTime<Utc>>,
+    pub created_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct PendingApprovalListResponse {
+    pub items: Vec<PendingApprovalItem>,
+    pub next_cursor: Option<String>,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct ApprovalDecisionRequest {
     pub decision: String, // approve | reject
