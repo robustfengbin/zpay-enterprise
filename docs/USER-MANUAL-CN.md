@@ -3,6 +3,7 @@
 > 面向企业财务、合规、审计角色的端到端操作指南。
 > 配套 staging 环境: <https://zpaystage.fastaitop.com>
 > 技术细节请见 [PRD 文档](.) 与 [STAGING-DEPLOYMENT.md](STAGING-DEPLOYMENT.md)。
+> English version: [USER-MANUAL-EN.md](USER-MANUAL-EN.md)
 
 ---
 
