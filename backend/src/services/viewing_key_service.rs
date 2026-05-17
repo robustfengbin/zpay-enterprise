@@ -23,6 +23,8 @@ use std::sync::Arc;
 use orchard::keys::Scope;
 use rand::RngCore;
 use sha2::{Digest, Sha256};
+use zcash_address::unified::{Encoding as _, Fvk, Ufvk};
+use zcash_protocol::consensus::NetworkType;
 
 use crate::blockchain::zcash::orchard::keys::OrchardKeyManager;
 use crate::config::SecurityConfig;
@@ -133,13 +135,28 @@ impl ViewingKeyService {
                 )
             }
             "ufvk" => {
-                // FullViewingKey bytes — 96 bytes, hex-encoded with metadata.
+                // ZIP-316 standard Unified FVK string ("uview..." on mainnet)
+                // so the auditor can paste this straight into Zashi / any
+                // ZIP-316–compatible viewing-only wallet without any custom
+                // header parsing.  We still prepend a comment line with
+                // account + birthday so audit consumers retain the metadata
+                // they need to bootstrap a wallet (birthday) and confirm
+                // provenance — Zashi ignores anything before the actual
+                // `uview` token on a single-line paste.
                 let bytes = vk.fvk().to_bytes();
+                let arr: [u8; 96] = bytes.as_slice().try_into().map_err(|_| {
+                    AppError::InternalError(format!(
+                        "expected Orchard FVK to be 96 bytes, got {}",
+                        bytes.len()
+                    ))
+                })?;
+                let ufvk = Ufvk::try_from_items(vec![Fvk::Orchard(arr)]).map_err(|e| {
+                    AppError::InternalError(format!("ZIP-316 UFVK assembly failed: {:?}", e))
+                })?;
+                let encoded = ufvk.encode(&NetworkType::Main);
                 format!(
-                    "orchard-ufvk:account={}:birthday={}:hex={}",
-                    vk.account_index,
-                    vk.birthday_height,
-                    hex::encode(bytes)
+                    "# orchard-ufvk account={} birthday={}\n{}",
+                    vk.account_index, vk.birthday_height, encoded
                 )
             }
             _ => unreachable!("key_type validated above"),
