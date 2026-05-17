@@ -13,7 +13,7 @@ use actix_web::{web, HttpRequest, HttpResponse};
 use serde_json::json;
 
 use crate::api::middleware::{AuthenticatedAuditor, AuthenticatedUser};
-use crate::db::repositories::WalletRepository;
+use crate::db::repositories::{PaymentDisclosureRepository, TransferRepository, WalletRepository};
 use crate::error::{AppError, AppResult};
 use crate::services::{
     ApprovalService, AuditorService, EmployeeService, PayrollService, PaymentDisclosureService,
@@ -195,24 +195,40 @@ pub async fn auditor_list_wallets(
     auditor: AuthenticatedAuditor,
     auditor_service: web::Data<Arc<AuditorService>>,
     wallet_repo: web::Data<WalletRepository>,
+    transfer_repo: web::Data<TransferRepository>,
+    disclosure_repo: web::Data<PaymentDisclosureRepository>,
 ) -> AppResult<HttpResponse> {
     let scopes = auditor_service.list_scopes(auditor.auditor_id).await?;
 
-    // Look up each wallet for the auditor's scopes.  Wallets are still the
-    // authoritative source — scope only carries the wallet_id + time window.
+    // Build the auditor dashboard summary row per wallet in scope.
+    // Aggregates (tx count / last activity / pending disclosures) come from
+    // single-shot queries — small N (auditors typically have 1–5 wallets in
+    // scope) so a per-row round trip is acceptable.  Wallet name + address
+    // come from the wallets table, which is the authoritative source.
     let mut wallets = Vec::with_capacity(scopes.len());
     for scope in scopes {
-        if let Some(w) = wallet_repo.find_by_id(scope.wallet_id).await? {
-            wallets.push(json!({
-                "wallet_id": w.id,
-                "address": w.address,
-                "chain": w.chain,
-                "scope_start": scope.scope_start_ts,
-                "scope_end": scope.scope_end_ts,
-                "max_disclosure_count": scope.max_disclosure_count,
-                "current_count": scope.current_count,
-            }));
-        }
+        let Some(w) = wallet_repo.find_by_id(scope.wallet_id).await? else {
+            continue;
+        };
+        let (total_tx_count, last_activity_at) = transfer_repo
+            .aggregate_in_window(w.id, scope.scope_start_ts, scope.scope_end_ts)
+            .await?;
+        let pending_disclosures = disclosure_repo
+            .count_generating_for_wallet(w.id)
+            .await?;
+        wallets.push(json!({
+            "wallet_id": w.id,
+            "wallet_name": w.name,
+            "address": w.address,
+            "chain": w.chain,
+            "scope_start": scope.scope_start_ts,
+            "scope_end": scope.scope_end_ts,
+            "max_disclosure_count": scope.max_disclosure_count,
+            "current_count": scope.current_count,
+            "total_tx_count": total_tx_count,
+            "last_activity_at": last_activity_at,
+            "pending_disclosures": pending_disclosures,
+        }));
     }
     Ok(HttpResponse::Ok().json(wallets))
 }

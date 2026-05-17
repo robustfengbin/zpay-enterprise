@@ -175,6 +175,12 @@ async fn main() -> std::io::Result<()> {
         config.jwt.clone(),
     ));
     let wallet_repo_for_auditor = WalletRepository::new(pool.clone());
+    // Repos shared with the auditor dashboard handler — aggregate stats
+    // (tx count / last activity / pending disclosures).  Cloned here so
+    // the handler can request them via web::Data without needing to
+    // construct another service layer.
+    let transfer_repo_for_auditor = TransferRepository::new(pool.clone());
+    let disclosure_repo_for_auditor = PaymentDisclosureRepository::new(pool.clone());
 
     // M1 F1.1 — Payment disclosure (ZIP-307) async generation framework.
     // The real disclosure body builder (librustzcash) is M1.W2; this stage
@@ -309,6 +315,8 @@ async fn main() -> std::io::Result<()> {
             .app_data(web::Data::new(payment_disclosure_service.clone()))
             .app_data(web::Data::new(viewing_key_service.clone()))
             .app_data(web::Data::new(wallet_repo_for_auditor.clone()))
+            .app_data(web::Data::new(transfer_repo_for_auditor.clone()))
+            .app_data(web::Data::new(disclosure_repo_for_auditor.clone()))
             .app_data(web::Data::new(chain_registry.clone()))
             .app_data(web::Data::new(settings_repo_for_app.clone()))
             .app_data(web::Data::new(eth_client_for_app.clone()))

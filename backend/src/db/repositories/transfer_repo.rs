@@ -3,6 +3,7 @@ use crate::error::AppResult;
 use rust_decimal::Decimal;
 use sqlx::MySqlPool;
 
+#[derive(Clone)]
 pub struct TransferRepository {
     pool: MySqlPool,
 }
@@ -211,6 +212,31 @@ impl TransferRepository {
             .await?;
 
         Ok(count.0)
+    }
+
+    /// M1 F1.1 — aggregate stats for the auditor dashboard row.  Returns
+    /// (count, last_activity) for transfers in the given window.  Uses a
+    /// single round-trip instead of count + max so the dashboard stays
+    /// cheap with many wallets in scope.
+    pub async fn aggregate_in_window(
+        &self,
+        wallet_id: i32,
+        start: chrono::DateTime<chrono::Utc>,
+        end: chrono::DateTime<chrono::Utc>,
+    ) -> AppResult<(i64, Option<chrono::DateTime<chrono::Utc>>)> {
+        let row: (i64, Option<chrono::DateTime<chrono::Utc>>) = sqlx::query_as(
+            r#"SELECT COUNT(*) AS cnt, MAX(created_at) AS last
+               FROM transfers
+               WHERE wallet_id = ?
+                 AND created_at >= ?
+                 AND created_at < ?"#,
+        )
+        .bind(wallet_id)
+        .bind(start)
+        .bind(end)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(row)
     }
 
     /// M1 F2.1 — flip every `awaiting_approval` transfer whose SLA deadline has

@@ -94,4 +94,17 @@ impl PaymentDisclosureRepository {
         .await?;
         Ok(())
     }
+
+    /// M1 F1.1 — count disclosures still in-flight for this wallet (status
+    /// 'generating').  Powers the auditor dashboard "pending_disclosures"
+    /// badge.  Failed / ready rows are not pending.
+    pub async fn count_generating_for_wallet(&self, wallet_id: i32) -> AppResult<i64> {
+        let count: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM payment_disclosures WHERE wallet_id = ? AND status = 'generating'",
+        )
+        .bind(wallet_id)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(count.0)
+    }
 }
