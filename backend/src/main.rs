@@ -17,11 +17,12 @@ use blockchain::{ethereum::EthereumClient, zcash::ZcashClient, ChainRegistry};
 use config::AppConfig;
 use db::repositories::{
     ApprovalPolicyRepository, AuditorRepository, EmployeeRepository, PaymentDisclosureRepository,
-    SettingsRepository, TransferRepository, UserRepository, WalletRepository,
+    SettingsRepository, TransferRepository, UserRepository, ViewingKeyExportRepository,
+    WalletRepository,
 };
 use services::{
     ApprovalService, AuditorService, AuthService, EmployeeService, PaymentDisclosureService,
-    TransferService, WalletService,
+    TransferService, ViewingKeyService, WalletService,
 };
 
 #[actix_web::main]
@@ -164,6 +165,17 @@ async fn main() -> std::io::Result<()> {
         PaymentDisclosureRepository::new(pool.clone()),
     ));
 
+    // M1 F1.1 — ViewingKey export (Orchard OVK / IVK / UFVK).  Derives the
+    // viewing key from the wallet's stored private key, encrypts at rest
+    // with the global ENCRYPTION_KEY, and serves via a one-time download
+    // token with 24h TTL.
+    let viewing_key_service = Arc::new(ViewingKeyService::new(
+        WalletRepository::new(pool.clone()),
+        ViewingKeyExportRepository::new(pool.clone()),
+        auth_service.clone(),
+        config.security.clone(),
+    ));
+
     // Create default admin user using the password supplied via
     // WEB3_SECURITY__ADMIN_INITIAL_PASSWORD (validated in config::validate).
     auth_service
@@ -256,6 +268,7 @@ async fn main() -> std::io::Result<()> {
             .app_data(web::Data::new(approval_service.clone()))
             .app_data(web::Data::new(auditor_service.clone()))
             .app_data(web::Data::new(payment_disclosure_service.clone()))
+            .app_data(web::Data::new(viewing_key_service.clone()))
             .app_data(web::Data::new(wallet_repo_for_auditor.clone()))
             .app_data(web::Data::new(chain_registry.clone()))
             .app_data(web::Data::new(settings_repo_for_app.clone()))

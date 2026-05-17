@@ -4,6 +4,7 @@ pub mod auth_service;
 pub mod employee_service;
 pub mod payment_disclosure_service;
 pub mod transfer_service;
+pub mod viewing_key_service;
 pub mod wallet_service;
 
 pub use approval_service::ApprovalService;
@@ -12,4 +13,5 @@ pub use auth_service::AuthService;
 pub use employee_service::EmployeeService;
 pub use payment_disclosure_service::PaymentDisclosureService;
 pub use transfer_service::TransferService;
+pub use viewing_key_service::ViewingKeyService;
 pub use wallet_service::WalletService;

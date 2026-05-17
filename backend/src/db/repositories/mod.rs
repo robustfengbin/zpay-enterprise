@@ -6,6 +6,7 @@ pub mod payment_disclosure_repo;
 pub mod settings_repo;
 pub mod transfer_repo;
 pub mod user_repo;
+pub mod viewing_key_export_repo;
 pub mod wallet_repo;
 
 pub use approval_policy_repo::ApprovalPolicyRepository;
@@ -16,4 +17,5 @@ pub use payment_disclosure_repo::PaymentDisclosureRepository;
 pub use settings_repo::SettingsRepository;
 pub use transfer_repo::TransferRepository;
 pub use user_repo::UserRepository;
+pub use viewing_key_export_repo::ViewingKeyExportRepository;
 pub use wallet_repo::WalletRepository;

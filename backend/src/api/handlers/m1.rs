@@ -20,7 +20,7 @@ use crate::db::repositories::WalletRepository;
 use crate::error::{AppError, AppResult};
 use crate::services::auditor_service::AuditorClaims;
 use crate::services::{
-    ApprovalService, AuditorService, EmployeeService, PaymentDisclosureService,
+    ApprovalService, AuditorService, EmployeeService, PaymentDisclosureService, ViewingKeyService,
 };
 
 // ===========================================================================
@@ -28,24 +28,57 @@ use crate::services::{
 // ===========================================================================
 
 pub async fn export_viewing_key(
-    _path: web::Path<i32>,
-    _body: web::Json<crate::db::models_m1::ExportViewingKeyRequest>,
-) -> HttpResponse {
-    HttpResponse::NotImplemented().json(json!({
-        "error": "F1.1 export_viewing_key — not yet implemented",
-        "stub": true,
-    }))
+    path: web::Path<i32>,
+    body: web::Json<crate::db::models_m1::ExportViewingKeyRequest>,
+    viewing_key_service: web::Data<Arc<ViewingKeyService>>,
+    user: AuthenticatedUser,
+) -> AppResult<HttpResponse> {
+    let resp = viewing_key_service
+        .export(path.into_inner(), user.user_id, body.into_inner())
+        .await?;
+    Ok(HttpResponse::Created().json(resp))
 }
 
-pub async fn list_viewing_key_exports(_path: web::Path<i32>) -> HttpResponse {
-    HttpResponse::Ok().json(json!([]))
+pub async fn list_viewing_key_exports(
+    path: web::Path<i32>,
+    viewing_key_service: web::Data<Arc<ViewingKeyService>>,
+) -> AppResult<HttpResponse> {
+    let exports = viewing_key_service
+        .list_for_wallet(path.into_inner())
+        .await?;
+    // Map to response DTO that hides encrypted_payload + download_token from
+    // the listing view — those only come back from the create call.
+    let trimmed: Vec<_> = exports
+        .into_iter()
+        .map(|e| {
+            json!({
+                "id": e.id,
+                "wallet_id": e.wallet_id,
+                "key_type": e.key_type,
+                "downloaded_at": e.downloaded_at,
+                "expires_at": e.expires_at,
+                "created_at": e.created_at,
+            })
+        })
+        .collect();
+    Ok(HttpResponse::Ok().json(trimmed))
 }
 
-pub async fn download_viewing_key(_token: web::Path<String>) -> HttpResponse {
-    HttpResponse::NotImplemented().json(json!({
-        "error": "F1.1 download_viewing_key — not yet implemented",
-        "stub": true,
-    }))
+pub async fn download_viewing_key(
+    token: web::Path<String>,
+    req: HttpRequest,
+    viewing_key_service: web::Data<Arc<ViewingKeyService>>,
+) -> AppResult<HttpResponse> {
+    let ip = req
+        .peer_addr()
+        .map(|a| a.ip().to_string())
+        .unwrap_or_else(|| "unknown".to_string());
+    let body = viewing_key_service
+        .download(&token.into_inner(), &ip)
+        .await?;
+    Ok(HttpResponse::Ok()
+        .content_type("text/plain; charset=utf-8")
+        .body(body))
 }
 
 pub async fn create_auditor(
