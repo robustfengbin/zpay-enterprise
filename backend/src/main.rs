@@ -132,6 +132,7 @@ async fn main() -> std::io::Result<()> {
         transfer_repo,
         wallet_service.clone(),
         chain_registry.clone(),
+        ApprovalPolicyRepository::new(pool.clone()),
     ));
 
     // M1 F3.1 — Employee CRUD service (independent, no RPC dependency).

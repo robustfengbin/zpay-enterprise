@@ -44,6 +44,45 @@ impl TransferRepository {
         Ok(result.last_insert_id() as i32)
     }
 
+    /// M1 F2.1 — create a transfer that is gated by approval.  The caller
+    /// has already matched a policy and computed the SLA expiry; this
+    /// repo just persists the row with the right status + bookkeeping
+    /// columns set in a single insert so the row is never observed in
+    /// an inconsistent state.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn create_awaiting_approval(
+        &self,
+        wallet_id: i32,
+        chain: &str,
+        from_address: &str,
+        to_address: &str,
+        token: &str,
+        amount: Decimal,
+        gas_price: Option<Decimal>,
+        gas_limit: Option<i64>,
+        initiated_by: i32,
+        expiry_at: chrono::DateTime<chrono::Utc>,
+    ) -> AppResult<i32> {
+        let result = sqlx::query(
+            r#"INSERT INTO transfers
+            (wallet_id, chain, from_address, to_address, token, amount, gas_price, gas_limit, status, initiated_by, expiry_at, approval_required)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'awaiting_approval', ?, ?, 1)"#,
+        )
+        .bind(wallet_id)
+        .bind(chain)
+        .bind(from_address)
+        .bind(to_address)
+        .bind(token)
+        .bind(amount)
+        .bind(gas_price)
+        .bind(gas_limit)
+        .bind(initiated_by)
+        .bind(expiry_at)
+        .execute(&self.pool)
+        .await?;
+        Ok(result.last_insert_id() as i32)
+    }
+
     pub async fn find_by_id(&self, id: i32) -> AppResult<Option<Transfer>> {
         let transfer = sqlx::query_as::<_, Transfer>(
             "SELECT * FROM transfers WHERE id = ?"

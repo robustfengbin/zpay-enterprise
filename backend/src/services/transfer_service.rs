@@ -1,10 +1,11 @@
+use chrono::Duration;
 use rust_decimal::Decimal;
 use std::str::FromStr;
 use std::sync::Arc;
 
 use crate::blockchain::{ChainRegistry, TransferParams, TxStatus};
 use crate::db::models::{Transfer, TransferRequest};
-use crate::db::repositories::TransferRepository;
+use crate::db::repositories::{ApprovalPolicyRepository, TransferRepository};
 use crate::error::{AppError, AppResult};
 use crate::services::WalletService;
 
@@ -12,6 +13,11 @@ pub struct TransferService {
     transfer_repo: TransferRepository,
     wallet_service: Arc<WalletService>,
     chain_registry: Arc<ChainRegistry>,
+    /// M1 F2.1 — used to decide if an incoming transfer must enter the
+    /// `awaiting_approval` state instead of going straight to `pending`.
+    /// We hold the repo directly (not ApprovalService) so we do not
+    /// create a TransferService ⟷ ApprovalService dependency cycle.
+    policy_repo: ApprovalPolicyRepository,
 }
 
 impl TransferService {
@@ -19,11 +25,13 @@ impl TransferService {
         transfer_repo: TransferRepository,
         wallet_service: Arc<WalletService>,
         chain_registry: Arc<ChainRegistry>,
+        policy_repo: ApprovalPolicyRepository,
     ) -> Self {
         Self {
             transfer_repo,
             wallet_service,
             chain_registry,
+            policy_repo,
         }
     }
 
@@ -89,21 +97,53 @@ impl TransferService {
             .transpose()
             .map_err(|e| AppError::ValidationError(format!("Invalid gas price: {}", e)))?;
 
-        // Create transfer record
-        let transfer_id = self
-            .transfer_repo
-            .create(
-                wallet.id,
-                &request.chain,
-                &wallet.address,
-                &request.to_address,
-                &request.token,
-                amount,
-                gas_price,
-                request.gas_limit,
-                user_id,
-            )
-            .await?;
+        // M1 F2.1 — check whether any approval policy gates this transfer.
+        // The narrowest matching policy whose threshold the amount meets
+        // wins; if none match the transfer continues to `pending` exactly
+        // like before (backward-compat for existing automated callers).
+        let token_upper_for_policy = token_upper.clone();
+        let matching = self
+            .policy_repo
+            .find_matching(&request.chain, &token_upper_for_policy, wallet.id, user_id)
+            .await?
+            .into_iter()
+            .find(|p| amount >= p.amount_threshold);
+
+        let transfer_id = if let Some(policy) = matching {
+            let expiry_at = chrono::Utc::now() + Duration::minutes(policy.sla_minutes as i64);
+            tracing::info!(
+                "[approval] transfer wallet={} token={} amount={} matched policy id={} (threshold={}, sla={}min) -> awaiting_approval",
+                wallet.id, token_upper_for_policy, amount, policy.id, policy.amount_threshold, policy.sla_minutes
+            );
+            self.transfer_repo
+                .create_awaiting_approval(
+                    wallet.id,
+                    &request.chain,
+                    &wallet.address,
+                    &request.to_address,
+                    &request.token,
+                    amount,
+                    gas_price,
+                    request.gas_limit,
+                    user_id,
+                    expiry_at,
+                )
+                .await?
+        } else {
+            self.transfer_repo
+                .create(
+                    wallet.id,
+                    &request.chain,
+                    &wallet.address,
+                    &request.to_address,
+                    &request.token,
+                    amount,
+                    gas_price,
+                    request.gas_limit,
+                    user_id,
+                )
+                .await?
+        };
 
         self.transfer_repo
             .find_by_id(transfer_id)
@@ -119,7 +159,10 @@ impl TransferService {
             .await?
             .ok_or_else(|| AppError::NotFound("Transfer not found".to_string()))?;
 
-        if transfer.status != "pending" {
+        // M1 F2.1 — `approved` is the post-checker state, also executable;
+        // `pending` is the legacy unconditional-execute path that still
+        // works for transfers below all policy thresholds.
+        if transfer.status != "pending" && transfer.status != "approved" {
             return Err(AppError::ValidationError(format!(
                 "Transfer is not pending. Current status: {}",
                 transfer.status
