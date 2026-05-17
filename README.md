@@ -1,779 +1,234 @@
 [English](README.md) | [中文](README_CN.md)
 
-# Web3 Wallet Service
+# zPay Enterprise
+
+> **Privacy-first financial operating system for Web3.**
+> Custodial multi-chain wallet · Maker-checker treasury controls · Bulk payroll · Regulator-grade audit — all in one self-hosted service.
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+[![Version](https://img.shields.io/badge/version-v0.3.0-green.svg)](CHANGELOG.md)
 [![Rust](https://img.shields.io/badge/rust-stable-orange.svg)](https://www.rust-lang.org)
 [![Contributions welcome](https://img.shields.io/badge/contributions-welcome-brightgreen.svg)](CONTRIBUTING.md)
 [![Security policy](https://img.shields.io/badge/security-disclosure-red.svg)](SECURITY.md)
 
-A modular Web3 wallet management service with multi-chain support, featuring a Rust backend and React frontend. **Now with full Zcash Orchard privacy protocol support — plus M1 enterprise features: viewing-key audit, maker-checker approvals, and bulk payroll.**
+zPay Enterprise lets a company move money on public blockchains with the same privacy, security, and control as a traditional bank treasury — but without a custodian, a multisig setup ritual, or a bespoke audit pipeline. **One self-hosted service** covers wallet custody (Ethereum + Zcash Orchard shielded), policy-driven dual-signature approvals, bulk payroll, and on-demand disclosure reports for external auditors.
+
+![Payroll run awaiting approval — F2.1 threshold hook auto-triggers on the batch total](docs/images/m1-payroll-runs.png)
 
 ---
 
 ## 🎉 What's New in v0.3.0 — M1 Enterprise (June 2026)
 
-> The biggest release since launch. Three new business pillars on top of the existing multi-chain wallet core, plus end-to-end automated smoke coverage. Existing M0 callers continue to work unchanged.
+The first M1 release. Three business pillars added on top of the M0 multi-chain wallet core, plus end-to-end smoke coverage and bilingual operations docs. **All existing M0 callers continue to work unchanged.**
 
 ### 🔐 F1.1 — Viewing-Key Audit & Disclosure
-A dedicated **Auditor role** with its own login (`/auditor/login`) and a separate JWT — so a leaked admin token can never reach an audit endpoint and vice versa. Admins one-click export **OVK / IVK / UFVK** (the UFVK is a ZIP-316 standard `uview...` string — paste directly into Zashi or any compatible viewing-only wallet). On-demand **ZIP-307 inspired disclosure reports** in PDF / CSV / JSON, scoped to a wallet + time window + per-quarter budget. → [PRD-F1.1](docs/public/PRD-F1.1.md)
+Dedicated **Auditor role** with its own login and a separate JWT (`kind=auditor`), so a leaked admin token can never reach an audit endpoint and vice versa. One-click export of **OVK / IVK / UFVK** — the UFVK is a ZIP-316 standard `uview...` string that pastes directly into Zashi or any compatible viewing-only wallet. On-demand **ZIP-307 inspired disclosure reports** in PDF / CSV / JSON, scoped to a wallet + time window + per-quarter budget. → [PRD-F1.1](docs/public/PRD-F1.1.md)
 
 ![Auditor management — invite scoped third-party auditors](docs/images/m1-manage-auditors.png)
 
 ### 🛡 F2.1 — Maker-Checker Approvals
-Configurable **approval policies** along (scope × chain × token × amount threshold × SLA). `maker ≠ checker` is enforced at the SQL layer, not just the frontend. Auto-pivot on `POST /transfers` when the amount meets a policy; reject requires a written reason (≥ 5 chars); a **5-minute SLA worker** auto-expires stalled requests so they don't block the maker forever. → [PRD-F2.1](docs/public/PRD-F2.1.md)
+Configurable **approval policies** along (`scope × chain × token × amount × SLA`). `maker ≠ checker` is enforced **at the SQL layer**, not just the frontend. Auto-pivot on `POST /transfers` when the amount meets a policy; reject requires a written reason (≥ 5 chars); a **5-minute SLA worker** auto-expires stalled requests so they don't block the maker forever. → [PRD-F2.1](docs/public/PRD-F2.1.md)
 
 ![Approval policies — enterprise-grade thresholds per chain × token](docs/images/m1-approval-policies.png)
 
 ### 💰 F3.1 — Bulk Payroll
-Employee roster with CSV import, **two-stage validation** (client + server), per-item Orchard fan-out (real on-chain), and the F2.1 threshold hook so large monthly runs go through one approval rather than N separate ones. Partial failures retry individually; runs stuck in `executing` can be force-cancelled as a recovery path. → [PRD-F3.1](docs/public/PRD-F3.1.md)
+Employee roster with CSV import + **two-stage validation** (client + server). Per-item Orchard fan-out (real on-chain). The F2.1 threshold hook means a large monthly run goes through **one approval**, not N. Partial failures retry individually; runs stuck in `executing` can be force-cancelled as a recovery path. → [PRD-F3.1](docs/public/PRD-F3.1.md)
 
-![Employee roster — 6 demo employees across multiple chains](docs/images/m1-employees.png)
+![Employee roster — 6 English-named demo employees across multiple chains](docs/images/m1-employees.png)
 
-![Payroll run awaiting approval — F2.1 threshold hook auto-triggers on the batch total](docs/images/m1-payroll-runs.png)
-
-### 📐 Ops & DX
-- **End-to-end smoke harness** — 11 steps × 34 assertions in one shell script.
-- **Bilingual user manual** — [English](docs/USER-MANUAL-EN.md) · [中文](docs/USER-MANUAL-CN.md), organized by role and business scenario (not by feature).
+### 📐 Operations & developer experience
+- **End-to-end smoke harness** — 11 steps × 34 assertions in one shell script (when bundled).
+- **Bilingual user manual** — [English](docs/USER-MANUAL-EN.md) · [中文](docs/USER-MANUAL-CN.md), organized by **role and business scenario**, not by feature.
 - **30-minute staging recipe** — [STAGING-DEPLOYMENT.md](docs/STAGING-DEPLOYMENT.md) takes a fresh Linux host to a live HTTPS deployment.
 
-For the full per-area change list see [CHANGELOG.md](CHANGELOG.md).
-
-
-> 🚀 **5-Minute Quick Start (Docker):**
->
-> ```bash
-> git clone https://github.com/robustfengbin/zpay-enterprise.git
-> cd zpay-enterprise
-> cp backend/.env.example .env
-> docker compose up --build
-> ```
->
-> Backend boots on `http://localhost:8080`. On first start, missing secrets
-> (encryption key, JWT secret, admin password) are auto-generated and written
-> to `backend/.env.secrets` — back up that file, **its loss = permanent loss
-> of all encrypted wallets**.
->
-> For production, set `WEB3_SERVER__ALLOWED_ORIGIN` in `.env` to the exact
-> origin your frontend is served from (the default `http://localhost:3000`
-> only matches a local dev frontend).
->
-> Full walkthrough: [QUICKSTART.md](QUICKSTART.md) · Recent changes: [CHANGELOG.md](CHANGELOG.md) · Latest stable tag: **v0.3.0**
->
-> 📘 **End-user operations**: [User Manual (English)](docs/USER-MANUAL-EN.md) | [中文](docs/USER-MANUAL-CN.md)
-> 📦 **Deploy to staging in 30 min**: [STAGING-DEPLOYMENT.md](docs/STAGING-DEPLOYMENT.md)
-> 📐 **M1 enterprise feature PRDs**: [F1.1 Audit](docs/public/PRD-F1.1.md) · [F2.1 Maker-Checker](docs/public/PRD-F2.1.md) · [F3.1 Payroll](docs/public/PRD-F3.1.md)
-
-## Features
-
-### Core wallet (M0)
-
-- **Wallet Management** - Create, import, and manage multiple wallets with encrypted private key storage
-- **Multi-Chain Support** - Extensible architecture for multiple blockchain networks (Ethereum, Zcash)
-- **Token Support** - Native tokens and ERC20 tokens (USDT, USDC, DAI, WETH)
-- **Zcash Privacy** - Full Orchard protocol with Halo 2 zero-knowledge proofs
-- **Four Transfer Modes** - Complete Zcash transfer types (T→T, T→Z, Z→Z, Z→T)
-- **Transfer Management** - Initiate, execute, and track transactions with real-time status updates
-- **Gas Estimation** - EIP-1559 compatible gas fee estimation
-- **RPC Management** - Dynamic RPC endpoint configuration with fallback support
-- **Role-Based Access** - Admin and Operator roles with permission controls
-- **Internationalization** - Multi-language frontend support
-
-### Enterprise M1 (2026-06)
-
-- **Viewing-Key Audit (F1.1)** - One-click OVK/IVK/UFVK export (ZIP-316 standard `uview...` string), independent Auditor role with dual-JWT physical isolation, scope-bounded wallet visibility, ZIP-307 inspired disclosure reports (PDF / CSV / JSON). See [PRD-F1.1](docs/public/PRD-F1.1.md).
-- **Maker-Checker Approvals (F2.1)** - Configurable approval policies (scope: global/wallet/user × chain × token × amount threshold × SLA), SQL-level `maker ≠ checker` enforcement, auto-pivot on `POST /transfers`, SLA worker auto-expires stalled requests every 5 min. See [PRD-F2.1](docs/public/PRD-F2.1.md).
-- **Bulk Payroll (F3.1)** - Employee roster (CSV import / soft delete), batch payroll runs with two-stage validation (client + server), per-item Orchard fan-out (real on-chain), F2.1 threshold hook triggers approval on run total, partial-failure single-item retry, force-cancel from stuck `executing` state. See [PRD-F3.1](docs/public/PRD-F3.1.md).
-- **End-to-end smoke** - `e2e/smoke.sh` (when present) covers 11 steps / 34 assertions across all M1 features.
+Full per-area change list: [CHANGELOG.md](CHANGELOG.md).
 
 ---
 
-## Screenshots
+## 🎯 Who Uses zPay
 
-### Dashboard
-![Dashboard](docs/images/dashboard.png)
+zPay is built for the four people who actually move money in a Web3 company:
 
-### Zcash Wallet Management
-Zcash wallet with unified addresses, transparent/shielded balance display, and Privacy Notes viewer.
-![Zcash Wallet](docs/images/zcash_account.jpg)
+### CFO / Finance Director
+*"I need to move ZEC and USDT to vendors and employees every month. I don't want any single person to be able to walk away with funds, and the auditor needs to see what we did at quarter-end."*
 
-### Ethereum Transfer
-ERC20 token transfer with EIP-1559 gas estimation and balance preview.
-![Ethereum Transfer](docs/images/transfer.jpg)
+→ Pick a maker-checker policy for spend above your threshold, run monthly bulk payroll with a CSV upload, hand the auditor a scoped read-only login at quarter-end. **No private keys ever leave your server.**
 
-### Zcash Privacy Transfer (Z→Z)
-Shielded-to-shielded transfer with encrypted memo and Halo 2 proof generation.
-![Zcash Privacy Transfer](docs/images/prepare_transfer_z_z.jpg)
+### Treasury / Operations Manager
+*"I write the policy, but I'm not the one approving every transaction. I want a dashboard that tells me who's pending what, how close we are to SLA, and which payroll runs need attention."*
 
-### Transfer Success
-Transaction submitted successfully with transaction hash.
-![Transfer Success](docs/images/transfer_tx.jpg)
+→ Configure approval policies along `chain × token × threshold × SLA`. Watch the queue. Force-cancel stuck runs. Adjust thresholds as the team grows — backend is forward-only and stays in sync.
 
-### Transfer History
-Complete transfer history with shielded transaction tracking.
-![Transfer History](docs/images/transfer_his.jpg)
+### External Auditor (Big-4 / regional CPA)
+*"My client gave me a login. I need to verify on-chain history for Q1 without seeing private keys, and I need to walk away with PDFs for my workpapers."*
 
-### RPC Node Settings
-Multi-provider RPC configuration with Alchemy, Infura, QuickNode support.
-![RPC Settings](docs/images/node_rpc.jpg)
+→ Log into a separate `/auditor/login` portal (admin tokens are blocked here). See exactly the wallets the client granted you, only within the granted window. Generate disclosure PDFs that anchor each transaction to a revealed nullifier — independently verifiable on the Zcash chain.
+
+### DevOps / Security Lead
+*"I need to deploy this without becoming a key-custody startup. I want one HTTPS service, encrypted at rest, automated tests, and a clear story for incident response."*
+
+→ Single Rust binary + MySQL + Zebra full-node (Docker). AES-256-GCM at rest. Dual-JWT isolation. `e2e/smoke.sh` covers every M1 path. Letsencrypt auto-renew via the [staging recipe](docs/STAGING-DEPLOYMENT.md). [Security policy](SECURITY.md) for vulnerability disclosure.
 
 ---
 
-## Product Vision & Roadmap
+## ✨ Core Capabilities
 
-We are building the **Enterprise-Grade Privacy Finance Infrastructure for Web3** — the world's first platform that enables companies to move money on public blockchains with the same privacy, security, and control as traditional financial systems.
+### Multi-chain wallet custody
+- **Ethereum** (native + ERC-20: USDT / USDC / DAI / WETH) and **Zcash** (transparent + Orchard shielded).
+- Private keys encrypted at rest with **AES-256-GCM** — they never sit as plaintext on disk and require a re-entered admin password to export.
+- Configurable RPC endpoints with fallback support; EIP-1559 gas estimation.
+- Extensible: implement the `ChainClient` trait to add a new chain.
 
-### What We Are Building
+### Zcash Orchard privacy
+- All **four transfer modes**: T→T, T→Z (shielding), Z→Z (full privacy), Z→T (de-shielding).
+- **Halo 2** zero-knowledge proofs with no trusted setup.
+- ZIP-317 fee structure; ZIP-316 unified address parsing; ZIP-307 inspired disclosure body.
+- Background Orchard sync with per-wallet progress tracking.
 
-> **Privacy-First Financial Operating System for Web3**
->
-> *"Stripe + Treasury + Privacy Layer for Crypto"*
+### Enterprise treasury controls (M1)
+- **Approval policies** scope × chain × token × threshold × SLA. Matching is most-specific-first.
+- `maker ≠ checker` SQL-layer enforcement so a frontend RBAC bug cannot bypass.
+- **SLA worker** flips overdue `awaiting_approval` rows every 5 minutes — stalled approvals can never block forever.
+- **Bulk payroll** with CSV upload, two-stage validation, per-item retry, force-cancel for stuck runs.
 
-A unified platform where enterprises can:
-- Accept, store, move, and settle digital assets
-- Use Zcash shielded pools for privacy
-- Use public chains for liquidity
-- Control who can move money and under what conditions
-- Generate compliance-ready audit trails
+### Audit & compliance (M1)
+- **Independent Auditor role** with separate JWT (`kind=auditor`) — dual-JWT physical isolation between admin and auditor surfaces.
+- **Per-wallet scope + time window + disclosure budget** so an auditor sees only what was granted, only when, and only N times.
+- **Viewing-key export** as ZIP-316 standard `uview...` string — auditors verify independently in Zashi.
+- **Disclosure reports** in PDF, CSV, or JSON. Range scope accepts ISO 8601 timestamps which the server resolves to block heights automatically.
 
-### 2026 Roadmap
-
-| Quarter | Focus | Key Deliverables |
-|---------|-------|------------------|
-| **Q1** | Enterprise Reliability | End-to-end transaction tracking, auto failover, real-time dashboards |
-| **Q2** | Compliance & Governance | Multi-user approval workflows, audit trails, enterprise webhooks |
-| **Q3** | High-Volume Privacy | Optimized Orchard sync, large-value transfers, unified balance management |
-| **Q4** | Privacy Finance Platform | Developer SDKs, multi-chain treasury, HSM/KMS integrations |
-
-### Long-Term Vision
-
-By 2026, we will power:
-- Crypto exchanges protecting user deposits
-- OTC desks settling billion-dollar trades privately
-- Payment processors offering privacy by default
-- Web3 companies running confidential payroll and treasury
-
-> 📄 **[Read Full Roadmap (English)](docs/product-roadmap-2026.md)** | **[中文版](docs/product-roadmap-2026-cn.md)**
+### Internationalization
+- All UI strings are i18n-keyed. English and Chinese ship in `frontend/src/locales/`.
 
 ---
 
-## Zcash Privacy Transfer Modes
+## 🛡 Security & Compliance Highlights
 
-The system implements **all four Zcash transfer modes**, providing complete flexibility for privacy management:
+| Area | Implementation |
+|---|---|
+| **Private-key storage** | AES-256-GCM encrypted at rest, never plaintext on disk |
+| **Key export** | Re-entered admin password required (fresh-intent), full audit log even if download token is consumed |
+| **JWT isolation** | Admin JWT (`kind=user`) and Auditor JWT (`kind=auditor`) — SQL-level routing means neither can touch the other's endpoints |
+| **Approval enforcement** | `WHERE initiated_by <> viewer_user_id` is the database constraint, not just a frontend check |
+| **Reject hygiene** | Approver must provide a reason ≥ 5 characters before a reject lands |
+| **SLA hygiene** | A 5-minute background worker flips stalled `awaiting_approval` rows to `expired`, preventing permanent block |
+| **CORS** | Explicit `ALLOWED_ORIGIN` allowlist; wildcards are rejected by the service on boot |
+| **Rate limiting** | `/auth/login` is governor-limited per peer IP |
+| **Disclosure traceability** | Each disclosure entry includes a **revealed nullifier** that anchors it to the Zcash chain — auditors can independently verify without trusting our backend |
+| **Forward-only migrations** | Schema additions are nullable; existing M0 callers never break on upgrade |
 
-### Transfer Mode Comparison
-
-| Mode | From | To | Privacy Level | Use Case |
-|------|------|-----|---------------|----------|
-| **T→T** | Transparent | Transparent | None | Standard public transactions |
-| **T→Z** | Transparent | Shielded | Partial | Shielding funds for privacy |
-| **Z→Z** | Shielded | Shielded | Maximum | Fully private transactions |
-| **Z→T** | Shielded | Transparent | Partial | Deshielding for exchanges |
-
-### Mode Details
-
-#### 1. Transparent to Transparent (T→T)
-
-```
-┌─────────────┐                    ┌─────────────┐
-│  t1abc...   │ ───── ZEC ──────▶  │  t1xyz...   │
-│ (Sender)    │                    │ (Receiver)  │
-└─────────────┘                    └─────────────┘
-         Public on blockchain
-```
-
-- **Privacy**: None - all details visible on blockchain
-- **Speed**: Fast (~75 seconds confirmation)
-- **Use Case**: Public payments, exchange deposits/withdrawals
-- **API**: `POST /api/v1/transfers`
-
-#### 2. Transparent to Shielded (T→Z Shielding)
-
-```
-┌─────────────┐                    ┌─────────────┐
-│  t1abc...   │ ───── ZEC ──────▶  │  u1xyz...   │
-│ Transparent │      Shielding     │  Shielded   │
-└─────────────┘                    └─────────────┘
-    Visible                          Hidden
-```
-
-- **Privacy**: Partial - sender visible, receiver hidden
-- **Proof**: Halo 2 zero-knowledge proof generated
-- **Use Case**: Moving funds into privacy pool
-- **API**: `POST /api/v1/transfers/orchard` with `fund_source: "Transparent"`
-
-#### 3. Shielded to Shielded (Z→Z)
-
-```
-┌─────────────┐                    ┌─────────────┐
-│  u1abc...   │ ───── ZEC ──────▶  │  u1xyz...   │
-│  Shielded   │   Full Privacy     │  Shielded   │
-└─────────────┘                    └─────────────┘
-    Hidden          Hidden            Hidden
-         Maximum Privacy
-```
-
-- **Privacy**: Maximum - sender, receiver, and amount all hidden
-- **Proof**: Full Halo 2 proof (spend + output)
-- **Memo**: Optional 512-byte encrypted memo support
-- **Use Case**: Private payments, confidential business transactions
-- **API**: `POST /api/v1/transfers/orchard` with `fund_source: "Shielded"`
-
-#### 4. Shielded to Transparent (Z→T Deshielding)
-
-```
-┌─────────────┐                    ┌─────────────┐
-│  u1abc...   │ ───── ZEC ──────▶  │  t1xyz...   │
-│  Shielded   │    Deshielding     │ Transparent │
-└─────────────┘                    └─────────────┘
-    Hidden                           Visible
-```
-
-- **Privacy**: Partial - sender hidden, receiver visible
-- **Proof**: Halo 2 spend proof required
-- **Use Case**: Exchange deposits, public payments from private funds
-- **API**: `POST /api/v1/transfers/orchard` with transparent recipient address
-
-### Technical Implementation
-
-The Orchard privacy system uses:
-
-- **Halo 2**: Recursive zero-knowledge proof system (no trusted setup)
-- **Commitment Tree**: Merkle tree tracking all shielded notes
-- **Nullifiers**: Prevent double-spending without revealing note identity
-- **Incremental Witnesses**: Efficient proof path updates
-
-```rust
-// Fund source selection
-pub enum FundSource {
-    Auto,         // System chooses optimal source
-    Shielded,     // Force use shielded funds (Z→Z or Z→T)
-    Transparent,  // Force use transparent funds (T→Z)
-}
-```
-
-### Fee Structure (ZIP-317)
-
-| Actions | Fee (ZEC) |
-|---------|-----------|
-| 1-2 | 0.0001 |
-| 3-4 | 0.00015 |
-| 5+ | 0.00005 per additional |
+For full vulnerability-disclosure policy, see [SECURITY.md](SECURITY.md).
 
 ---
 
-## Enterprise Use Cases
+## 🚀 5-Minute Quick Start (Docker)
 
-This system is designed for enterprise-grade cryptocurrency management with privacy features:
-
-### 1. Cryptocurrency Payment Gateway
-
-- **Scenario**: E-commerce platforms accepting ZEC payments
-- **Features Used**:
-  - Multi-wallet management for different merchants
-  - T→Z shielding for customer privacy
-  - Real-time balance and transaction tracking
-  - Webhook notifications for payment confirmation
-
-### 2. Treasury Management System
-
-- **Scenario**: Corporate treasury holding and managing crypto assets
-- **Features Used**:
-  - Role-based access (Admin/Operator separation of duties)
-  - Audit logs for compliance
-  - Multi-signature workflow (initiate → approve → execute)
-  - Encrypted private key storage with HSM integration potential
-
-### 3. OTC Trading Desk
-
-- **Scenario**: High-volume OTC cryptocurrency trading
-- **Features Used**:
-  - Z→Z transfers for confidential large trades
-  - Privacy protection for trade counterparties
-  - Batch transaction processing
-  - RPC failover for reliability
-
-### 4. Privacy-Focused Exchange
-
-- **Scenario**: Exchange offering privacy coin support
-- **Features Used**:
-  - T→Z for customer deposit shielding
-  - Z→T for withdrawal processing
-  - Automated balance reconciliation
-  - Compliance-ready audit trails
-
-### 5. Cross-Border Payment Service
-
-- **Scenario**: International remittance with privacy requirements
-- **Features Used**:
-  - Multi-chain support (ETH for speed, ZEC for privacy)
-  - Unified address management
-  - Transaction memo for payment references
-  - Multi-language interface
-
-### 6. Institutional Custody Solution
-
-- **Scenario**: Custodian managing crypto for institutional clients
-- **Features Used**:
-  - Segregated wallet per client
-  - View-only keys for auditors
-  - Cold/hot wallet separation
-  - Comprehensive logging and reporting
-
-### 7. DeFi Protocol Backend
-
-- **Scenario**: DeFi protocol requiring privacy features
-- **Features Used**:
-  - Programmable transaction workflows
-  - Gas optimization for Ethereum operations
-  - Privacy pool integration via Orchard
-  - API-first architecture for integration
-
-### Deployment Architecture
-
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                     Enterprise Deployment                        │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│  ┌──────────────┐     ┌──────────────┐     ┌──────────────┐    │
-│  │   Frontend   │     │   Backend    │     │   Database   │    │
-│  │   (React)    │────▶│   (Rust)     │────▶│   (MySQL)    │    │
-│  │   Port 3000  │     │   Port 8080  │     │   Port 3306  │    │
-│  └──────────────┘     └──────────────┘     └──────────────┘    │
-│                              │                                   │
-│                              ▼                                   │
-│  ┌──────────────────────────────────────────────────────────┐  │
-│  │                    Blockchain Layer                       │  │
-│  │  ┌─────────────┐              ┌─────────────┐            │  │
-│  │  │  Ethereum   │              │   Zcash     │            │  │
-│  │  │  RPC Node   │              │  RPC Node   │            │  │
-│  │  │ (Geth/Infura)│             │(Zebrad/Zcashd)│           │  │
-│  │  └─────────────┘              └─────────────┘            │  │
-│  └──────────────────────────────────────────────────────────┘  │
-│                                                                  │
-└─────────────────────────────────────────────────────────────────┘
+```bash
+git clone https://github.com/robustfengbin/zpay-enterprise.git
+cd zpay-enterprise
+cp backend/.env.example .env
+docker compose up --build
 ```
 
-### Security Considerations for Enterprise
+- Backend boots on `http://localhost:8080`.
+- On first start, missing secrets (`WEB3_SECURITY__ENCRYPTION_KEY`, `WEB3_JWT__SECRET`, `WEB3_SECURITY__ADMIN_INITIAL_PASSWORD`) are auto-generated and written to `backend/.env.secrets` (chmod 0600, gitignored).
+- **Back up `backend/.env.secrets`.** Loss of that file = permanent loss of all encrypted wallets.
+- In production, set `WEB3_SERVER__ALLOWED_ORIGIN` to the exact origin your frontend serves from. The service refuses to start if it's unset.
 
-| Aspect | Implementation |
-|--------|----------------|
-| Key Storage | AES-256-GCM encryption at rest |
-| Authentication | JWT with configurable expiration |
-| Authorization | Role-based (Admin/Operator) |
-| Audit | Comprehensive audit logging |
-| Network | HTTPS/TLS required in production |
-| Secrets | Environment-based configuration |
+Full setup walkthrough: [QUICKSTART.md](QUICKSTART.md) · Production-grade deploy: [STAGING-DEPLOYMENT.md](docs/STAGING-DEPLOYMENT.md)
 
 ---
 
-## Tech Stack
-
-### Backend
-- **Rust** with Actix-web 4
-- **MySQL 5.7+** with SQLx
-- **Ethers-rs** for Ethereum integration
-- **Orchard/Zcash crates** for Zcash privacy protocol
-- **Halo 2** zero-knowledge proof system
-- **AES-256-GCM** encryption for private keys
-- **JWT** authentication
-
-### Frontend
-- **React 19** with TypeScript
-- **Vite** build tool
-- **Tailwind CSS**
-- **i18next** for internationalization
-
-## Project Structure
-
-```
-github_web3_wallet_service/
-├── backend/                    # Rust backend service
-│   ├── src/
-│   │   ├── api/               # REST API endpoints and middleware
-│   │   ├── blockchain/        # Chain clients and token definitions
-│   │   │   ├── ethereum/      # Ethereum client and ERC20 tokens
-│   │   │   └── zcash/         # Zcash client and Orchard protocol
-│   │   │       └── orchard/   # Halo 2 proofs, notes, witnesses
-│   │   ├── services/          # Business logic layer
-│   │   ├── db/                # Database models and repositories
-│   │   ├── crypto/            # Encryption and password hashing
-│   │   └── config/            # Configuration management
-│   └── Cargo.toml
-│
-└── frontend/                   # React TypeScript frontend
-    ├── src/
-    │   ├── pages/             # Page components
-    │   ├── components/        # Reusable UI components
-    │   ├── services/          # API client modules
-    │   └── hooks/             # Custom React hooks
-    └── package.json
-```
-
-## Quick Start
-
-### Prerequisites
-
-- Rust (latest stable)
-- Node.js 18+
-- MySQL 5.7+
-
-### Backend Setup
-
-1. Navigate to the backend directory:
-```bash
-cd backend
-```
-
-2. Copy the environment file and configure:
-```bash
-cp .env.example .env
-```
-
-3. Configure your `.env` file:
-```env
-# Server
-WEB3_SERVER__HOST=127.0.0.1
-WEB3_SERVER__PORT=8080
-
-# Database
-WEB3_DATABASE__HOST=localhost
-WEB3_DATABASE__PORT=3306
-WEB3_DATABASE__USER=root
-WEB3_DATABASE__PASSWORD=your_password
-WEB3_DATABASE__NAME=web3_wallet
-
-# JWT
-WEB3_JWT__SECRET=your-secure-jwt-secret-key
-WEB3_JWT__EXPIRE_HOURS=24
-
-# Security (must be exactly 32 characters)
-WEB3_SECURITY__ENCRYPTION_KEY=uK7m2VxQ9nL3aT1aR8c26yH0uJ4bZ5wE
-
-# Ethereum
-WEB3_ETHEREUM__RPC_URL=https://eth.llamarpc.com
-WEB3_ETHEREUM__CHAIN_ID=1
-```
-
-4. Start the backend:
-```bash
-# Development mode
-./start.sh run
-
-# Production mode
-./start.sh run-release
-
-# Using PM2
-./start.sh pm2
-```
-
-### Frontend Setup
-
-1. Navigate to the frontend directory:
-```bash
-cd frontend
-```
-
-2. Install dependencies:
-```bash
-npm install
-```
-
-3. Start the development server:
-```bash
-npm run dev
-```
-
-4. Build for production:
-```bash
-npm run build
-```
-
-### Initial Admin Account
-
-zpay-enterprise requires three secrets at startup:
-
-- `WEB3_SECURITY__ENCRYPTION_KEY` — 32-byte AES-256 key for encrypting wallet private keys
-- `WEB3_JWT__SECRET` — HMAC secret for JWT session tokens
-- `WEB3_SECURITY__ADMIN_INITIAL_PASSWORD` — initial admin login (>=12 chars, not `admin123`)
-
-You have two options:
-
-**Option A — auto-generate (simplest, recommended for first-time users):**
-leave all three variables unset (or empty) in `backend/.env`. On first
-startup the service will generate strong random values, write them to
-`backend/.env.secrets` (chmod 0600, gitignored), and print the file location.
-Subsequent restarts reuse the same file — secrets are never silently rotated,
-which would make existing encrypted wallets unrecoverable.
-
-> ⚠️ **If you rely on auto-generation, back up `backend/.env.secrets`.**
-> Loss of that file = permanent loss of all encrypted wallets.
-
-**Option B — explicit values (recommended for production):**
-set all three in your `.env` file, container runtime, or secrets manager.
-The service validates them at startup and refuses to start on weak values.
-
-After you log in the first time, change the admin password via the UI
-(Settings → Change Password).
-
-- **Username:** `admin`
-- **Password:** either (A) the value written to `backend/.env.secrets`, or
-  (B) the value you set in `WEB3_SECURITY__ADMIN_INITIAL_PASSWORD`
-
-## API Reference
-
-### Authentication
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/v1/auth/login` | User login |
-| POST | `/api/v1/auth/logout` | User logout |
-| PUT | `/api/v1/auth/password` | Change password |
-| GET | `/api/v1/auth/me` | Get current user info |
-
-### Wallets
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/v1/wallets` | List all wallets |
-| POST | `/api/v1/wallets` | Create new wallet |
-| POST | `/api/v1/wallets/import` | Import wallet from private key |
-| GET | `/api/v1/wallets/{id}` | Get wallet details |
-| DELETE | `/api/v1/wallets/{id}` | Delete wallet |
-| PUT | `/api/v1/wallets/{id}/activate` | Set as active wallet |
-| POST | `/api/v1/wallets/{id}/export-key` | Export private key |
-| GET | `/api/v1/wallets/balance` | Get wallet balance |
-
-### Transfers
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/v1/transfers` | List transfers with pagination |
-| POST | `/api/v1/transfers` | Initiate new transfer |
-| GET | `/api/v1/transfers/{id}` | Get transfer details |
-| POST | `/api/v1/transfers/{id}/execute` | Execute pending transfer |
-| POST | `/api/v1/transfers/estimate-gas` | Estimate gas fees |
-
-### Zcash Orchard (Privacy)
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/v1/wallets/{id}/orchard/enable` | Enable Orchard for wallet |
-| GET | `/api/v1/wallets/{id}/orchard/addresses` | Get unified addresses |
-| GET | `/api/v1/wallets/{id}/orchard/balance` | Get shielded balance |
-| GET | `/api/v1/wallets/{id}/orchard/balance/combined` | Get combined balance |
-| GET | `/api/v1/wallets/{id}/orchard/notes` | List unspent notes |
-| POST | `/api/v1/transfers/orchard` | Initiate privacy transfer |
-| POST | `/api/v1/transfers/orchard/{id}/execute` | Execute privacy transfer |
-| GET | `/api/v1/zcash/scan/status` | Get sync status |
-| POST | `/api/v1/zcash/scan/sync` | Trigger manual sync |
-
-### Settings
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/v1/settings/rpc` | Get current RPC config |
-| PUT | `/api/v1/settings/rpc` | Update RPC config |
-| POST | `/api/v1/settings/rpc/test` | Test RPC endpoint |
-| GET | `/api/v1/settings/rpc/presets` | Get RPC presets |
-
-### Health
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/v1/health` | Health check |
-
-### M1 — Viewing Key audit & disclosure (F1.1)
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/v1/wallets/{id}/viewing-keys/export` | Export OVK / IVK / UFVK (ZIP-316) under one-time token |
-| GET | `/api/v1/wallets/{id}/viewing-keys/exports` | List prior exports |
-| GET | `/api/v1/viewing-keys/download/{token}` | One-time download (returns 410 on second hit) |
-| POST | `/api/v1/auditors` | Invite an auditor with scope and disclosure budget |
-| GET | `/api/v1/auditors` | List auditors |
-| PUT / POST | `/api/v1/auditors/{id}/deactivate` | Deactivate an auditor account |
-| POST | `/api/v1/wallets/{id}/payment-disclosures` | Request a disclosure (granularity = tx / address / range) |
-| GET | `/api/v1/payment-disclosures/{id}` | Poll disclosure status |
-| GET | `/api/v1/payment-disclosures/{id}/download` | Download PDF / CSV / JSON |
-| POST | `/api/v1/auditor/login` | Auditor JWT (kind=auditor) |
-| GET | `/api/v1/auditor/me` · `/wallets` · `/wallets/{id}/balance` · `/wallets/{id}/transfers` | Auditor read-only views |
-
-### M1 — Maker-checker approvals (F2.1)
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET / POST / PUT / DELETE | `/api/v1/approval-policies[/{id}]` | Approval policy CRUD |
-| POST | `/api/v1/transfers/{id}/approve` | Approver decision (note optional) |
-| POST | `/api/v1/transfers/{id}/reject` | Approver decision (reason ≥ 5 chars) |
-| GET | `/api/v1/transfers/{id}/approvals` | List decisions for a transfer |
-| GET | `/api/v1/approvals/pending` | Checker's queue (excludes self-initiated) |
-
-### M1 — Bulk payroll (F3.1)
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET / POST / PUT / DELETE | `/api/v1/payroll/employees[/{id}]` | Employee roster CRUD |
-| POST | `/api/v1/payroll/runs` | Create payroll run (server-side row validation, 422 with `validation_errors`) |
-| GET | `/api/v1/payroll/runs` · `/payroll/runs/{id}` | List / detail |
-| POST | `/api/v1/payroll/runs/{id}/execute` | Execute → tagged-union outcome (awaiting_approval / executed) |
-| POST | `/api/v1/payroll/runs/{id}/cancel` | Cancel from pending / awaiting_approval / executing (stuck recovery) |
-| POST | `/api/v1/payroll/runs/{run_id}/items/{item_id}/retry` | Retry a failed item |
-| GET | `/api/v1/payroll/runs/{id}/report` | Aggregate counts + per-item detail |
-
-## Security
-
-- **Private Key Encryption:** AES-256-GCM encryption for all private keys at rest
-- **Password Hashing:** Argon2 algorithm for password security
-- **JWT Authentication:** Stateless authentication with configurable expiration
-- **Role-Based Access Control:** Admin and Operator roles with different permissions
-- **Sensitive Operation Protection:** Password verification required for private key export
-
-### Security Best Practices
-
-1. Change the default admin password immediately
-2. Use a strong, random 32-byte encryption key
-3. Use a cryptographically secure JWT secret
-4. Enable HTTPS in production
-5. Configure proper database access controls
-
-## Database
-
-The service automatically creates the required tables on startup:
-
-**Core (M0)**
-
-- `users` - User accounts and roles
-- `wallets` - Wallet information with encrypted private keys
-- `transfers` - Transaction history and status (M1 adds 5 nullable columns: `approval_required`, `expiry_at`, `approved_by`, `approved_at`, `rejection_reason`)
-- `audit_logs` - Security audit trail
-- `settings` - Application configuration
-- `orchard_sync_state` - Zcash blockchain sync progress per wallet
-- `orchard_notes` - Shielded notes (unspent outputs) with witness data
-- `orchard_tree_state` - Commitment tree state for proof generation
-
-**M1 Enterprise**
-
-- `auditors` + `auditor_wallet_scopes` - Independent auditor identity (separate from `users`) with per-wallet scope, time window, and disclosure budget
-- `viewing_key_exports` - One-time-download viewing-key audit trail (encrypted payload + SHA-256 hash + 24h TTL)
-- `payment_disclosures` - Async ZIP-307 disclosure rows (granularity / scope / format / status FSM + 7-day TTL)
-- `approval_policies` + `transfer_approvals` - Maker-checker policy storage and decision log
-- `employees` + `payroll_runs` + `payroll_items` - Employee roster + payroll batch lifecycle
-
-## Configuration
-
-### Environment Variables
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `WEB3_SERVER__HOST` | Server bind address | 127.0.0.1 |
-| `WEB3_SERVER__PORT` | Server port | 8080 |
-| `WEB3_DATABASE__HOST` | MySQL host | localhost |
-| `WEB3_DATABASE__PORT` | MySQL port | 3306 |
-| `WEB3_DATABASE__USER` | MySQL user | root |
-| `WEB3_DATABASE__PASSWORD` | MySQL password | - |
-| `WEB3_DATABASE__NAME` | Database name | web3_wallet |
-| `WEB3_JWT__SECRET` | JWT signing secret | - |
-| `WEB3_JWT__EXPIRE_HOURS` | Token expiration | 24 |
-| `WEB3_SECURITY__ENCRYPTION_KEY` | 32-byte encryption key | - |
-| `WEB3_ETHEREUM__RPC_URL` | Ethereum RPC endpoint | - |
-| `WEB3_ETHEREUM__CHAIN_ID` | Ethereum chain ID | 1 |
-| `WEB3_ETHEREUM__RPC_PROXY` | Optional RPC proxy | - |
-| `WEB3_ZCASH__RPC_URL` | Zcash RPC endpoint | - |
-| `WEB3_ZCASH__RPC_USER` | Zcash RPC username | - |
-| `WEB3_ZCASH__RPC_PASSWORD` | Zcash RPC password | - |
-| `WEB3_ZCASH__RPC_PROXY` | Optional Zcash RPC proxy | - |
-
-### Frontend Configuration
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `VITE_API_BASE_URL` | Backend API URL | http://localhost:8080/api/v1 |
-
-## PM2 Deployment
-
-The backend includes PM2 configuration for production deployment:
-
-```bash
-# Start with PM2
-./start.sh pm2
-
-# View status
-./start.sh status
-
-# Stop
-./start.sh pm2-stop
-
-# Restart
-./start.sh pm2-restart
-```
-
-## Extending
-
-### Adding New Chains
-
-Implement the `ChainClient` trait in `backend/src/blockchain/traits.rs`:
-
-```rust
-#[async_trait]
-pub trait ChainClient: Send + Sync {
-    async fn get_balance(&self, address: &str) -> Result<String>;
-    async fn get_token_balance(&self, address: &str, token: &str) -> Result<String>;
-    async fn send_transaction(&self, tx: TransactionRequest) -> Result<String>;
-    // ... other methods
-}
-```
-
-### Adding New Tokens
-
-Add token definitions in `backend/src/blockchain/ethereum/tokens.rs`:
-
-```rust
-pub static SUPPORTED_TOKENS: Lazy<HashMap<&'static str, TokenInfo>> = Lazy::new(|| {
-    let mut m = HashMap::new();
-    m.insert("NEW_TOKEN", TokenInfo {
-        address: "0x...",
-        decimals: 18,
-        symbol: "NEW",
-    });
-    m
-});
-```
-
-## Logging
-
-Backend logs are written to `backend/logs/web3-wallet.log` with:
-- 500MB file size limit
-- 10 backup files rotation
-- Configurable log level via `RUST_LOG`
-
-```bash
-# Example log configuration
-RUST_LOG=info,sqlx=warn
-```
-
-## Support
-
-If you find this project useful, consider supporting the development:
-
-**ETH / USDT / USDC (ERC20):** `0xD76f061DaEcfC3ddaD7902A8Ff7c47FC68b3Dc49`
-
-## License
-
-Released under the [Apache License 2.0](LICENSE).
-
-## Security
-
-Found a vulnerability? Please report it privately — see [SECURITY.md](SECURITY.md).
-Do not open a public issue for security reports.
-
-## Contributing
-
-Bug reports, feature ideas, and pull requests are welcome. See
-[CONTRIBUTING.md](CONTRIBUTING.md) for development setup, code style, and
-submission guidelines.
+## 📚 Documentation Map
+
+| Document | Audience | Purpose |
+|---|---|---|
+| [README.md](README.md) (this file) | All | Product overview + release highlights |
+| [README_CN.md](README_CN.md) | 中文用户 | 产品概览 + 发布要点（中文版） |
+| [QUICKSTART.md](QUICKSTART.md) | Developers | 5-minute local Docker bring-up |
+| [docs/STAGING-DEPLOYMENT.md](docs/STAGING-DEPLOYMENT.md) | Ops | Fresh Linux host → live HTTPS deployment (~30 min) |
+| [docs/USER-MANUAL-EN.md](docs/USER-MANUAL-EN.md) | CFO / auditor / operator | End-to-end operations by role and business scenario |
+| [docs/USER-MANUAL-CN.md](docs/USER-MANUAL-CN.md) | 财务 / 审计师 / 操作员 | 按角色 + 业务场景组织的中文操作手册 |
+| [docs/public/PRD-F1.1.md](docs/public/PRD-F1.1.md) | Engineers / partners | Viewing-key audit + disclosure spec |
+| [docs/public/PRD-F2.1.md](docs/public/PRD-F2.1.md) | Engineers / partners | Maker-checker approvals spec |
+| [docs/public/PRD-F3.1.md](docs/public/PRD-F3.1.md) | Engineers / partners | Bulk payroll spec |
+| [docs/product-roadmap-2026.md](docs/product-roadmap-2026.md) | Investors / customers | Annual roadmap (EN) |
+| [docs/product-roadmap-2026-cn.md](docs/product-roadmap-2026-cn.md) | 投资人 / 客户 | 年度路线图（中文）|
+| [docs/zcash-enterprise-use-cases-en.md](docs/zcash-enterprise-use-cases-en.md) | Sales | Eight detailed enterprise use cases |
+| [docs/orchard_privacy_transfer_architecture.md](docs/orchard_privacy_transfer_architecture.md) | Engineers | Orchard sync / witness / fan-out internals |
+| [CHANGELOG.md](CHANGELOG.md) | All | Per-release detailed change list |
+| [SECURITY.md](SECURITY.md) | Security researchers | Vulnerability disclosure policy |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | Contributors | Dev setup, code style, PR guidelines |
+
+---
+
+## 🛣 Roadmap (2026)
+
+We are building the **enterprise-grade privacy finance infrastructure for Web3** — the first platform that lets companies move money on public blockchains with the same privacy, security, and control as a traditional bank treasury.
+
+| Quarter | Theme | Key deliverables |
+|---|---|---|
+| **Q1** | Enterprise Reliability | End-to-end transaction tracking, auto failover, real-time dashboards (M0 baseline) |
+| **Q2** | Compliance & Governance | **Maker-checker, audit roles, ZIP-307 disclosures, bulk payroll** — v0.3.0 M1 (shipped this release) |
+| **Q3** | High-Volume Privacy | Optimized Orchard sync, multi-output single-tx fan-out, large-value transfers, unified balance management |
+| **Q4** | Privacy Finance Platform | Developer SDKs, multi-chain treasury, HSM / KMS integrations, webhook fan-out |
+
+Full vision document: [docs/product-roadmap-2026.md](docs/product-roadmap-2026.md) · [中文版](docs/product-roadmap-2026-cn.md)
+
+---
+
+## 🧩 Tech Stack
+
+**Backend** — Rust · Actix-web 4 · SQLx (MySQL 8) · librustzcash (Orchard 0.13 / Halo 2) · ethers-rs · printpdf · AES-256-GCM · JWT
+
+**Frontend** — React 19 · TypeScript · Vite · Tailwind CSS · i18next · React Router 7
+
+**Operations** — Docker Compose · PM2 · nginx (SPA cache + reverse proxy) · letsencrypt (certbot)
+
+---
+
+## 🎯 Enterprise Use Cases (Eight Detailed Scenarios)
+
+zPay maps to specific enterprise workflows — full details with API examples in the dedicated use cases guide:
+
+1. **Cryptocurrency payment gateway** — e-commerce ZEC + USDT acceptance with privacy
+2. **Corporate treasury** — separation-of-duties + audit logs + multi-signature workflow
+3. **OTC trading desk** — confidential large-value Z→Z trades + privacy for counterparties
+4. **Privacy-focused exchange** — shielded customer deposits + automated balance reconciliation
+5. **Cross-border remittance** — multi-chain settlement (ETH for speed, ZEC for privacy)
+6. **Institutional custody** — per-client wallet segregation + view-only keys for auditors
+7. **Supply-chain finance** — confidential vendor payments with selective regulator disclosure
+8. **Payroll distribution** — batch bulk payroll with policy-gated approvals (M1 ✅)
+
+→ [Full use cases guide (English)](docs/zcash-enterprise-use-cases-en.md) · [中文版](docs/zcash-enterprise-use-cases.md)
+
+---
+
+## 🤝 Contributing
+
+Bug reports, feature ideas, and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, code style, and submission guidelines.
 
 Quick version:
 
 1. Fork the repository
 2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add some amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+3. Commit your changes
+4. Push to the branch and open a Pull Request
 
-## Acknowledgements
+If you find this project useful, consider supporting development:
 
-Built on [Zcash Orchard](https://github.com/zcash/orchard) + [Halo 2](https://github.com/zcash/halo2),
-[Ethers-rs](https://github.com/gakonst/ethers-rs), and [Actix Web](https://actix.rs).
+**ETH / USDT / USDC (ERC20):** `0xD76f061DaEcfC3ddaD7902A8Ff7c47FC68b3Dc49`
+
+---
+
+## 🙏 Acknowledgements
+
+Built on [Zcash Orchard](https://github.com/zcash/orchard) + [Halo 2](https://github.com/zcash/halo2), [Ethers-rs](https://github.com/gakonst/ethers-rs), and [Actix Web](https://actix.rs).
+
+---
+
+## 📄 License
+
+Released under the [Apache License 2.0](LICENSE).
+
+For security vulnerability disclosure see [SECURITY.md](SECURITY.md) — do not open a public issue for security reports.
