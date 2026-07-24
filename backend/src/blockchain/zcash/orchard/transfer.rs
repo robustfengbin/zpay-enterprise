@@ -18,8 +18,10 @@ use serde::{Deserialize, Serialize};
 
 use orchard::{
     builder::{Builder as OrchardBuilder, BundleType, InProgress, Unauthorized},
-    circuit::ProvingKey,
+    bundle::{BundleVersion, TxVersion},
+    circuit::{OrchardCircuitVersion, ProvingKey},
     keys::SpendAuthorizingKey,
+    note::NoteVersion,
     tree::{Anchor, MerklePath},
     value::NoteValue,
     Proof,
@@ -59,7 +61,9 @@ pub fn init_proving_key() {
 fn get_proving_key() -> &'static ProvingKey {
     ORCHARD_PROVING_KEY.get_or_init(|| {
         tracing::info!("Building Orchard proving key (this may take a moment)...");
-        let pk = ProvingKey::build();
+        // F4.0-a 旧 Orchard 池(NU6.2 语义)= FixedPostNu6_2 电路。
+        // 双池接缝:Ironwood/orchard_v3 路径改 OrchardCircuitVersion::PostNu6_3(共享 key,可能需缓存两把)。
+        let pk = ProvingKey::build(OrchardCircuitVersion::FixedPostNu6_2);
         tracing::info!("Orchard proving key built successfully");
         pk
     })
@@ -654,7 +658,12 @@ impl OrchardTransferService {
 
         // Create builder with the anchor directly
         let bundle_type = BundleType::DEFAULT;
-        let mut builder = OrchardBuilder::new(bundle_type, anchor);
+        // F4.0-a 旧 Orchard 池:orchard_v2()(NU6.2→NU6.3 语义)+ 其 default_flags。
+        // 双池接缝:Ironwood 改 BundleVersion::ironwood_v3(),旧池 NU6.3 后改 orchard_v3()。
+        let bundle_version = BundleVersion::orchard_v2();
+        let bundle_flags = bundle_version.default_flags();
+        let mut builder = OrchardBuilder::new(bundle_type, bundle_version, bundle_flags, anchor)
+            .map_err(|e| OrchardError::TransactionBuild(format!("Failed to create builder: {:?}", e)))?;
 
         // Add spends (reconstruct Note from stored data, use MerklePath directly)
         for (idx, (note, merkle_path)) in selected_notes_with_paths.iter().enumerate() {
@@ -690,7 +699,8 @@ impl OrchardTransferService {
 
             // Reconstruct the Note
             let value = NoteValue::from_raw(note.value_zatoshis);
-            let orchard_note = orchard::Note::from_parts(recipient_addr, value, rho, rseed);
+            // F4.0-a 旧 Orchard 池 note = V2(rcm_v2)。双池接缝:Ironwood 用 NoteVersion::V3(rcm_v3)。
+            let orchard_note = orchard::Note::from_parts(recipient_addr, value, rho, rseed, NoteVersion::V2);
             if orchard_note.is_none().into() {
                 tracing::error!("Failed to reconstruct note {}", idx);
                 return Err(OrchardError::TransactionBuild(
@@ -869,7 +879,12 @@ impl OrchardTransferService {
 
         // Create builder with the anchor
         let bundle_type = BundleType::DEFAULT;
-        let mut builder = OrchardBuilder::new(bundle_type, anchor);
+        // F4.0-a 旧 Orchard 池:orchard_v2()(NU6.2→NU6.3 语义)+ 其 default_flags。
+        // 双池接缝:Ironwood 改 BundleVersion::ironwood_v3(),旧池 NU6.3 后改 orchard_v3()。
+        let bundle_version = BundleVersion::orchard_v2();
+        let bundle_flags = bundle_version.default_flags();
+        let mut builder = OrchardBuilder::new(bundle_type, bundle_version, bundle_flags, anchor)
+            .map_err(|e| OrchardError::TransactionBuild(format!("Failed to create builder: {:?}", e)))?;
 
         // Add spends (from shielded notes)
         for (idx, (note, merkle_path)) in selected_notes_with_paths.iter().enumerate() {
@@ -905,7 +920,8 @@ impl OrchardTransferService {
 
             // Reconstruct the Note
             let value = NoteValue::from_raw(note.value_zatoshis);
-            let orchard_note = orchard::Note::from_parts(recipient_addr, value, rho, rseed);
+            // F4.0-a 旧 Orchard 池 note = V2(rcm_v2)。双池接缝:Ironwood 用 NoteVersion::V3(rcm_v3)。
+            let orchard_note = orchard::Note::from_parts(recipient_addr, value, rho, rseed, NoteVersion::V2);
             if orchard_note.is_none().into() {
                 tracing::error!("Failed to reconstruct note {}", idx);
                 return Err(OrchardError::TransactionBuild(
@@ -1127,7 +1143,9 @@ impl OrchardTransferService {
         let sapling_digest = blake2b_256(b"ZTxIdSaplingHash", &[]);
 
         // T.4: orchard_digest from unauthorized bundle
-        let orchard_commitment = bundle.commitment();
+        // F4.0-a 旧 Orchard 池 tx = v5(VERSION_GROUP_ID_V5)。双池接缝:Ironwood 交易改 TxVersion::V6。
+        let orchard_commitment = bundle.commitment(TxVersion::V5)
+            .map_err(|e| OrchardError::TransactionBuild(format!("Orchard commitment failed: {:?}", e)))?;
         let orchard_digest: [u8; 32] = orchard_commitment.0.as_bytes().try_into()
             .map_err(|_| OrchardError::TransactionBuild("Invalid orchard commitment".to_string()))?;
 
@@ -1574,7 +1592,12 @@ impl OrchardTransferService {
 
         // Create builder with DEFAULT bundle type
         let bundle_type = BundleType::DEFAULT;
-        let mut builder = OrchardBuilder::new(bundle_type, anchor);
+        // F4.0-a 旧 Orchard 池:orchard_v2()(NU6.2→NU6.3 语义)+ 其 default_flags。
+        // 双池接缝:Ironwood 改 BundleVersion::ironwood_v3(),旧池 NU6.3 后改 orchard_v3()。
+        let bundle_version = BundleVersion::orchard_v2();
+        let bundle_flags = bundle_version.default_flags();
+        let mut builder = OrchardBuilder::new(bundle_type, bundle_version, bundle_flags, anchor)
+            .map_err(|e| OrchardError::TransactionBuild(format!("Failed to create builder: {:?}", e)))?;
 
         // Parse recipient address to get Orchard receiver
         let recipient_address = OrchardAddressManager::extract_orchard_address(&proposal.to_address)?;
@@ -2257,7 +2280,9 @@ fn calculate_shielding_sighash(
 /// Uses the orchard crate's built-in commitment() method for correctness
 fn compute_orchard_digest(bundle: &orchard::Bundle<orchard::bundle::Authorized, i64>) -> [u8; 32] {
     // The orchard crate's commitment() method correctly implements ZIP 244 T.4
-    let commitment = bundle.commitment();
+    // F4.0-a 旧 Orchard 池 + V5:commitments.rs 保证此组合永不 error(仅 Ironwood+V5 才 error)。
+    let commitment = bundle.commitment(TxVersion::V5)
+        .expect("Orchard pool V5 commitment is always valid");
     // BundleCommitment wraps a Blake2bHash, get the raw bytes
     let hash_bytes = commitment.0.as_bytes();
     let mut result = [0u8; 32];
@@ -2273,7 +2298,9 @@ fn compute_orchard_digest_from_proven<V: Copy + Into<i64>>(
 ) -> [u8; 32] {
     // Use the bundle's built-in commitment() method which correctly implements ZIP 244 T.4
     // The InProgress bundle type implements Authorization trait, so commitment() is available
-    let commitment = bundle.commitment();
+    // F4.0-a 旧 Orchard 池 + V5:commitments.rs 保证此组合永不 error(仅 Ironwood+V5 才 error)。
+    let commitment = bundle.commitment(TxVersion::V5)
+        .expect("Orchard pool V5 commitment is always valid");
     let hash_bytes = commitment.0.as_bytes();
     let mut result = [0u8; 32];
     result.copy_from_slice(hash_bytes);
