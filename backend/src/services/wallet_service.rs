@@ -942,11 +942,21 @@ impl WalletService {
             OrchardKeyManager::derive_from_private_key(&private_key, 0, birthday_height)
                 .map_err(|e| AppError::InternalError(format!("Failed to derive keys: {}", e)))?;
 
-        // Create transfer service
-        let transfer_service = OrchardTransferService::new(NetworkType::Mainnet);
-
         // Get chain client for UTXOs and broadcasting
         let chain_client = self.chain_registry.get("zcash")?;
+
+        // Create transfer service pinned to the node's live consensus branch id
+        // so the shielded-tx sighash matches the active network upgrade (NU6.2
+        // testnet/regtest, mainnet NU6.1, future NU7…). Without this the node
+        // rejects the broadcast with "incorrect consensus branch id" (-25).
+        let consensus_branch_id = chain_client
+            .get_consensus_branch_id()
+            .await
+            .map_err(|e| AppError::BlockchainError(format!(
+                "Failed to read consensus branch id: {}", e
+            )))?;
+        let transfer_service =
+            OrchardTransferService::new_with_branch_id(NetworkType::Mainnet, consensus_branch_id);
 
         // Get transparent inputs (UTXOs) for shielding
         // CRITICAL: Only select UTXOs needed to cover amount + fee, not ALL UTXOs!

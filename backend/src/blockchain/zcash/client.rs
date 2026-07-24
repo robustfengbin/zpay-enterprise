@@ -1335,4 +1335,16 @@ impl ChainClient for ZcashClient {
     async fn get_shielded_activation_height(&self) -> AppResult<u64> {
         Ok(self.resolve_network_ctx().await?.orchard_activation_height)
     }
+
+    async fn get_consensus_branch_id(&self) -> AppResult<u32> {
+        // Read fresh (not cached): the active branch id changes across upgrades
+        // and must reflect the current chain tip for the broadcast to be valid.
+        let info = self.get_blockchain_info().await?;
+        u32::from_str_radix(&info.consensus.chaintip, 16).map_err(|e| {
+            AppError::BlockchainError(format!(
+                "Failed to parse consensus branch id '{}': {}",
+                info.consensus.chaintip, e
+            ))
+        })
+    }
 }
