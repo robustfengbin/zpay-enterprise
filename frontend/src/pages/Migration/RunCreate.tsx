@@ -93,16 +93,33 @@ export function MigrationRunCreate() {
       </header>
 
       {/* Step indicator */}
-      <div className="flex gap-2 text-xs">
-        {[1, 2, 3].map(s => (
-          <span
-            key={s}
-            className={`px-2 py-1 rounded ${
-              s === step ? 'bg-blue-600 text-white' : s < step ? 'bg-blue-100 text-blue-800' : 'bg-gray-100 text-gray-500'
-            }`}
-          >
-            {s}. {t(`migration.create.step${s}`)}
-          </span>
+      <div className="flex items-center py-2">
+        {[1, 2, 3].map((s, i) => (
+          <React.Fragment key={s}>
+            {i > 0 && (
+              <div className={`h-px flex-1 mx-3 ${s <= step ? 'bg-blue-500' : 'bg-gray-200'}`} />
+            )}
+            <div className="flex items-center gap-2">
+              <span
+                className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold ${
+                  s === step
+                    ? 'bg-blue-600 text-white ring-4 ring-blue-100'
+                    : s < step
+                    ? 'bg-blue-100 text-blue-700'
+                    : 'bg-gray-100 text-gray-400'
+                }`}
+              >
+                {s < step ? '✓' : s}
+              </span>
+              <span
+                className={`text-sm ${
+                  s === step ? 'font-semibold text-gray-900' : 'text-gray-500'
+                }`}
+              >
+                {t(`migration.create.step${s}`)}
+              </span>
+            </div>
+          </React.Fragment>
         ))}
       </div>
 

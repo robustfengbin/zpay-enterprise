@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Check, Play, RefreshCw, RotateCw, X, XCircle } from 'lucide-react';
-import { Card, LoadingSpinner } from '../../components/Common';
+import { Card, LoadingSpinner, RunStatusBadge } from '../../components/Common';
 import { batchTransferService } from '../../services/api/batch-transfer';
 import type {
   BatchTransferRunSummary,
@@ -117,9 +117,7 @@ export function BatchTransferRunDetail() {
           <dd className="font-mono">{Number(run.total_amount)} ZEC</dd>
           <dt className="text-gray-500">{t('batch.detail.status')}</dt>
           <dd>
-            <span className="px-2 py-0.5 rounded bg-gray-100 text-gray-800 text-xs">
-              {t(`batch.run_status.${run.status}`)}
-            </span>
+            <RunStatusBadge status={run.status} label={t(`batch.run_status.${run.status}`)} />
           </dd>
           <dt className="text-gray-500">{t('batch.detail.progress')}</dt>
           <dd>{submitted}/{run.item_count}</dd>

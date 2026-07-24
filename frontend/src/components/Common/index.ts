@@ -8,3 +8,4 @@ export type { TokenConfig } from './TokenSelector';
 export { ExtendedStatusBadge } from './ExtendedStatusBadge';
 // F2.1 / F3.1 approval timeline
 export { ApprovalTimeline, buildTimelineFromApprovals } from './ApprovalTimeline';
+export { RunStatusBadge } from './RunStatusBadge';
