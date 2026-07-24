@@ -63,7 +63,10 @@
     "payroll_runs": "发薪批次",
     "employees": "员工",
     "migrations": "Ironwood 迁移",
-    "batch_transfers": "批量隐私转账"
+    "batch_transfers": "批量隐私转账",
+    "transfers_group": "转账",
+    "transfer_eth": "Ethereum 转账",
+    "transfer_zec": "Zcash 转账"
   },
   "header": {
     "title": "以太坊钱包管理器",

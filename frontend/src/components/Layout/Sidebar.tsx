@@ -78,19 +78,6 @@ function ChainSection({ chain, isExpanded }: ChainSectionProps) {
             <span>{t('sidebar.wallets')}</span>
           </NavLink>
           <NavLink
-            to={`${basePath}/transfer`}
-            className={({ isActive }) =>
-              `flex items-center px-6 pl-12 py-2 text-sm transition-colors ${
-                isActive
-                  ? 'text-white bg-blue-600'
-                  : 'text-gray-400 hover:bg-gray-800 hover:text-white'
-              }`
-            }
-          >
-            <ArrowLeftRight className="w-4 h-4 mr-3 flex-shrink-0" />
-            <span>{t('sidebar.transfer')}</span>
-          </NavLink>
-          <NavLink
             to={`${basePath}/rpc`}
             className={({ isActive }) =>
               `flex items-center px-6 pl-12 py-2 text-sm transition-colors ${
@@ -153,6 +140,72 @@ export function Sidebar() {
               isExpanded={location.pathname.startsWith(`/${chain.id}`)}
             />
           ))}
+        </div>
+
+        {/* Transfers — every way money leaves a wallet, in one group:
+            single (per-chain), batch payouts, and the Ironwood migration. */}
+        <div className="mt-4">
+          <div className="px-6 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+            {t('sidebar.transfers_group')}
+          </div>
+          <NavLink
+            to="/ethereum/transfer"
+            className={({ isActive }) =>
+              `flex items-center px-6 py-3 text-sm transition-colors ${
+                isActive
+                  ? 'bg-blue-600 text-white'
+                  : 'text-gray-300 hover:bg-gray-800 hover:text-white'
+              }`
+            }
+          >
+            <ArrowLeftRight className="w-5 h-5 mr-3 flex-shrink-0" />
+            <span>{t('sidebar.transfer_eth')}</span>
+          </NavLink>
+          <NavLink
+            to="/zcash/transfer"
+            className={({ isActive }) =>
+              `flex items-center px-6 py-3 text-sm transition-colors ${
+                isActive
+                  ? 'bg-blue-600 text-white'
+                  : 'text-gray-300 hover:bg-gray-800 hover:text-white'
+              }`
+            }
+          >
+            <ArrowLeftRight className="w-5 h-5 mr-3 flex-shrink-0" />
+            <span>{t('sidebar.transfer_zec')}</span>
+          </NavLink>
+          {/* F4.2 — batch privacy transfers (admin-only, treasury payouts) */}
+          {user?.role === 'admin' && (
+            <NavLink
+              to="/batch-transfers"
+              className={({ isActive }) =>
+                `flex items-center px-6 py-3 text-sm transition-colors ${
+                  isActive
+                    ? 'bg-blue-600 text-white'
+                    : 'text-gray-300 hover:bg-gray-800 hover:text-white'
+                }`
+              }
+            >
+              <Send className="w-5 h-5 mr-3 flex-shrink-0" />
+              <span>{t('sidebar.batch_transfers')}</span>
+            </NavLink>
+          )}
+          {/* F4.1 — Ironwood migration runs (admin-only, whole-treasury moves) */}
+          {user?.role === 'admin' && (
+            <NavLink
+              to="/migrations"
+              className={({ isActive }) =>
+                `flex items-center px-6 py-3 text-sm transition-colors ${
+                  isActive
+                    ? 'bg-blue-600 text-white'
+                    : 'text-gray-300 hover:bg-gray-800 hover:text-white'
+                }`
+              }
+            >
+              <FileText className="w-5 h-5 mr-3 flex-shrink-0" />
+              <span>{t('sidebar.migrations')}</span>
+            </NavLink>
+          )}
         </div>
 
         {/* M1 Governance & Compliance */}
@@ -261,38 +314,6 @@ export function Sidebar() {
             <Users className="w-5 h-5 mr-3 flex-shrink-0" />
             <span>{t('sidebar.employees')}</span>
           </NavLink>
-          {/* F4.1 — Ironwood migration runs (admin-only, whole-treasury moves) */}
-          {user?.role === 'admin' && (
-            <NavLink
-              to="/migrations"
-              className={({ isActive }) =>
-                `flex items-center px-6 py-3 text-sm transition-colors ${
-                  isActive
-                    ? 'bg-blue-600 text-white'
-                    : 'text-gray-300 hover:bg-gray-800 hover:text-white'
-                }`
-              }
-            >
-              <FileText className="w-5 h-5 mr-3 flex-shrink-0" />
-              <span>{t('sidebar.migrations')}</span>
-            </NavLink>
-          )}
-          {/* F4.2 — batch privacy transfers (admin-only, treasury payouts) */}
-          {user?.role === 'admin' && (
-            <NavLink
-              to="/batch-transfers"
-              className={({ isActive }) =>
-                `flex items-center px-6 py-3 text-sm transition-colors ${
-                  isActive
-                    ? 'bg-blue-600 text-white'
-                    : 'text-gray-300 hover:bg-gray-800 hover:text-white'
-                }`
-              }
-            >
-              <Send className="w-5 h-5 mr-3 flex-shrink-0" />
-              <span>{t('sidebar.batch_transfers')}</span>
-            </NavLink>
-          )}
         </div>
 
         {/* History & Settings */}
