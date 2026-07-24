@@ -20,7 +20,7 @@ use orchard::{
     builder::{Builder as OrchardBuilder, BundleType, InProgress, Unauthorized},
     bundle::{BundleVersion, TxVersion},
     circuit::{OrchardCircuitVersion, ProvingKey},
-    keys::SpendAuthorizingKey,
+    keys::{FullViewingKey, SpendAuthorizingKey},
     note::NoteVersion,
     tree::{Anchor, MerklePath},
     value::NoteValue,
@@ -443,19 +443,27 @@ impl OrchardTransferService {
         }
 
         // Protocol-era gate. Below NU6.3 the existing Orchard-pool path applies
-        // unchanged (zero behaviour change). At/after NU6.3 an old-pool spend
-        // must cross the turnstile into Ironwood (orchard_v3 spend + ironwood_v3
-        // outputs, v6 transaction) — that construction is P1. Until it lands we
-        // fail closed rather than build a pre-NU6.3 (v5/old-pool) transaction the
-        // post-activation consensus rules would reject. On mainnet this branch is
-        // unreachable until the 7/28 NU6.3 activation; on regtest 档B it engages
-        // at the configured NU6.3 height.
+        // unchanged (zero behaviour change). At/after NU6.3 an old-pool spend must
+        // cross the turnstile into Ironwood (orchard_v3 spend + ironwood_v3
+        // output, v6 transaction): P1.2 routes it to the dedicated turnstile
+        // builder, leaving the pre-NU6.3 v5 path below completely untouched. On
+        // mainnet this branch is unreachable until the 7/28 NU6.3 activation; on
+        // regtest 档B it engages at the configured NU6.3 height.
         let era = self.protocol_era(anchor_height);
         if era == ProtocolEra::PostNu63 {
-            return Err(OrchardError::TransactionBuild(
-                "NU6.3 (Ironwood) turnstile transaction construction is not yet available; \
-                 refusing to build a pre-NU6.3 transaction after activation".to_string(),
-            ));
+            let nu63_activation = self.nu63_activation_height.ok_or_else(|| {
+                OrchardError::TransactionBuild(
+                    "PostNu63 era decided but NU6.3 activation height is missing".to_string(),
+                )
+            })?;
+            return self.build_turnstile_result(
+                proposal,
+                spending_key,
+                spendable_notes,
+                anchor_height,
+                anchor,
+                nu63_activation,
+            );
         }
 
         // Log transparent inputs
@@ -512,6 +520,201 @@ impl OrchardTransferService {
             raw_tx: Some(hex::encode(&tx_data)),
             amount_zatoshis: proposal.amount_zatoshis,
             fee_zatoshis: proposal.fee_zatoshis,
+        })
+    }
+
+    /// F4.0-c P1.2c: build the real NU6.3/Ironwood turnstile transaction for a
+    /// shielded (old Orchard pool) spend and return the signed raw tx. Engaged
+    /// only at [`ProtocolEra::PostNu63`] from [`Self::build_transaction`].
+    ///
+    /// Semantics (see `turnstile` module docs): the old pool is "只出不进" after
+    /// NU6.3, so we spend old-pool V2 notes (value out via the bundle's value
+    /// balance) and route ALL value — payment + change — into the Ironwood pool.
+    /// The heavy v6/sighash/proof/value-balance work is delegated to
+    /// `zcash_primitives`' Builder via [`build_turnstile_transaction`]; this
+    /// method only reconstructs notes (with the same fail-closed nullifier guard
+    /// as the v5 path) and shapes the Ironwood outputs. The pre-NU6.3 v5 path is
+    /// left completely untouched.
+    ///
+    /// This round wires the shielded-spend turnstile (migration + shielded batch
+    /// transfer). Shielding (T→Z) and deshielding (Z→T to a transparent address)
+    /// after NU6.3 are a distinct (transparent-side) construction and fail closed
+    /// here with a clear message rather than being mis-built.
+    fn build_turnstile_result(
+        &self,
+        proposal: &TransferProposal,
+        spending_key: &OrchardSpendingKey,
+        spendable_notes: Vec<(OrchardNote, MerklePath)>,
+        anchor_height: u64,
+        anchor: Anchor,
+        nu63_activation: u64,
+    ) -> OrchardResult<TransferResult> {
+        use super::address::OrchardAddressManager;
+        use super::turnstile::{
+            build_turnstile_transaction, TurnstileOutput, ZpayNetworkParams,
+        };
+        use orchard::keys::{Diversifier, Scope};
+        use zcash_protocol::consensus::NetworkUpgrade;
+        use zcash_protocol::memo::MemoBytes;
+
+        // Out-of-scope-this-round constructions fail closed (never mis-built).
+        if is_transparent_address(&proposal.to_address) {
+            return Err(OrchardError::TransactionBuild(
+                "post-NU6.3 deshielding (shielded → transparent) turnstile is not yet wired; \
+                 refusing to build".to_string(),
+            ));
+        }
+        if proposal.fund_source == FundSource::Transparent {
+            return Err(OrchardError::TransactionBuild(
+                "post-NU6.3 shielding (transparent → Ironwood) is not yet wired; \
+                 refusing to build".to_string(),
+            ));
+        }
+        if spendable_notes.is_empty() {
+            return Err(OrchardError::NoSpendableNotes);
+        }
+
+        let amount = proposal.amount_zatoshis;
+        let fee = proposal.fee_zatoshis;
+        let total_needed = amount + fee;
+
+        // Select old-pool notes to cover amount + fee.
+        let (selected, total_input) =
+            self.select_notes_with_paths(spendable_notes, total_needed)?;
+        let change_amount = total_input - total_needed;
+
+        tracing::info!(
+            "Turnstile build: {} old-pool notes selected, total_input={} zat, amount={} zat, \
+             fee={} zat, change={} zat → Ironwood",
+            selected.len(),
+            total_input,
+            amount,
+            fee,
+            change_amount
+        );
+
+        let fvk = spending_key.to_fvk();
+        let ovk = Some(spending_key.to_ovk());
+
+        // Reconstruct each selected old-pool V2 note + fail-closed nullifier
+        // guard (identical discipline to the v5 path: stored rho/rseed
+        // inconsistent with the note would build a spend the node rejects —
+        // catch it here with a precise error rather than broadcasting a doomed tx).
+        let mut spends: Vec<(FullViewingKey, orchard::Note, MerklePath)> =
+            Vec::with_capacity(selected.len());
+        let mut saks: Vec<SpendAuthorizingKey> = Vec::with_capacity(selected.len());
+        for (idx, (note, merkle_path)) in selected.iter().enumerate() {
+            let recipient_addr = orchard::Address::from_raw_address_bytes(&note.recipient);
+            if recipient_addr.is_none().into() {
+                return Err(OrchardError::TransactionBuild(format!(
+                    "Invalid recipient address data for note {idx}"
+                )));
+            }
+            let recipient_addr = recipient_addr.unwrap();
+
+            let rho = orchard::note::Rho::from_bytes(&note.rho);
+            if rho.is_none().into() {
+                return Err(OrchardError::TransactionBuild(format!(
+                    "Invalid rho data for note {idx}"
+                )));
+            }
+            let rho = rho.unwrap();
+
+            let rseed = orchard::note::RandomSeed::from_bytes(note.rseed, &rho);
+            if rseed.is_none().into() {
+                return Err(OrchardError::TransactionBuild(format!(
+                    "Invalid rseed data for note {idx}"
+                )));
+            }
+            let rseed = rseed.unwrap();
+
+            // Old-pool notes are V2 (rcm_v2); the Ironwood outputs are V3.
+            let value = NoteValue::from_raw(note.value_zatoshis);
+            let orchard_note =
+                orchard::Note::from_parts(recipient_addr, value, rho, rseed, NoteVersion::V2);
+            if orchard_note.is_none().into() {
+                return Err(OrchardError::TransactionBuild(format!(
+                    "Failed to reconstruct Orchard note {idx}"
+                )));
+            }
+            let orchard_note = orchard_note.unwrap();
+
+            let recomputed_nf = orchard_note.nullifier(&fvk).to_bytes();
+            if recomputed_nf != note.nullifier {
+                return Err(OrchardError::TransactionBuild(format!(
+                    "Note {idx} reconstruction mismatch: recomputed nullifier {} != stored {} \
+                     (stored rho/rseed inconsistent with note — re-scan required)",
+                    hex::encode(recomputed_nf),
+                    hex::encode(note.nullifier)
+                )));
+            }
+
+            spends.push((fvk.clone(), orchard_note, merkle_path.clone()));
+            saks.push(SpendAuthorizingKey::from(spending_key.sk()));
+        }
+
+        // Ironwood outputs: payment to the recipient + change to our own internal
+        // Ironwood address. No old-pool output (只出不进). The sum below equals
+        // total_input − fee, which is exactly the value balance the builder needs.
+        let recipient = OrchardAddressManager::extract_orchard_address(&proposal.to_address)?;
+        let payment_memo = match proposal.memo.as_ref() {
+            Some(m) if !m.is_empty() => MemoBytes::from_bytes(m.as_bytes()).map_err(|e| {
+                OrchardError::TransactionBuild(format!("invalid memo: {e:?}"))
+            })?,
+            _ => MemoBytes::empty(),
+        };
+        let mut outputs = vec![TurnstileOutput {
+            ovk: ovk.clone(),
+            recipient,
+            value_zatoshis: amount,
+            memo: payment_memo,
+        }];
+        if change_amount > 0 {
+            let change_addr =
+                fvk.address(Diversifier::from_bytes([0u8; 11]), Scope::Internal);
+            outputs.push(TurnstileOutput {
+                ovk,
+                recipient: change_addr,
+                value_zatoshis: change_amount,
+                memo: MemoBytes::empty(),
+            });
+        }
+
+        // Mirror the node's NU6.3 activation so Builder::new derives
+        // orchard_v3 + ironwood_v3 + tx v6 for the target (anchor) height.
+        // The local NetworkType (Mainnet/Testnet) maps onto zcash_protocol's.
+        let zcash_network = match self.network {
+            NetworkType::Mainnet => zcash_protocol::consensus::NetworkType::Main,
+            NetworkType::Testnet => zcash_protocol::consensus::NetworkType::Test,
+        };
+        let params = ZpayNetworkParams::new(
+            zcash_network,
+            vec![(NetworkUpgrade::Nu6_3, nu63_activation)],
+        );
+
+        let built = build_turnstile_transaction(
+            params,
+            anchor_height,
+            anchor,
+            spends,
+            saks,
+            outputs,
+            fee,
+        )
+        .map_err(|e| OrchardError::TransactionBuild(format!("turnstile build failed: {e}")))?;
+
+        tracing::info!(
+            "Turnstile transaction built: txid={}, raw_len={} bytes",
+            built.txid,
+            built.raw_tx.len()
+        );
+
+        Ok(TransferResult {
+            tx_id: built.txid,
+            status: TransferStatus::Signed,
+            raw_tx: Some(hex::encode(&built.raw_tx)),
+            amount_zatoshis: amount,
+            fee_zatoshis: fee,
         })
     }
 
