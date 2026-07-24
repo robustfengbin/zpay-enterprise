@@ -63,7 +63,10 @@
     "payroll_runs": "Payroll runs",
     "employees": "Employees",
     "migrations": "Ironwood migration",
-    "batch_transfers": "Batch Transfers"
+    "batch_transfers": "Batch Transfers",
+    "transfers_group": "Transfers",
+    "transfer_eth": "Ethereum Transfer",
+    "transfer_zec": "Zcash Transfer"
   },
   "header": {
     "title": "Ethereum Wallet Manager",
