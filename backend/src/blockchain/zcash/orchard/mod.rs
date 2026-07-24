@@ -12,6 +12,7 @@ pub mod scanner;
 pub mod sync;
 pub mod transfer;
 pub mod tree;
+pub mod turnstile;
 pub mod witness_sync;
 
 pub use address::UnifiedAddressInfo;
