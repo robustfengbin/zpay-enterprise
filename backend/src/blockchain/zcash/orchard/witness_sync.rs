@@ -843,42 +843,42 @@ impl WitnessSyncManager {
             chain_tip
         );
 
-        // Fetch commitments and update tree
-        let commitments = self.fetch_commitments_range(tree_height + 1, chain_tip).await?;
-
-        if !commitments.is_empty() {
-            let mut tree = self.tree.write().await;
-            let mut witnesses = self.witnesses.write().await;
-
-            for cmx in &commitments {
-                // Update all existing witnesses
-                for witness in witnesses.values_mut() {
-                    let hash = Self::parse_commitment(cmx)?;
-                    witness.append(hash)
-                        .map_err(|_| OrchardError::Scanner("Failed to update witness".to_string()))?;
+        // Full incremental scan — NOT a commitment-only append.
+        //
+        // Advancing the tree over these blocks MUST also run note discovery and
+        // nullifier spent-marking. `process_blocks` does all three (append to
+        // tree + update/create witnesses + discover notes + mark spends), then
+        // sets the tree height. If we only appended commitments here (the old
+        // behaviour) the tree height would jump to chain_tip while the notes /
+        // spends in those blocks were never processed — and the sync path,
+        // gated on `tree_height < chain_tip`, would then treat them as already
+        // scanned and skip them forever. That silently dropped received notes,
+        // change notes, and is_spent flags for any tx mined between two spends
+        // (Bug A: 5c15@241 zero-recognized after a pre-spend refresh crossed it).
+        let known_positions = self.build_known_positions_map().await?;
+        let mut current = tree_height + 1;
+        let batch_size = 100u64;
+        while current <= chain_tip {
+            let end = std::cmp::min(current + batch_size - 1, chain_tip);
+            let blocks = self.fetch_blocks(current, end).await?;
+            if !blocks.is_empty() {
+                let found_notes = self.process_blocks(blocks, &known_positions).await?;
+                if !found_notes.is_empty() {
+                    self.save_notes(&found_notes).await?;
                 }
-
-                // Append to tree
-                tree.append_commitment(cmx)?;
             }
-
-            tree.set_block_height(chain_tip);
-
-            tracing::info!(
-                "[WitnessSync] Updated {} witnesses with {} new commitments",
-                witnesses.len(),
-                commitments.len()
-            );
+            current = end + 1;
         }
 
-        // Save state after refresh
-        drop(self.tree.read().await);  // Release read lock
+        // Persist tree + witness state after the scan
         self.save_state().await?;
 
         Ok(true)
     }
 
-    /// Fetch commitments from a range of blocks
+    /// Fetch commitments from a range of blocks (commitment-only helper; the
+    /// spend refresh now does a full scan via process_blocks instead).
+    #[allow(dead_code)]
     async fn fetch_commitments_range(&self, from_height: u64, to_height: u64) -> OrchardResult<Vec<[u8; 32]>> {
         let mut commitments = Vec::new();
 
