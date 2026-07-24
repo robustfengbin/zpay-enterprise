@@ -1,5 +1,7 @@
+pub mod migrations_f4;
 pub mod migrations_m1;
 pub mod models;
+pub mod models_f4;
 pub mod models_m1;
 pub mod repositories;
 
@@ -372,6 +374,10 @@ pub async fn run_migrations(pool: &MySqlPool) -> AppResult<()> {
     // M1 (2026-06) migrations: F1.1 viewing-key audit, F2.1 maker/checker,
     // F3.1 payroll run.  All additive — does not modify existing schema.
     migrations_m1::run_m1_migrations(pool).await?;
+
+    // F4 (2026-07) migrations: F4.1 Ironwood migration runs, F4.2 batch
+    // privacy transfers.  All additive — does not modify existing schema.
+    migrations_f4::run_f4_migrations(pool).await?;
 
     tracing::info!("Database migrations completed successfully");
     Ok(())

@@ -1,5 +1,6 @@
 pub mod auth;
 pub mod m1;
+pub mod migration;
 pub mod orchard;
 pub mod settings;
 pub mod transfer;

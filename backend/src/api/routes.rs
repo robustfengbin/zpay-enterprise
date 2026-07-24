@@ -147,7 +147,19 @@ pub fn configure_routes(
                     .route("/payroll/runs/{id}/execute", web::post().to(handlers::m1::execute_payroll_run))
                     .route("/payroll/runs/{id}/cancel", web::post().to(handlers::m1::cancel_payroll_run))
                     .route("/payroll/runs/{run_id}/items/{item_id}/retry", web::post().to(handlers::m1::retry_payroll_item))
-                    .route("/payroll/runs/{id}/report", web::get().to(handlers::m1::payroll_run_report)),
+                    .route("/payroll/runs/{id}/report", web::get().to(handlers::m1::payroll_run_report))
+                    // ============================================================
+                    // F4.1 2026-07 — Orchard → Ironwood migration runs
+                    // ============================================================
+                    .route("/migrations", web::post().to(handlers::migration::create_migration_run))
+                    .route("/migrations", web::get().to(handlers::migration::list_migration_runs))
+                    .route("/migrations/{id}", web::get().to(handlers::migration::get_migration_run))
+                    .route("/migrations/{id}/execute", web::post().to(handlers::migration::execute_migration_run))
+                    .route("/migrations/{id}/approve", web::post().to(handlers::migration::approve_migration_run))
+                    .route("/migrations/{id}/reject", web::post().to(handlers::migration::reject_migration_run))
+                    .route("/migrations/{id}/cancel", web::post().to(handlers::migration::cancel_migration_run))
+                    .route("/migrations/{run_id}/items/{item_id}/retry", web::post().to(handlers::migration::retry_migration_item))
+                    .route("/wallets/{id}/migration-status", web::get().to(handlers::migration::wallet_migration_status)),
             ),
     );
 }
