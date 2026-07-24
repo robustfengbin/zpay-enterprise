@@ -152,7 +152,7 @@ async fn create_f42_batch_transfer_tables(pool: &MySqlPool) -> AppResult<()> {
     // place — same guarded-ALTER pattern as db::run_migrations.
     let reject_reason_exists: Option<(String,)> = sqlx::query_as(
         r#"
-        SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+        SELECT CAST(COLUMN_NAME AS CHAR) FROM INFORMATION_SCHEMA.COLUMNS
         WHERE TABLE_SCHEMA = DATABASE()
           AND TABLE_NAME = 'batch_transfer_runs'
           AND COLUMN_NAME = 'reject_reason'
