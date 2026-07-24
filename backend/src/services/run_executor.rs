@@ -199,6 +199,13 @@ impl RunExecutor {
             );
         }
 
+        // Known issue (loss-free): if the process dies between the broadcast
+        // inside submit_privacy_transfer and mark_item_submitted below, resume
+        // re-selects the same notes and the node rejects the duplicate spend
+        // (-25), failing the item; a manual per-item retry after the original
+        // tx mines (and a rescan marks the notes spent) recovers it. Funds are
+        // never double-spent or lost — the wallet_has_unmined_spend guard and
+        // the node's nullifier check both hold.
         let tx_id = self
             .submit_privacy_transfer(wallet.id, &self_address, amount_zat, None)
             .await?;
