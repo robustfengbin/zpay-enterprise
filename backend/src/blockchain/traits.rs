@@ -149,6 +149,23 @@ pub trait ChainClient: Send + Sync {
         None
     }
 
+    /// Consensus network moniker for shielded (Zcash) address derivation:
+    /// "main" | "test" | "regtest". Read live from the node so address HRPs
+    /// (t-addr prefix, unified-address HRP) match the chain the RPC endpoint
+    /// currently points at. Default "main" for chains that don't override.
+    async fn get_shielded_network(&self) -> AppResult<String> {
+        Ok("main".to_string())
+    }
+
+    /// Orchard (NU5) activation height, read live from the node's
+    /// getblockchaininfo `upgrades`. Scanning / frontier init must start at or
+    /// after this height; hardcoding mainnet 1,687,104 breaks short
+    /// regtest/testnet chains ("block not in main chain"). Default is the
+    /// mainnet constant, used only when a node doesn't expose it.
+    async fn get_shielded_activation_height(&self) -> AppResult<u64> {
+        Ok(1_687_104)
+    }
+
     /// Send a shielded/privacy transfer (used by Zcash)
     /// Default implementation returns an error (not applicable for non-privacy chains)
     async fn send_shielded(
