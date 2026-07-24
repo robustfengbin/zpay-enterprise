@@ -209,6 +209,14 @@ pub struct TurnstileOutput {
     pub memo: MemoBytes,
 }
 
+/// A built turnstile transaction: raw consensus bytes ready for
+/// `sendrawtransaction`, plus the canonical (display-order) transaction id
+/// computed by the library from the finished v6 transaction.
+pub struct TurnstileTx {
+    pub raw_tx: Vec<u8>,
+    pub txid: String,
+}
+
 /// Errors from building a turnstile transaction.
 #[derive(Debug)]
 pub enum TurnstileError {
@@ -260,7 +268,7 @@ pub fn build_turnstile_transaction(
     spend_auth_keys: Vec<SpendAuthorizingKey>,
     ironwood_outputs: Vec<TurnstileOutput>,
     fee_zatoshis: u64,
-) -> Result<Vec<u8>, TurnstileError> {
+) -> Result<TurnstileTx, TurnstileError> {
     if spends.is_empty() {
         return Err(TurnstileError::Build(
             "turnstile requires at least one old-pool spend (nothing to cross)".to_string(),
@@ -332,12 +340,12 @@ pub fn build_turnstile_transaction(
         )
         .map_err(|e| TurnstileError::Build(format!("turnstile build failed: {e:?}")))?;
 
+    let tx = result.transaction();
+    let txid = tx.txid().to_string();
     let mut raw = Vec::new();
-    result
-        .transaction()
-        .write(&mut raw)
+    tx.write(&mut raw)
         .map_err(|e| TurnstileError::Serialize(format!("transaction serialize failed: {e}")))?;
-    Ok(raw)
+    Ok(TurnstileTx { raw_tx: raw, txid })
 }
 
 #[cfg(test)]
