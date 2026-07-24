@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# F4.1 migration engine e2e against regtest rail A (NU5@1, old pool live).
-# Draft — RAIL_* variables to be filled from luxun's persisted regtest config.
+# F4.1 migration engine e2e against rail A (NU5@1, old pool live).
+# NOTE (07-24, verified): rail A reports getblockchaininfo.chain = "test"
+# (testnet form + configured activation heights), NOT "regtest" — so
+# addresses are testnet-encoded: taddr `tm...`, UA `utest1...`.
 # Flow: login → wallet+orchard → fund (mine→shield) → private migration run
 #       → approve → watch batches → kill/restart resume → final fold.
 set -euo pipefail
@@ -33,12 +35,17 @@ UA=$(api GET "/wallets/$WID/orchard/addresses" | python3 -c 'import sys,json;pri
 echo "wallet=$WID ua=$UA"
 
 say "3. fund: mine to wallet taddr (rail A generatetoaddress), mature, shield t->z"
-# Requires F4.0-b network-awareness: TADDR must come back regtest-encoded (tm...).
+# Requires F4.0-b network-awareness: TADDR must come back testnet-encoded
+# (tm..., since rail A's chain = "test"); UA should be utest1...
 # Verified on rail A 07-24: generatetoaddress exists and validates the network.
 TADDR=$(echo "$WALLET" | python3 -c 'import sys,json;print(json.load(sys.stdin)["address"])')
 case "$TADDR" in
   tm*) ;;
-  *) echo "FATAL: wallet taddr '$TADDR' is not regtest-encoded — F4.0-b fix not in effect"; exit 1;;
+  *) echo "FATAL: wallet taddr '$TADDR' is not testnet-encoded — F4.0-b fix not in effect"; exit 1;;
+esac
+case "$UA" in
+  utest1*) ;;
+  *) echo "WARN: UA '$UA' is not utest1-encoded (rail A chain=test)";;
 esac
 rpc generatetoaddress "[101,\"$TADDR\"]" >/dev/null   # 1 spendable coinbase + 100 maturity
 rpc getblockchaininfo | python3 -c 'import sys,json;print("tip:",json.load(sys.stdin)["result"]["blocks"])'

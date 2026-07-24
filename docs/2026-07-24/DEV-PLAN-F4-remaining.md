@@ -25,11 +25,11 @@
 
 | # | 工作项 | Owner | 依赖 | 状态 |
 |---|---|---|---|---|
-| W1 | F4.0-b network-awareness(解 e2e 两阻塞) | luxun | 无 | **下一个,最急** |
-| W2 | F4.0-c 双池核心改造(height-aware builder + 双树) | luxun | W1 | 未开工 |
-| W3 | F4.1 完整 e2e(档 A)+ 前端浏览器实测 review | jiaxu | W1 | 脚本已备,等 W1 |
+| W1 | F4.0-b network-awareness(解 e2e 两阻塞) | luxun | 无 | **✅ 完成**(`ae4aa83`,07-24;档A 实证 tm 地址 + generatetoaddress 出块) |
+| W2 | F4.0-c 双池核心改造(height-aware builder + 双树) | luxun | W1 | **进行中**(luxun 07-24 开工) |
+| W3 | F4.1 完整 e2e(档 A)+ 前端浏览器实测 review | jiaxu | W1 | 前半程(fund→scan)可跑;上链腿等 W2(tx 构造仍主网硬编码) |
 | W4 | 档 B turnstile 跨激活 e2e | luxun 起档B + jiaxu 跑 | W2 | 未开工 |
-| W5 | F4.2 批量隐私转账执行层 + 前端 | jiaxu | W2 merge | 表已建,余未开工 |
+| W5 | F4.2 批量隐私转账执行层 + 前端 | jiaxu | W2 merge(仅上链腿) | **代码完成**(后端 `dc874d4` + 前端 `0b6330d`,36绿/4红基线;链上 e2e 等 W2) |
 | W6 | USER-MANUAL 双语章节 + e2e smoke 脚本入库 | jiaxu | W3 | 未开工 |
 | W7 | PR 合入 main(先 F4.0 后 F4.1,交叉 review) | 双方 | W3(最低)/ W4(完整) | 未开工 |
 | W8 | 部署上线 | **待 Robust 拍**(见 §9) | W7 | — |
@@ -45,7 +45,7 @@
 **已定设计**(群里对齐过):
 - network 来源 = `getblockchaininfo.chain` 字段(`main`/`test`/`regtest`),**不新增配置项**
 - ⚠️ 暗雷:`update_rpc` 支持运行时切节点 → **network 不能启动缓存到死**;绑 ZcashClient 实例、update_rpc 时强制重读,派生地址惰性取当前值
-- HRP 速查:regtest = taddr `tm` / UA `uregtest` / Sapling `zregtest`;testnet = `tm` / `utest` / `ztestsapling`
+- HRP 速查:regtest = taddr `tm` / UA `uregtest` / Sapling `zregtest`;testnet = `tm` / `utest` / `ztestsapling`。**⚠️ 07-24 实测校正(luxun)**:档 A 的 `getblockchaininfo.chain` = **"test"**(testnet 形态 + 自定义激活高度,不是 regtest network),所以档 A 上地址是 `tm` / `utest1`,e2e 断言按此写
 - 激活高度**统一从链上读**:`getblockchaininfo.upgrades[NU5].activationheight`(luxun 定案,一个来源覆盖 main/test/regtest,连 mainnet 1,687,104 都不写死,~15 处硬编码连根拔);三套常量(mainnet 1,687,104 / testnet 1,842,420 / regtest 按节点配置)只作 RPC 不可用时的 fallback。⚠️ 与 network 字段同款缓存纪律:绑 ZcashClient、update_rpc 时重读
 
 **验收**:
