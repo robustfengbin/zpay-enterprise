@@ -70,7 +70,7 @@ export function MigrationRunList() {
                 </td>
                 <td className="p-2">#{run.source_wallet_id}</td>
                 <td className="p-2">{t(`migration.create.mode_${run.mode}`)}</td>
-                <td className="p-2 text-right font-mono">{run.total_amount}</td>
+                <td className="p-2 text-right font-mono">{Number(run.total_amount)}</td>
                 <td className="p-2">
                   <span className="px-2 py-0.5 rounded bg-gray-100 text-gray-800 text-xs">
                     {t(`migration.run_status.${run.status}`)}

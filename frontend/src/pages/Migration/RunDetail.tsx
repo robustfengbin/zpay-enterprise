@@ -111,7 +111,7 @@ export function MigrationRunDetail() {
       <Card>
         <dl className="grid grid-cols-4 gap-y-2 text-sm">
           <dt className="text-gray-500">{t('migration.detail.total')}</dt>
-          <dd className="font-mono">{run.total_amount} ZEC</dd>
+          <dd className="font-mono">{Number(run.total_amount)} ZEC</dd>
           <dt className="text-gray-500">{t('migration.detail.status')}</dt>
           <dd>
             <span className="px-2 py-0.5 rounded bg-gray-100 text-gray-800 text-xs">
@@ -260,7 +260,7 @@ export function MigrationRunDetail() {
             {items.map(item => (
               <tr key={item.id} className="border-t border-gray-100">
                 <td className="p-2 font-mono">{item.seq + 1}</td>
-                <td className="p-2 text-right font-mono">{item.amount}</td>
+                <td className="p-2 text-right font-mono">{Number(item.amount)}</td>
                 <td className="p-2">
                   {item.scheduled_at
                     ? new Date(item.scheduled_at).toLocaleString()

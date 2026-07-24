@@ -114,7 +114,7 @@ export function BatchTransferRunDetail() {
       <Card>
         <dl className="grid grid-cols-4 gap-y-2 text-sm">
           <dt className="text-gray-500">{t('batch.detail.total')}</dt>
-          <dd className="font-mono">{run.total_amount} ZEC</dd>
+          <dd className="font-mono">{Number(run.total_amount)} ZEC</dd>
           <dt className="text-gray-500">{t('batch.detail.status')}</dt>
           <dd>
             <span className="px-2 py-0.5 rounded bg-gray-100 text-gray-800 text-xs">
@@ -268,7 +268,7 @@ export function BatchTransferRunDetail() {
                 <td className="p-2 font-mono truncate max-w-[200px]" title={item.recipient_address}>
                   {item.recipient_address}
                 </td>
-                <td className="p-2 text-right font-mono">{item.amount}</td>
+                <td className="p-2 text-right font-mono">{Number(item.amount)}</td>
                 <td className="p-2 truncate max-w-[120px]" title={item.memo || ''}>{item.memo || '—'}</td>
                 <td className="p-2">
                   {item.scheduled_at
