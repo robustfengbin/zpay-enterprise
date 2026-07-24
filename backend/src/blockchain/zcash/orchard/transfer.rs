@@ -181,6 +181,11 @@ pub enum TransferStatus {
 pub struct OrchardTransferService {
     /// Network parameters
     network: NetworkType,
+    /// Consensus branch id read live from the node's chain tip. When set it
+    /// overrides the network's hardcoded default so the shielded-tx sighash
+    /// matches whatever network upgrade the chain is actually at (NU6.2,
+    /// regtest/testnet, future NU7…). `None` falls back to the network default.
+    consensus_branch_id: Option<u32>,
 }
 
 /// Network type
@@ -210,9 +215,29 @@ impl NetworkType {
 }
 
 impl OrchardTransferService {
-    /// Create a new transfer service
+    /// Create a new transfer service (uses the network's default branch id)
     pub fn new(network: NetworkType) -> Self {
-        Self { network }
+        Self {
+            network,
+            consensus_branch_id: None,
+        }
+    }
+
+    /// Create a transfer service pinned to a live consensus branch id read from
+    /// the node. Use this for building/broadcasting so the sighash matches the
+    /// chain's active network upgrade instead of a hardcoded constant.
+    pub fn new_with_branch_id(network: NetworkType, consensus_branch_id: u32) -> Self {
+        Self {
+            network,
+            consensus_branch_id: Some(consensus_branch_id),
+        }
+    }
+
+    /// Effective consensus branch id: the live value if pinned, else the
+    /// network's hardcoded default.
+    fn effective_branch_id(&self) -> u32 {
+        self.consensus_branch_id
+            .unwrap_or_else(|| self.effective_branch_id())
     }
 
     /// Create a transfer proposal
@@ -532,7 +557,7 @@ impl OrchardTransferService {
         tx_data.extend_from_slice(&VERSION_GROUP_ID_V5.to_le_bytes());
 
         // Consensus branch ID
-        tx_data.extend_from_slice(&self.network.consensus_branch_id().to_le_bytes());
+        tx_data.extend_from_slice(&self.effective_branch_id().to_le_bytes());
 
         // Lock time (0 = no lock)
         tx_data.extend_from_slice(&[0x00, 0x00, 0x00, 0x00]);
@@ -797,7 +822,7 @@ impl OrchardTransferService {
         let sighash = self.compute_shielded_sighash(
             &[], // no transparent inputs
             proposal.expiry_height as u32,
-            self.network.consensus_branch_id(),
+            self.effective_branch_id(),
             &proven_bundle,
         )?;
         tracing::info!("Computed shielded sighash: {}", hex::encode(&sighash));
@@ -1006,7 +1031,7 @@ impl OrchardTransferService {
         let sighash = self.compute_deshielding_sighash(
             &transparent_output,
             proposal.expiry_height as u32,
-            self.network.consensus_branch_id(),
+            self.effective_branch_id(),
             &proven_bundle,
         )?;
         tracing::info!("Computed deshielding sighash: {}", hex::encode(&sighash));
@@ -1335,7 +1360,7 @@ impl OrchardTransferService {
         let shielded_sighash = self.compute_shielded_sighash(
             &transparent_inputs,
             proposal.expiry_height as u32,
-            self.network.consensus_branch_id(),
+            self.effective_branch_id(),
             &proven_bundle,
         )?;
 
@@ -1352,7 +1377,7 @@ impl OrchardTransferService {
             &transparent_inputs,
             private_key_hex,
             proposal.expiry_height as u32,
-            self.network.consensus_branch_id(),
+            self.effective_branch_id(),
             &orchard_bundle,
         )?;
 

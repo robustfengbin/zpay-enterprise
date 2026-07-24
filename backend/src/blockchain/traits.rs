@@ -166,6 +166,17 @@ pub trait ChainClient: Send + Sync {
         Ok(1_687_104)
     }
 
+    /// Current consensus branch id from the node's chain tip, used to build
+    /// shielded-transaction sighashes on whatever network upgrade is active
+    /// (NU6.2 testnet/regtest, future NU7…). Hardcoding a branch id makes the
+    /// node reject the broadcast with "incorrect consensus branch id" (-25).
+    /// Default errors — only shielded (Zcash) chains implement this.
+    async fn get_consensus_branch_id(&self) -> AppResult<u32> {
+        Err(crate::error::AppError::NotImplemented(
+            "consensus branch id not supported for this chain".to_string(),
+        ))
+    }
+
     /// Send a shielded/privacy transfer (used by Zcash)
     /// Default implementation returns an error (not applicable for non-privacy chains)
     async fn send_shielded(
