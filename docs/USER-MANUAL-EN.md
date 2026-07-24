@@ -16,6 +16,7 @@
 - [5. End-to-end business scenarios](#5-end-to-end-business-scenarios)
 - [6. Troubleshooting and FAQ](#6-troubleshooting-and-faq)
 - [7. Security guidance and pitch points](#7-security-guidance-and-pitch-points)
+- [8. Ironwood migration and batch privacy transfers (F4)](#8-ironwood-migration-and-batch-privacy-transfers-f4)
 
 ---
 
@@ -756,8 +757,69 @@ two separate runs.
 
 ---
 
+## 8. Ironwood migration and batch privacy transfers (F4)
+
+> Audience: finance lead / treasury operator. Requires the **admin** role — both features move treasury funds.
+
+### 8.1 Why you are seeing a migration banner
+
+Zcash's **NU6.3** network upgrade (mainnet activation 2026-07-28) opens a new shielded pool called **Ironwood** with a pinned verification mechanism, and closes the legacy Orchard pool to new deposits and in-pool transfers. Existing funds are never at risk: they remain spendable **forward** — each legacy note can cross a one-way *turnstile* into Ironwood. (Independent audits and an external formal-verification effort for the new circuit are in progress; do not read "pinned" as "formally verified".)
+
+What this means for your treasury:
+
+- **Before migrating**: your shielded balance still shows and is safe, but shielded transfers in/out of the legacy pool no longer work after activation.
+- **After migrating**: everything works as before — same addresses, same keys, same workflows. Only the underlying pool changed.
+- Each migration batch pays a normal network fee. Nothing else is deducted.
+
+### 8.2 Migrating a wallet (wizard)
+
+1. Open the Zcash wallet page. Wallets still holding legacy-pool funds show an advisory banner → click **Migrate**.
+2. **Step 1 — About**: what the migration does; confirm the wallet.
+3. **Step 2 — Mode**:
+   - **Private (recommended)** — splits the balance into several randomly-sized batches spread over a time window with jitter (defaults: 6 batches / 48 h). This avoids publishing an obvious "one company moved its whole treasury at 14:02" fingerprint on the turnstile. Batch amounts are randomized precisely so equal-sized chunks don't link to each other; note that migration amounts are the one thing the turnstile reveals, so privacy here is about reducing linkability — not a guarantee of unlinkability.
+   - **Immediate** — a single batch, right now. Use for small balances or when time matters more than discretion.
+4. **Step 3 — Confirm**: review the plan (per-batch amounts + schedule) and create the run.
+5. Press **Execute** (immediate) or **Start schedule** (private). If the total crosses an approval policy threshold, the run pivots to *awaiting approval* — a **second admin** must approve (the creator cannot approve their own run; this is enforced in the database, not just the UI). One approval covers the whole window; batches then execute unattended.
+6. Track progress on the run page: per-batch status, tx hash, and error text if a batch fails. **Failed batches never block siblings** — retry them individually with one click.
+7. **Cancel** is the only way to stop remaining batches. Batches already submitted are on-chain and cannot be recalled.
+
+A service restart (upgrade, reboot) is harmless: the schedule lives in the database and resumes exactly where it left off.
+
+### 8.3 Batch privacy transfers (arbitrary recipients)
+
+Generalizes payroll to **any recipient list** — vendors, rebates, grants — as shielded ZEC, with optional privacy scheduling.
+
+1. Sidebar → **Batch Transfers** → **New Batch Transfer**.
+2. Fill title + source wallet, then upload a CSV with columns:
+
+   ```
+   recipient_address, amount, memo
+   utest1abc...,      1.25,   invoice-001
+   ```
+
+   - Header row optional. Memo optional (≤ 512 bytes).
+   - **Every recipient must be an Orchard-capable unified address** (`u1...`). Transparent or Sapling-only addresses are rejected — this feature is shielded-only by design; use the regular transfer page for transparent payouts.
+   - The server validates every row and returns **all** errors at once (bad address, non-positive amount, duplicate rows, total exceeding spendable balance), mapped back to your CSV lines. Fix and re-upload in one pass.
+3. **Privacy scheduling**:
+   - **Off** — all transfers queue immediately.
+   - **Staggered** — transfers are shuffled and spread over N batches across a time window (defaults: 4 / 24 h), so payout timing doesn't correlate the whole batch. An optional **per-transfer cap** splits any row above the cap into several randomly-sized smaller transfers.
+4. Approval, execution, progress, per-item retry and cancel behave exactly like migrations (§8.2 steps 5–7). Amounts are **never silently reduced**: if the balance can't cover a payment, that item fails with the node's real error and can be retried after topping up.
+
+### 8.4 FAQ / troubleshooting
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| Banner says legacy funds but balance looks normal | Expected — the banner reflects pool membership, not solvency | Migrate at your convenience before you next need shielded transfers |
+| "wallet already has migration run #N in state ..." | One active migration per wallet, by design | Finish or cancel the active run first |
+| Execute returns *awaiting approval* | Run total crossed an approval policy | A second admin approves (maker self-approval returns 403) |
+| CSV rejected with row errors | Address/amount/duplicate problems | All rows are reported at once — fix the file and re-upload |
+| A batch/item shows *failed* with an error | Node rejected or balance insufficient at execution time | Read the stored error text (it is the node's verbatim reply), fix cause, click retry |
+| Backend restarted mid-window | Nothing lost | Scheduler is database-driven; remaining batches fire on time |
+
+---
+
 (This document is actively maintained.)
 
-**Last updated**: 2026-05-17
+**Last updated**: 2026-07-24
 
 **Feedback**: please file a repository issue.
