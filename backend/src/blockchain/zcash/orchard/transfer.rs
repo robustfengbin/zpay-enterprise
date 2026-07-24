@@ -554,7 +554,8 @@ impl OrchardTransferService {
     ) -> OrchardResult<TransferResult> {
         use super::address::OrchardAddressManager;
         use super::turnstile::{
-            build_turnstile_transaction, TurnstileOutput, ZpayNetworkParams,
+            build_turnstile_transaction, turnstile_fee_zatoshis, TurnstileOutput,
+            ZpayNetworkParams,
         };
         use orchard::keys::{Diversifier, Scope};
         use zcash_protocol::consensus::NetworkUpgrade;
@@ -578,17 +579,46 @@ impl OrchardTransferService {
         }
 
         let amount = proposal.amount_zatoshis;
-        let fee = proposal.fee_zatoshis;
-        let total_needed = amount + fee;
 
-        // Select old-pool notes to cover amount + fee.
-        let (selected, total_input) =
-            self.select_notes_with_paths(spendable_notes, total_needed)?;
-        let change_amount = total_input - total_needed;
+        // The turnstile is a v6 DOUBLE bundle, so its ZIP-317 fee is not the
+        // proposal's v5 single-bundle estimate (proposal.fee_zatoshis) — using
+        // that under-pays and zebra's mempool rejects the unpaid actions (-25).
+        // The correct fee depends on the number of old-pool spends selected
+        // (orchard actions = pad(n_spends → ≥2); ironwood actions = 2 for the
+        // payment ± change), and note selection in turn depends on the fee — so
+        // converge: seed with the minimum-bundle fee, select, recompute from the
+        // actual spend count, and re-select if the higher fee is not yet covered.
+        // Fee grows 5000/spend while each note dwarfs that, so this settles in
+        // 1–2 rounds. proposal.fee_zatoshis is display-only on this path
+        // (F2.1 approval binds the amount, not the fee).
+        let mut fee = turnstile_fee_zatoshis(1, 2)
+            .map_err(|e| OrchardError::TransactionBuild(e.to_string()))?;
+        let (selected, total_input, fee) = {
+            let mut settled = None;
+            for _ in 0..8 {
+                let (sel, total_input) =
+                    self.select_notes_with_paths(spendable_notes.clone(), amount + fee)?;
+                // Ironwood side is payment + (maybe) change; either way it pads
+                // to 2 actions, so the fee is the same for 1 or 2 outputs — use 2.
+                let need = turnstile_fee_zatoshis(sel.len(), 2)
+                    .map_err(|e| OrchardError::TransactionBuild(e.to_string()))?;
+                if total_input >= amount + need {
+                    settled = Some((sel, total_input, need));
+                    break;
+                }
+                fee = need;
+            }
+            settled.ok_or_else(|| {
+                OrchardError::TransactionBuild(
+                    "could not converge turnstile fee against available notes".to_string(),
+                )
+            })?
+        };
+        let change_amount = total_input - amount - fee;
 
         tracing::info!(
             "Turnstile build: {} old-pool notes selected, total_input={} zat, amount={} zat, \
-             fee={} zat, change={} zat → Ironwood",
+             fee={} zat (ZIP-317 double-bundle), change={} zat → Ironwood",
             selected.len(),
             total_input,
             amount,
