@@ -56,8 +56,11 @@ impl RunExecutor {
 
     /// Spawn the executor loop. Errors inside a tick are logged and never
     /// kill the loop; the next tick re-reads the tables.
-    pub fn spawn(self) -> tokio::task::JoinHandle<()> {
-        tokio::spawn(async move {
+    pub fn spawn(self) {
+        // Executor ticks call wallet sync (double-spend guard) and drive real
+        // transfer builds — heavy work that must stay off the main runtime
+        // (see services::sync_runtime).
+        crate::services::sync_runtime::spawn_loop(async move {
             tracing::info!(
                 "[run-executor] started (tick every {:?})",
                 self.tick_interval
@@ -68,7 +71,7 @@ impl RunExecutor {
                 }
                 tokio::time::sleep(self.tick_interval).await;
             }
-        })
+        });
     }
 
     async fn tick(&self) -> AppResult<()> {

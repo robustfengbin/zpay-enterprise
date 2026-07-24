@@ -753,7 +753,16 @@ impl WalletService {
     }
 
     /// Trigger Orchard sync - scans blockchain for shielded transactions
-    pub async fn sync_orchard(&self) -> AppResult<ScanProgress> {
+    /// Public sync entry: executes on the dedicated chain-sync runtime so the
+    /// heavy scan sections can never freeze the caller's runtime/reactor
+    /// (see services::sync_runtime — 2026-07-24 pool-starvation incident).
+    pub async fn sync_orchard(self: &Arc<Self>) -> AppResult<ScanProgress> {
+        let this = Arc::clone(self);
+        crate::services::sync_runtime::run(async move { this.sync_orchard_on_sync_rt().await })
+            .await
+    }
+
+    async fn sync_orchard_on_sync_rt(&self) -> AppResult<ScanProgress> {
         // Ensure sync is initialized
         self.ensure_orchard_sync_initialized().await?;
 
@@ -777,11 +786,13 @@ impl WalletService {
         if let Some(manager) = witness_sync.as_ref() {
             Ok(manager.get_progress().await)
         } else {
-            // Return default progress if not initialized
-            let chain_tip = self.chain_registry.get("zcash")
-                .ok()
-                .map(|c| futures::executor::block_on(c.get_block_height()).unwrap_or(2_500_000))
-                .unwrap_or(2_500_000);
+            // Return default progress if not initialized. (Was a
+            // futures::executor::block_on — a runtime-blocking call on
+            // whatever thread served the request; await properly instead.)
+            let chain_tip = match self.chain_registry.get("zcash") {
+                Ok(c) => c.get_block_height().await.unwrap_or(2_500_000),
+                Err(_) => 2_500_000,
+            };
 
             // Use the network's Orchard activation height as default start
             let activation = self.orchard_activation_height().await;
@@ -1274,7 +1285,9 @@ impl WalletService {
     pub fn start_background_sync(self: Arc<Self>) {
         let service = self.clone();
 
-        tokio::spawn(async move {
+        // The whole loop (including the heavy catch-up scans) lives on the
+        // dedicated chain-sync runtime — never on the main runtime.
+        crate::services::sync_runtime::spawn_loop(async move {
             // Wait 30 seconds before first sync to allow system to fully start
             tracing::info!("[Background Sync] Waiting 30s before first sync...");
             tokio::time::sleep(std::time::Duration::from_secs(30)).await;

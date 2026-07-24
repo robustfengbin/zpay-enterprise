@@ -6,6 +6,7 @@ pub mod disclosure_export;
 pub mod employee_service;
 pub mod migration_service;
 pub mod run_executor;
+pub mod sync_runtime;
 pub mod payment_disclosure_service;
 pub mod payroll_service;
 pub mod transfer_service;
