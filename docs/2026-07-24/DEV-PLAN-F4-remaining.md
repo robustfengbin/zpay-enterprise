@@ -46,7 +46,7 @@
 - network 来源 = `getblockchaininfo.chain` 字段(`main`/`test`/`regtest`),**不新增配置项**
 - ⚠️ 暗雷:`update_rpc` 支持运行时切节点 → **network 不能启动缓存到死**;绑 ZcashClient 实例、update_rpc 时强制重读,派生地址惰性取当前值
 - HRP 速查:regtest = taddr `tm` / UA `uregtest` / Sapling `zregtest`;testnet = `tm` / `utest` / `ztestsapling`
-- 激活高度按 network 给三套常量(mainnet NU5=1,687,104;testnet=1,842,420;regtest 按节点实际配置,建议直接从 birthday/链上推,别再写死)
+- 激活高度**统一从链上读**:`getblockchaininfo.upgrades[NU5].activationheight`(luxun 定案,一个来源覆盖 main/test/regtest,连 mainnet 1,687,104 都不写死,~15 处硬编码连根拔);三套常量(mainnet 1,687,104 / testnet 1,842,420 / regtest 按节点配置)只作 RPC 不可用时的 fallback。⚠️ 与 network 字段同款缓存纪律:绑 ZcashClient、update_rpc 时重读
 
 **验收**:
 - [ ] 连档 A 建 zcash 钱包 → taddr 是 `tm...`,UA 是 `uregtest...`
