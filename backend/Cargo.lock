@@ -2280,9 +2280,9 @@ dependencies = [
 
 [[package]]
 name = "halo2_gadgets"
-version = "0.4.0"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "45824ce0dd12e91ec0c68ebae2a7ed8ae19b70946624c849add59f1d1a62a143"
+checksum = "fb2a697cad929f706b7987fe804ad57d43622cd37463ba7e4d662a926fdcfea3"
 dependencies = [
  "arrayvec",
  "bitvec",
@@ -3397,9 +3397,9 @@ checksum = "04744f49eae99ab78e0d5c0b603ab218f515ea8cfe5a456d7629ad883a3b6e7d"
 
 [[package]]
 name = "orchard"
-version = "0.13.0"
+version = "0.15.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8a36733033adae631acacf46f542f027d508d9025d14797d9b35059494c99eb3"
+checksum = "e8b67beade27dbebdbfee0819e23170b0b263dc7b4f558ee936151716baf6e1f"
 dependencies = [
  "aes",
  "bitvec",
@@ -6121,6 +6121,7 @@ dependencies = [
  "async-trait",
  "base64 0.21.7",
  "blake2b_simd",
+ "bls12_381",
  "bs58",
  "chrono",
  "config",
@@ -6132,6 +6133,7 @@ dependencies = [
  "hex",
  "incrementalmerkletree",
  "jsonwebtoken 9.3.1",
+ "jubjub",
  "once_cell",
  "orchard",
  "pasta_curves",
@@ -6141,6 +6143,7 @@ dependencies = [
  "ripemd 0.1.3",
  "rolling-file",
  "rust_decimal",
+ "sapling-crypto",
  "secp256k1 0.28.2",
  "serde",
  "serde_json",
@@ -6157,6 +6160,7 @@ dependencies = [
  "zcash_note_encryption",
  "zcash_primitives",
  "zcash_protocol",
+ "zcash_transparent",
  "zip32",
 ]
 
@@ -6618,9 +6622,9 @@ dependencies = [
 
 [[package]]
 name = "zcash_address"
-version = "0.11.0"
+version = "0.13.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "355f3db1087875052b5ad0f9e7179a7e7794f0ae9cb1d6ab2b7db29f7b9a9b0b"
+checksum = "5a854b28c07dba372f4410ea8ad62b4bf7d5c2bf8be32fc4b31bc0db6521a975"
 dependencies = [
  "bech32 0.11.1",
  "bs58",
@@ -6656,9 +6660,9 @@ dependencies = [
 
 [[package]]
 name = "zcash_primitives"
-version = "0.27.0"
+version = "0.29.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a59f418f8b1274a526d57dfa3b1a7b3724f04926c84712a27c1602e4b44bfacd"
+checksum = "bdbeccc05bfe63b6dee9e989c6ff5027421741562a4853c36504dd621f6a81b1"
 dependencies = [
  "blake2b_simd",
  "block-buffer 0.11.0-rc.3",
@@ -6686,9 +6690,9 @@ dependencies = [
 
 [[package]]
 name = "zcash_protocol"
-version = "0.8.0"
+version = "0.10.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "79ef3de16a4464a574591aa3e4ea875116372638307d7ae04415279ec187ba88"
+checksum = "4034db33a1ce58416430e065b01474b958e4649caa3e06e20654683a95149710"
 dependencies = [
  "corez",
  "document-features",
@@ -6725,9 +6729,9 @@ dependencies = [
 
 [[package]]
 name = "zcash_transparent"
-version = "0.7.0"
+version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9e9ad72051b49432acd56d44ab301bb6467bd70eb23faab3f35539e4ecf2733d"
+checksum = "72e0f8c142bed366ed5886dcfa8772ec90b5420cc127e6cdb76b6744c53a287b"
 dependencies = [
  "bip32",
  "bs58",

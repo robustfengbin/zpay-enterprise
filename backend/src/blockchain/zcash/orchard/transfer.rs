@@ -18,8 +18,10 @@ use serde::{Deserialize, Serialize};
 
 use orchard::{
     builder::{Builder as OrchardBuilder, BundleType, InProgress, Unauthorized},
-    circuit::ProvingKey,
-    keys::SpendAuthorizingKey,
+    bundle::{BundleVersion, TxVersion},
+    circuit::{OrchardCircuitVersion, ProvingKey},
+    keys::{FullViewingKey, SpendAuthorizingKey},
+    note::NoteVersion,
     tree::{Anchor, MerklePath},
     value::NoteValue,
     Proof,
@@ -46,23 +48,83 @@ const ZCASH_TRANSPARENT_SIG: &[u8] = b"Zcash___TxInHash";
 const TX_VERSION_WITH_OVERWINTERED: u32 = 0x80000005;
 const VERSION_GROUP_ID_V5: u32 = 0x26A7270A;
 
-/// Global proving key (expensive to build, so we cache it)
-static ORCHARD_PROVING_KEY: OnceLock<ProvingKey> = OnceLock::new();
+/// Global proving keys (expensive to build, so we cache them). There are two
+/// circuits: FixedPostNu6_2 (old Orchard pool, pre-NU6.3) and PostNu6_3 (shared
+/// by both the Orchard-v3 spend and Ironwood pools at NU6.3+). Cache both so the
+/// turnstile path doesn't pay a ~20s build at activation time.
+static ORCHARD_PROVING_KEY_V2: OnceLock<ProvingKey> = OnceLock::new();
+static ORCHARD_PROVING_KEY_V3: OnceLock<ProvingKey> = OnceLock::new();
 
-/// Initialize the Orchard proving key (call at startup to avoid first-transfer delay)
+/// Initialize the pre-NU6.3 Orchard proving key (call at startup to avoid the
+/// first-transfer delay). The PostNu6_3 key is built lazily on first turnstile
+/// use; it can also be warmed via [`get_proving_key_for`].
 /// This is an expensive operation (~20 seconds) but only needs to be done once.
 pub fn init_proving_key() {
-    let _ = get_proving_key();
+    let _ = get_proving_key_for(OrchardCircuitVersion::FixedPostNu6_2);
 }
 
-/// Get or build the Orchard proving key
-fn get_proving_key() -> &'static ProvingKey {
-    ORCHARD_PROVING_KEY.get_or_init(|| {
-        tracing::info!("Building Orchard proving key (this may take a moment)...");
-        let pk = ProvingKey::build();
-        tracing::info!("Orchard proving key built successfully");
-        pk
-    })
+/// Get or build the proving key for a specific circuit version, cached per
+/// circuit. FixedPostNu6_2 = old Orchard pool; PostNu6_3 = NU6.3+ (Orchard-v3
+/// spend and Ironwood share this circuit, per orchard's `circuit_version()`).
+fn get_proving_key_for(circuit: OrchardCircuitVersion) -> &'static ProvingKey {
+    match circuit {
+        OrchardCircuitVersion::PostNu6_3 => ORCHARD_PROVING_KEY_V3.get_or_init(|| {
+            tracing::info!("Building Orchard PostNu6_3 proving key (turnstile/Ironwood)...");
+            let pk = ProvingKey::build(OrchardCircuitVersion::PostNu6_3);
+            tracing::info!("Orchard PostNu6_3 proving key built");
+            pk
+        }),
+        // FixedPostNu6_2 and any earlier circuit map to the pre-NU6.3 key.
+        _ => ORCHARD_PROVING_KEY_V2.get_or_init(|| {
+            tracing::info!("Building Orchard FixedPostNu6_2 proving key...");
+            let pk = ProvingKey::build(OrchardCircuitVersion::FixedPostNu6_2);
+            tracing::info!("Orchard FixedPostNu6_2 proving key built");
+            pk
+        }),
+    }
+}
+
+/// Which protocol era the chain is in, decided by the NU6.3 activation height.
+/// Below NU6.3 (or if no NU6.3 is scheduled) the old Orchard-pool path applies
+/// unchanged; at/above it, old-pool spends cross the turnstile into Ironwood.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProtocolEra {
+    /// Pre-NU6.3: Orchard pool, note V2, tx V5, FixedPostNu6_2 circuit.
+    PreNu63,
+    /// NU6.3 active: Orchard→Ironwood turnstile, note V3 outputs, tx V6,
+    /// PostNu6_3 circuit.
+    PostNu63,
+}
+
+impl ProtocolEra {
+    /// Decide the era from the current chain height and the (optional) NU6.3
+    /// activation height read from the node. `None` (no NU6.3 scheduled) or a
+    /// height below activation ⇒ pre-NU6.3 (the current, zero-change behaviour).
+    pub fn from_heights(current_height: u64, nu63_activation: Option<u64>) -> Self {
+        match nu63_activation {
+            Some(h) if current_height >= h => ProtocolEra::PostNu63,
+            _ => ProtocolEra::PreNu63,
+        }
+    }
+
+    /// The bundle version used when *spending* existing Orchard-pool notes in
+    /// this era. Pre-NU6.3: `orchard_v2()` (current). Post-NU6.3: `orchard_v3()`
+    /// (turnstile spend; outputs are routed into an Ironwood bundle).
+    fn orchard_spend_bundle_version(&self) -> BundleVersion {
+        match self {
+            ProtocolEra::PreNu63 => BundleVersion::orchard_v2(),
+            ProtocolEra::PostNu63 => BundleVersion::orchard_v3(),
+        }
+    }
+
+    /// The transaction version for this era: V5 pre-NU6.3, V6 at/after (Ironwood
+    /// bundles cannot be committed with V5).
+    fn tx_version(&self) -> TxVersion {
+        match self {
+            ProtocolEra::PreNu63 => TxVersion::V5,
+            ProtocolEra::PostNu63 => TxVersion::V6,
+        }
+    }
 }
 
 /// Fund source for a transfer
@@ -177,6 +239,15 @@ pub enum TransferStatus {
 pub struct OrchardTransferService {
     /// Network parameters
     network: NetworkType,
+    /// Consensus branch id read live from the node's chain tip. When set it
+    /// overrides the network's hardcoded default so the shielded-tx sighash
+    /// matches whatever network upgrade the chain is actually at (NU6.2,
+    /// regtest/testnet, future NU7…). `None` falls back to the network default.
+    consensus_branch_id: Option<u32>,
+    /// NU6.3 (Ironwood) activation height read from the node, or None if not
+    /// scheduled. With the current chain height this decides the [`ProtocolEra`]
+    /// (pre-NU6.3 old-pool path vs the Orchard→Ironwood turnstile).
+    nu63_activation_height: Option<u64>,
 }
 
 /// Network type
@@ -206,9 +277,45 @@ impl NetworkType {
 }
 
 impl OrchardTransferService {
-    /// Create a new transfer service
+    /// Create a new transfer service (uses the network's default branch id)
     pub fn new(network: NetworkType) -> Self {
-        Self { network }
+        Self {
+            network,
+            consensus_branch_id: None,
+            nu63_activation_height: None,
+        }
+    }
+
+    /// Create a transfer service pinned to a live consensus branch id read from
+    /// the node. Use this for building/broadcasting so the sighash matches the
+    /// chain's active network upgrade instead of a hardcoded constant.
+    pub fn new_with_branch_id(network: NetworkType, consensus_branch_id: u32) -> Self {
+        Self {
+            network,
+            consensus_branch_id: Some(consensus_branch_id),
+            nu63_activation_height: None,
+        }
+    }
+
+    /// Set the NU6.3 activation height (read from the node) so the builder can
+    /// decide the [`ProtocolEra`]. `None` ⇒ turnstile never engages (pre-NU6.3
+    /// behaviour). Builder-style; chains off the constructors.
+    pub fn with_nu63_activation(mut self, nu63_activation_height: Option<u64>) -> Self {
+        self.nu63_activation_height = nu63_activation_height;
+        self
+    }
+
+    /// Decide the protocol era for a given chain height using the configured
+    /// NU6.3 activation height.
+    fn protocol_era(&self, current_height: u64) -> ProtocolEra {
+        ProtocolEra::from_heights(current_height, self.nu63_activation_height)
+    }
+
+    /// Effective consensus branch id: the live value if pinned, else the
+    /// network's hardcoded default.
+    fn effective_branch_id(&self) -> u32 {
+        self.consensus_branch_id
+            .unwrap_or_else(|| self.effective_branch_id())
     }
 
     /// Create a transfer proposal
@@ -335,6 +442,30 @@ impl OrchardTransferService {
             ));
         }
 
+        // Protocol-era gate. Below NU6.3 the existing Orchard-pool path applies
+        // unchanged (zero behaviour change). At/after NU6.3 an old-pool spend must
+        // cross the turnstile into Ironwood (orchard_v3 spend + ironwood_v3
+        // output, v6 transaction): P1.2 routes it to the dedicated turnstile
+        // builder, leaving the pre-NU6.3 v5 path below completely untouched. On
+        // mainnet this branch is unreachable until the 7/28 NU6.3 activation; on
+        // regtest 档B it engages at the configured NU6.3 height.
+        let era = self.protocol_era(anchor_height);
+        if era == ProtocolEra::PostNu63 {
+            let nu63_activation = self.nu63_activation_height.ok_or_else(|| {
+                OrchardError::TransactionBuild(
+                    "PostNu63 era decided but NU6.3 activation height is missing".to_string(),
+                )
+            })?;
+            return self.build_turnstile_result(
+                proposal,
+                spending_key,
+                spendable_notes,
+                anchor_height,
+                anchor,
+                nu63_activation,
+            );
+        }
+
         // Log transparent inputs
         let total_input: u64 = transparent_inputs.iter().map(|i| i.value).sum();
         tracing::info!(
@@ -389,6 +520,236 @@ impl OrchardTransferService {
             raw_tx: Some(hex::encode(&tx_data)),
             amount_zatoshis: proposal.amount_zatoshis,
             fee_zatoshis: proposal.fee_zatoshis,
+        })
+    }
+
+    /// F4.0-c P1.2c: build the real NU6.3/Ironwood turnstile transaction for a
+    /// shielded (old Orchard pool) spend and return the signed raw tx. Engaged
+    /// only at [`ProtocolEra::PostNu63`] from [`Self::build_transaction`].
+    ///
+    /// Semantics (see `turnstile` module docs): we spend old-pool V2 notes (value
+    /// out via the bundle's value balance) and route ALL value — payment + change
+    /// — into the Ironwood pool. That is the migration semantics and it also
+    /// avoids the old pool's post-NU6.3 *cross-address* restriction (a
+    /// cross-address old-pool output is invalid; same-address change would be
+    /// legal, but we cross everything to Ironwood regardless).
+    /// The heavy v6/sighash/proof/value-balance work is delegated to
+    /// `zcash_primitives`' Builder via [`build_turnstile_transaction`]; this
+    /// method only reconstructs notes (with the same fail-closed nullifier guard
+    /// as the v5 path) and shapes the Ironwood outputs. The pre-NU6.3 v5 path is
+    /// left completely untouched.
+    ///
+    /// This round wires the shielded-spend turnstile (migration + shielded batch
+    /// transfer). Shielding (T→Z) and deshielding (Z→T to a transparent address)
+    /// after NU6.3 are a distinct (transparent-side) construction and fail closed
+    /// here with a clear message rather than being mis-built.
+    fn build_turnstile_result(
+        &self,
+        proposal: &TransferProposal,
+        spending_key: &OrchardSpendingKey,
+        spendable_notes: Vec<(OrchardNote, MerklePath)>,
+        anchor_height: u64,
+        anchor: Anchor,
+        nu63_activation: u64,
+    ) -> OrchardResult<TransferResult> {
+        use super::address::OrchardAddressManager;
+        use super::turnstile::{
+            build_turnstile_transaction, turnstile_fee_zatoshis, TurnstileOutput,
+            ZpayNetworkParams,
+        };
+        use orchard::keys::{Diversifier, Scope};
+        use zcash_protocol::consensus::NetworkUpgrade;
+        use zcash_protocol::memo::MemoBytes;
+
+        // Out-of-scope-this-round constructions fail closed (never mis-built).
+        if is_transparent_address(&proposal.to_address) {
+            return Err(OrchardError::TransactionBuild(
+                "post-NU6.3 deshielding (shielded → transparent) turnstile is not yet wired; \
+                 refusing to build".to_string(),
+            ));
+        }
+        if proposal.fund_source == FundSource::Transparent {
+            return Err(OrchardError::TransactionBuild(
+                "post-NU6.3 shielding (transparent → Ironwood) is not yet wired; \
+                 refusing to build".to_string(),
+            ));
+        }
+        if spendable_notes.is_empty() {
+            return Err(OrchardError::NoSpendableNotes);
+        }
+
+        let amount = proposal.amount_zatoshis;
+
+        // The turnstile is a v6 DOUBLE bundle, so its ZIP-317 fee is not the
+        // proposal's v5 single-bundle estimate (proposal.fee_zatoshis) — using
+        // that under-pays and zebra's mempool rejects the unpaid actions (-25).
+        // The correct fee depends on the number of old-pool spends selected
+        // (orchard actions = pad(n_spends → ≥2); ironwood actions = 2 for the
+        // payment ± change), and note selection in turn depends on the fee — so
+        // converge: seed with the minimum-bundle fee, select, recompute from the
+        // actual spend count, and re-select if the higher fee is not yet covered.
+        // Fee grows 5000/spend while each note dwarfs that, so this settles in
+        // 1–2 rounds. proposal.fee_zatoshis is display-only on this path
+        // (F2.1 approval binds the amount, not the fee).
+        let mut fee = turnstile_fee_zatoshis(1, 2)
+            .map_err(|e| OrchardError::TransactionBuild(e.to_string()))?;
+        let (selected, total_input, fee) = {
+            let mut settled = None;
+            for _ in 0..8 {
+                let (sel, total_input) =
+                    self.select_notes_with_paths(spendable_notes.clone(), amount + fee)?;
+                // Ironwood side is payment + (maybe) change; either way it pads
+                // to 2 actions, so the fee is the same for 1 or 2 outputs — use 2.
+                let need = turnstile_fee_zatoshis(sel.len(), 2)
+                    .map_err(|e| OrchardError::TransactionBuild(e.to_string()))?;
+                if total_input >= amount + need {
+                    settled = Some((sel, total_input, need));
+                    break;
+                }
+                fee = need;
+            }
+            settled.ok_or_else(|| {
+                OrchardError::TransactionBuild(
+                    "could not converge turnstile fee against available notes".to_string(),
+                )
+            })?
+        };
+        let change_amount = total_input - amount - fee;
+
+        tracing::info!(
+            "Turnstile build: {} old-pool notes selected, total_input={} zat, amount={} zat, \
+             fee={} zat (ZIP-317 double-bundle), change={} zat → Ironwood",
+            selected.len(),
+            total_input,
+            amount,
+            fee,
+            change_amount
+        );
+
+        let fvk = spending_key.to_fvk();
+        let ovk = Some(spending_key.to_ovk());
+
+        // Reconstruct each selected old-pool V2 note + fail-closed nullifier
+        // guard (identical discipline to the v5 path: stored rho/rseed
+        // inconsistent with the note would build a spend the node rejects —
+        // catch it here with a precise error rather than broadcasting a doomed tx).
+        let mut spends: Vec<(FullViewingKey, orchard::Note, MerklePath)> =
+            Vec::with_capacity(selected.len());
+        let mut saks: Vec<SpendAuthorizingKey> = Vec::with_capacity(selected.len());
+        for (idx, (note, merkle_path)) in selected.iter().enumerate() {
+            let recipient_addr = orchard::Address::from_raw_address_bytes(&note.recipient);
+            if recipient_addr.is_none().into() {
+                return Err(OrchardError::TransactionBuild(format!(
+                    "Invalid recipient address data for note {idx}"
+                )));
+            }
+            let recipient_addr = recipient_addr.unwrap();
+
+            let rho = orchard::note::Rho::from_bytes(&note.rho);
+            if rho.is_none().into() {
+                return Err(OrchardError::TransactionBuild(format!(
+                    "Invalid rho data for note {idx}"
+                )));
+            }
+            let rho = rho.unwrap();
+
+            let rseed = orchard::note::RandomSeed::from_bytes(note.rseed, &rho);
+            if rseed.is_none().into() {
+                return Err(OrchardError::TransactionBuild(format!(
+                    "Invalid rseed data for note {idx}"
+                )));
+            }
+            let rseed = rseed.unwrap();
+
+            // Old-pool notes are V2 (rcm_v2); the Ironwood outputs are V3.
+            let value = NoteValue::from_raw(note.value_zatoshis);
+            let orchard_note =
+                orchard::Note::from_parts(recipient_addr, value, rho, rseed, NoteVersion::V2);
+            if orchard_note.is_none().into() {
+                return Err(OrchardError::TransactionBuild(format!(
+                    "Failed to reconstruct Orchard note {idx}"
+                )));
+            }
+            let orchard_note = orchard_note.unwrap();
+
+            let recomputed_nf = orchard_note.nullifier(&fvk).to_bytes();
+            if recomputed_nf != note.nullifier {
+                return Err(OrchardError::TransactionBuild(format!(
+                    "Note {idx} reconstruction mismatch: recomputed nullifier {} != stored {} \
+                     (stored rho/rseed inconsistent with note — re-scan required)",
+                    hex::encode(recomputed_nf),
+                    hex::encode(note.nullifier)
+                )));
+            }
+
+            spends.push((fvk.clone(), orchard_note, merkle_path.clone()));
+            saks.push(SpendAuthorizingKey::from(spending_key.sk()));
+        }
+
+        // Ironwood outputs: payment to the recipient + change to our own internal
+        // Ironwood address. No old-pool output at all — everything crosses to the
+        // new pool (migration semantics; also avoids the old pool's post-NU6.3
+        // cross-address restriction). The sum below equals total_input − fee,
+        // which is exactly the value balance the builder needs.
+        let recipient = OrchardAddressManager::extract_orchard_address(&proposal.to_address)?;
+        let payment_memo = match proposal.memo.as_ref() {
+            Some(m) if !m.is_empty() => MemoBytes::from_bytes(m.as_bytes()).map_err(|e| {
+                OrchardError::TransactionBuild(format!("invalid memo: {e:?}"))
+            })?,
+            _ => MemoBytes::empty(),
+        };
+        let mut outputs = vec![TurnstileOutput {
+            ovk: ovk.clone(),
+            recipient,
+            value_zatoshis: amount,
+            memo: payment_memo,
+        }];
+        if change_amount > 0 {
+            let change_addr =
+                fvk.address(Diversifier::from_bytes([0u8; 11]), Scope::Internal);
+            outputs.push(TurnstileOutput {
+                ovk,
+                recipient: change_addr,
+                value_zatoshis: change_amount,
+                memo: MemoBytes::empty(),
+            });
+        }
+
+        // Mirror the node's NU6.3 activation so Builder::new derives
+        // orchard_v3 + ironwood_v3 + tx v6 for the target (anchor) height.
+        // The local NetworkType (Mainnet/Testnet) maps onto zcash_protocol's.
+        let zcash_network = match self.network {
+            NetworkType::Mainnet => zcash_protocol::consensus::NetworkType::Main,
+            NetworkType::Testnet => zcash_protocol::consensus::NetworkType::Test,
+        };
+        let params = ZpayNetworkParams::new(
+            zcash_network,
+            vec![(NetworkUpgrade::Nu6_3, nu63_activation)],
+        );
+
+        let built = build_turnstile_transaction(
+            params,
+            anchor_height,
+            anchor,
+            spends,
+            saks,
+            outputs,
+            fee,
+        )
+        .map_err(|e| OrchardError::TransactionBuild(format!("turnstile build failed: {e}")))?;
+
+        tracing::info!(
+            "Turnstile transaction built: txid={}, raw_len={} bytes",
+            built.txid,
+            built.raw_tx.len()
+        );
+
+        Ok(TransferResult {
+            tx_id: built.txid,
+            status: TransferStatus::Signed,
+            raw_tx: Some(hex::encode(&built.raw_tx)),
+            amount_zatoshis: amount,
+            fee_zatoshis: fee,
         })
     }
 
@@ -528,7 +889,7 @@ impl OrchardTransferService {
         tx_data.extend_from_slice(&VERSION_GROUP_ID_V5.to_le_bytes());
 
         // Consensus branch ID
-        tx_data.extend_from_slice(&self.network.consensus_branch_id().to_le_bytes());
+        tx_data.extend_from_slice(&self.effective_branch_id().to_le_bytes());
 
         // Lock time (0 = no lock)
         tx_data.extend_from_slice(&[0x00, 0x00, 0x00, 0x00]);
@@ -647,14 +1008,19 @@ impl OrchardTransferService {
         let change_amount = total_input - total_needed;
 
         // Get the proving key
-        let pk = get_proving_key();
+        let pk = get_proving_key_for(OrchardCircuitVersion::FixedPostNu6_2);
 
         // Get FVK from spending key
         let fvk = spending_key.to_fvk();
 
         // Create builder with the anchor directly
         let bundle_type = BundleType::DEFAULT;
-        let mut builder = OrchardBuilder::new(bundle_type, anchor);
+        // F4.0-a 旧 Orchard 池:orchard_v2()(NU6.2→NU6.3 语义)+ 其 default_flags。
+        // 双池接缝:Ironwood 改 BundleVersion::ironwood_v3(),旧池 NU6.3 后改 orchard_v3()。
+        let bundle_version = BundleVersion::orchard_v2();
+        let bundle_flags = bundle_version.default_flags();
+        let mut builder = OrchardBuilder::new(bundle_type, bundle_version, bundle_flags, anchor)
+            .map_err(|e| OrchardError::TransactionBuild(format!("Failed to create builder: {:?}", e)))?;
 
         // Add spends (reconstruct Note from stored data, use MerklePath directly)
         for (idx, (note, merkle_path)) in selected_notes_with_paths.iter().enumerate() {
@@ -690,7 +1056,8 @@ impl OrchardTransferService {
 
             // Reconstruct the Note
             let value = NoteValue::from_raw(note.value_zatoshis);
-            let orchard_note = orchard::Note::from_parts(recipient_addr, value, rho, rseed);
+            // F4.0-a 旧 Orchard 池 note = V2(rcm_v2)。双池接缝:Ironwood 用 NoteVersion::V3(rcm_v3)。
+            let orchard_note = orchard::Note::from_parts(recipient_addr, value, rho, rseed, NoteVersion::V2);
             if orchard_note.is_none().into() {
                 tracing::error!("Failed to reconstruct note {}", idx);
                 return Err(OrchardError::TransactionBuild(
@@ -699,12 +1066,33 @@ impl OrchardTransferService {
             }
             let orchard_note = orchard_note.unwrap();
 
-            // Verify that the reconstructed note's commitment matches the stored one
+            // Fail-closed guard: recompute this note's nullifier from the
+            // reconstructed note and require it to match the nullifier stored at
+            // scan time. If the stored rho/rseed are inconsistent with the note,
+            // add_spend would build a spend the node rejects (incorrect/duplicate
+            // nullifier, -25). Catch it here with a precise error instead of
+            // broadcasting a doomed transaction.
+            let recomputed_nf = orchard_note.nullifier(&fvk).to_bytes();
+            if recomputed_nf != note.nullifier {
+                tracing::error!(
+                    "Note {} reconstruction mismatch: recomputed nullifier {} != stored {}",
+                    idx,
+                    hex::encode(recomputed_nf),
+                    hex::encode(note.nullifier)
+                );
+                return Err(OrchardError::TransactionBuild(format!(
+                    "Note {} reconstruction mismatch: recomputed nullifier {} != stored {} \
+                     (stored rho/rseed inconsistent with note — re-scan required)",
+                    idx,
+                    hex::encode(recomputed_nf),
+                    hex::encode(note.nullifier)
+                )));
+            }
+
             let extracted_cmx = orchard::note::ExtractedNoteCommitment::from(orchard_note.commitment());
             let reconstructed_cmx = extracted_cmx.to_bytes();
-
             tracing::info!(
-                "Note {} commitment: {}, position={}",
+                "Note {} verified: nullifier matches stored, commitment {}, position={}",
                 idx,
                 hex::encode(&reconstructed_cmx[..8]),
                 note.position
@@ -787,7 +1175,7 @@ impl OrchardTransferService {
         let sighash = self.compute_shielded_sighash(
             &[], // no transparent inputs
             proposal.expiry_height as u32,
-            self.network.consensus_branch_id(),
+            self.effective_branch_id(),
             &proven_bundle,
         )?;
         tracing::info!("Computed shielded sighash: {}", hex::encode(&sighash));
@@ -862,14 +1250,19 @@ impl OrchardTransferService {
         let change_amount = total_input - total_needed;
 
         // Get the proving key
-        let pk = get_proving_key();
+        let pk = get_proving_key_for(OrchardCircuitVersion::FixedPostNu6_2);
 
         // Get FVK from spending key
         let fvk = spending_key.to_fvk();
 
         // Create builder with the anchor
         let bundle_type = BundleType::DEFAULT;
-        let mut builder = OrchardBuilder::new(bundle_type, anchor);
+        // F4.0-a 旧 Orchard 池:orchard_v2()(NU6.2→NU6.3 语义)+ 其 default_flags。
+        // 双池接缝:Ironwood 改 BundleVersion::ironwood_v3(),旧池 NU6.3 后改 orchard_v3()。
+        let bundle_version = BundleVersion::orchard_v2();
+        let bundle_flags = bundle_version.default_flags();
+        let mut builder = OrchardBuilder::new(bundle_type, bundle_version, bundle_flags, anchor)
+            .map_err(|e| OrchardError::TransactionBuild(format!("Failed to create builder: {:?}", e)))?;
 
         // Add spends (from shielded notes)
         for (idx, (note, merkle_path)) in selected_notes_with_paths.iter().enumerate() {
@@ -905,7 +1298,8 @@ impl OrchardTransferService {
 
             // Reconstruct the Note
             let value = NoteValue::from_raw(note.value_zatoshis);
-            let orchard_note = orchard::Note::from_parts(recipient_addr, value, rho, rseed);
+            // F4.0-a 旧 Orchard 池 note = V2(rcm_v2)。双池接缝:Ironwood 用 NoteVersion::V3(rcm_v3)。
+            let orchard_note = orchard::Note::from_parts(recipient_addr, value, rho, rseed, NoteVersion::V2);
             if orchard_note.is_none().into() {
                 tracing::error!("Failed to reconstruct note {}", idx);
                 return Err(OrchardError::TransactionBuild(
@@ -913,6 +1307,26 @@ impl OrchardTransferService {
                 ));
             }
             let orchard_note = orchard_note.unwrap();
+
+            // Fail-closed guard: reconstructed nullifier must match the stored one
+            // (see the shielding path for rationale). Prevents broadcasting a spend
+            // the node rejects with -25 when stored rho/rseed are inconsistent.
+            let recomputed_nf = orchard_note.nullifier(&fvk).to_bytes();
+            if recomputed_nf != note.nullifier {
+                tracing::error!(
+                    "Note {} reconstruction mismatch: recomputed nullifier {} != stored {}",
+                    idx,
+                    hex::encode(recomputed_nf),
+                    hex::encode(note.nullifier)
+                );
+                return Err(OrchardError::TransactionBuild(format!(
+                    "Note {} reconstruction mismatch: recomputed nullifier {} != stored {} \
+                     (stored rho/rseed inconsistent with note — re-scan required)",
+                    idx,
+                    hex::encode(recomputed_nf),
+                    hex::encode(note.nullifier)
+                )));
+            }
 
             // Add the spend
             match builder.add_spend(fvk.clone(), orchard_note, merkle_path.clone()) {
@@ -990,7 +1404,7 @@ impl OrchardTransferService {
         let sighash = self.compute_deshielding_sighash(
             &transparent_output,
             proposal.expiry_height as u32,
-            self.network.consensus_branch_id(),
+            self.effective_branch_id(),
             &proven_bundle,
         )?;
         tracing::info!("Computed deshielding sighash: {}", hex::encode(&sighash));
@@ -1127,7 +1541,9 @@ impl OrchardTransferService {
         let sapling_digest = blake2b_256(b"ZTxIdSaplingHash", &[]);
 
         // T.4: orchard_digest from unauthorized bundle
-        let orchard_commitment = bundle.commitment();
+        // F4.0-a 旧 Orchard 池 tx = v5(VERSION_GROUP_ID_V5)。双池接缝:Ironwood 交易改 TxVersion::V6。
+        let orchard_commitment = bundle.commitment(TxVersion::V5)
+            .map_err(|e| OrchardError::TransactionBuild(format!("Orchard commitment failed: {:?}", e)))?;
         let orchard_digest: [u8; 32] = orchard_commitment.0.as_bytes().try_into()
             .map_err(|_| OrchardError::TransactionBuild("Invalid orchard commitment".to_string()))?;
 
@@ -1317,7 +1733,7 @@ impl OrchardTransferService {
         let shielded_sighash = self.compute_shielded_sighash(
             &transparent_inputs,
             proposal.expiry_height as u32,
-            self.network.consensus_branch_id(),
+            self.effective_branch_id(),
             &proven_bundle,
         )?;
 
@@ -1334,7 +1750,7 @@ impl OrchardTransferService {
             &transparent_inputs,
             private_key_hex,
             proposal.expiry_height as u32,
-            self.network.consensus_branch_id(),
+            self.effective_branch_id(),
             &orchard_bundle,
         )?;
 
@@ -1567,14 +1983,19 @@ impl OrchardTransferService {
         );
 
         // Get the proving key (cached globally)
-        let pk = get_proving_key();
+        let pk = get_proving_key_for(OrchardCircuitVersion::FixedPostNu6_2);
 
         // For shielding (no spends), we use an empty tree anchor
         let anchor = Anchor::empty_tree();
 
         // Create builder with DEFAULT bundle type
         let bundle_type = BundleType::DEFAULT;
-        let mut builder = OrchardBuilder::new(bundle_type, anchor);
+        // F4.0-a 旧 Orchard 池:orchard_v2()(NU6.2→NU6.3 语义)+ 其 default_flags。
+        // 双池接缝:Ironwood 改 BundleVersion::ironwood_v3(),旧池 NU6.3 后改 orchard_v3()。
+        let bundle_version = BundleVersion::orchard_v2();
+        let bundle_flags = bundle_version.default_flags();
+        let mut builder = OrchardBuilder::new(bundle_type, bundle_version, bundle_flags, anchor)
+            .map_err(|e| OrchardError::TransactionBuild(format!("Failed to create builder: {:?}", e)))?;
 
         // Parse recipient address to get Orchard receiver
         let recipient_address = OrchardAddressManager::extract_orchard_address(&proposal.to_address)?;
@@ -2257,7 +2678,9 @@ fn calculate_shielding_sighash(
 /// Uses the orchard crate's built-in commitment() method for correctness
 fn compute_orchard_digest(bundle: &orchard::Bundle<orchard::bundle::Authorized, i64>) -> [u8; 32] {
     // The orchard crate's commitment() method correctly implements ZIP 244 T.4
-    let commitment = bundle.commitment();
+    // F4.0-a 旧 Orchard 池 + V5:commitments.rs 保证此组合永不 error(仅 Ironwood+V5 才 error)。
+    let commitment = bundle.commitment(TxVersion::V5)
+        .expect("Orchard pool V5 commitment is always valid");
     // BundleCommitment wraps a Blake2bHash, get the raw bytes
     let hash_bytes = commitment.0.as_bytes();
     let mut result = [0u8; 32];
@@ -2273,7 +2696,9 @@ fn compute_orchard_digest_from_proven<V: Copy + Into<i64>>(
 ) -> [u8; 32] {
     // Use the bundle's built-in commitment() method which correctly implements ZIP 244 T.4
     // The InProgress bundle type implements Authorization trait, so commitment() is available
-    let commitment = bundle.commitment();
+    // F4.0-a 旧 Orchard 池 + V5:commitments.rs 保证此组合永不 error(仅 Ironwood+V5 才 error)。
+    let commitment = bundle.commitment(TxVersion::V5)
+        .expect("Orchard pool V5 commitment is always valid");
     let hash_bytes = commitment.0.as_bytes();
     let mut result = [0u8; 32];
     result.copy_from_slice(hash_bytes);

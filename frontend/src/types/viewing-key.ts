@@ -93,17 +93,19 @@ export interface DisclosureCreateResponse {
 export interface DisclosureRow {
   id: number;
   wallet_id: number;
-  generated_by_user_id: number;
   granularity: string;
   scope_param: Record<string, unknown>;
   tx_count: number;
-  disclosure_json: DisclosureBody | null;
   format: DisclosureFormat;
-  file_path: string | null;
   status: DisclosureStatus;
   error_message: string | null;
   expires_at: string;
   created_at: string;
+  /** Admin-side rows only — the auditor list endpoint returns metadata
+      without these (scope-windowed, body stripped). */
+  generated_by_user_id?: number;
+  disclosure_json?: DisclosureBody | null;
+  file_path?: string | null;
 }
 
 /**
@@ -176,11 +178,24 @@ export interface AuditorTenantSummary {
  * (transparent + shielded) total; for other chains it is the transparent
  * native balance. ERC-20 / token balances (if any) ride along on `tokens`.
  */
+/**
+ * Balance response is chain-shaped: Zcash wallets return the combined
+ * transparent + shielded shape (get_combined_zcash_balance), other chains
+ * return native_balance + ERC-20 tokens. All fields optional accordingly —
+ * discriminate on `shielded_balance` presence.
+ */
 export interface AuditorWalletBalance {
   address: string;
-  chain: string;
-  native_balance: string;
-  tokens: AuditorTokenBalance[];
+  chain?: string;
+  wallet_id?: number;
+  native_balance?: string;
+  tokens?: AuditorTokenBalance[];
+  transparent_balance?: string;
+  shielded_balance?: {
+    total_zatoshis: number;
+    spendable_zatoshis: number;
+    pending_zatoshis: number;
+  };
 }
 
 export interface AuditorTokenBalance {

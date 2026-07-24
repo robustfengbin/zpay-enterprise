@@ -1,8 +1,4 @@
-//! M1 2026-06 HTTP handlers — stub layer for F1.1 / F2.1 / F3.1.
-//!
-//! Each handler returns a well-typed empty / mock response so the frontend
-//! can wire up axios clients and verify the contract.  Business logic is
-//! filled in incrementally — see the per-feature PRD §5 + §7 milestones.
+//! M1 2026-06 HTTP handlers for F1.1 / F2.1 / F3.1.
 //!
 //! All handlers are additive — existing /auth /wallets /transfers handlers
 //! in this directory are NOT modified, preserving backward compatibility.
@@ -331,11 +327,37 @@ pub async fn auditor_wallet_disclosures(
     auditor: AuthenticatedAuditor,
     path: web::Path<i32>,
     auditor_service: web::Data<Arc<AuditorService>>,
+    disclosure_service: web::Data<Arc<PaymentDisclosureService>>,
 ) -> AppResult<HttpResponse> {
-    auditor_service
-        .assert_wallet_in_scope(auditor.auditor_id, path.into_inner())
+    let wallet_id = path.into_inner();
+    let scope = auditor_service
+        .assert_wallet_in_scope(auditor.auditor_id, wallet_id)
         .await?;
-    Ok(HttpResponse::Ok().json(json!([])))
+    // Mirror auditor_wallet_transfers: bound the list to the auditor's
+    // [scope_start, scope_end) window (by disclosure creation time), and
+    // return metadata only — the full disclosure_json body stays out of the
+    // list response (a body endpoint can be added per-id when the auditor UI
+    // grows a detail view).
+    let rows = disclosure_service.list_by_wallet(wallet_id).await?;
+    let rows: Vec<serde_json::Value> = rows
+        .into_iter()
+        .filter(|d| d.created_at >= scope.scope_start_ts && d.created_at < scope.scope_end_ts)
+        .map(|d| {
+            json!({
+                "id": d.id,
+                "wallet_id": d.wallet_id,
+                "granularity": d.granularity,
+                "scope_param": d.scope_param,
+                "tx_count": d.tx_count,
+                "format": d.format,
+                "status": d.status,
+                "error_message": d.error_message,
+                "expires_at": d.expires_at,
+                "created_at": d.created_at,
+            })
+        })
+        .collect();
+    Ok(HttpResponse::Ok().json(rows))
 }
 
 // ===========================================================================

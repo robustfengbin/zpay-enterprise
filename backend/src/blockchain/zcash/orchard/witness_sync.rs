@@ -42,6 +42,11 @@ pub struct WitnessSyncManager {
 
     /// Map nullifier -> position for quick lookup
     nullifier_positions: Arc<RwLock<HashMap<String, u64>>>,
+
+    /// Cached Orchard (NU5) activation height, read live from the node so scan
+    /// floors match the network (regtest/testnet chains activate far below the
+    /// mainnet 1,687,104). Populated lazily on first use.
+    orchard_activation_cache: Arc<RwLock<Option<u64>>>,
 }
 
 impl WitnessSyncManager {
@@ -62,7 +67,52 @@ impl WitnessSyncManager {
             rpc_password,
             witnesses: Arc::new(RwLock::new(HashMap::new())),
             nullifier_positions: Arc::new(RwLock::new(HashMap::new())),
+            orchard_activation_cache: Arc::new(RwLock::new(None)),
         }
+    }
+
+    /// Resolve (and cache) the Orchard (NU5) activation height from the node's
+    /// getblockchaininfo `upgrades`. Scan/frontier floors use this so short
+    /// regtest/testnet chains don't request a nonexistent block. Falls back to
+    /// the mainnet constant if the node omits the upgrades table.
+    async fn orchard_activation_height(&self) -> u64 {
+        if let Some(h) = *self.orchard_activation_cache.read().await {
+            return h;
+        }
+        let h = self.fetch_nu5_activation_height().await.unwrap_or(1_687_104);
+        *self.orchard_activation_cache.write().await = Some(h);
+        h
+    }
+
+    /// Read the NU5 activation height from getblockchaininfo `upgrades`.
+    async fn fetch_nu5_activation_height(&self) -> Option<u64> {
+        let request = serde_json::json!({
+            "jsonrpc": "1.0",
+            "id": "witness_sync",
+            "method": "getblockchaininfo",
+            "params": []
+        });
+
+        let response = self.rpc_client
+            .post(&self.rpc_url)
+            .basic_auth(&self.rpc_user, Some(&self.rpc_password))
+            .json(&request)
+            .send()
+            .await
+            .ok()?;
+
+        let result: serde_json::Value = response.json().await.ok()?;
+        let upgrades = result["result"]["upgrades"].as_object()?;
+        for (_branch_id, entry) in upgrades {
+            let is_nu5 = entry["name"]
+                .as_str()
+                .map(|s| s.eq_ignore_ascii_case("nu5"))
+                .unwrap_or(false);
+            if is_nu5 {
+                return entry["activationheight"].as_u64();
+            }
+        }
+        None
     }
 
     /// Register a viewing key for a wallet
@@ -258,6 +308,12 @@ impl WitnessSyncManager {
         let mut witnesses = self.witnesses.write().await;
         let mut positions = self.nullifier_positions.write().await;
         let mut found_notes = Vec::new();
+        // Every (nullifier, spending_tx) seen in this batch. Spent-marking is
+        // deferred until after the discovered notes are persisted, so a note
+        // both discovered AND spent within the same batch/run still gets marked
+        // — check_spent_nullifier is a DB UPDATE that cannot match a note still
+        // only in memory (gap A′: a full rescan discovers and spends in one run).
+        let mut batch_spends: Vec<([u8; 32], String)> = Vec::new();
 
         tracing::debug!(
             "[WitnessSync] Processing blocks {}-{}, {} known positions, {} existing witnesses",
@@ -324,12 +380,30 @@ impl WitnessSyncManager {
                         found_notes.push(note);
                     }
 
-                    // 5. Check for spent notes
-                    self.check_spent_nullifier(&action.nullifier, &tx.hash, block.height).await;
+                    // 5. Record this spend; it is applied after the discovered
+                    // notes are persisted (see batch_spends / gap A′).
+                    batch_spends.push((action.nullifier, tx.hash.clone()));
                 }
             }
 
             tree.set_block_height(block.height);
+        }
+
+        let witness_count = witnesses.len();
+        // Release tree/witness locks before any DB I/O.
+        drop(positions);
+        drop(witnesses);
+        drop(tree);
+        drop(viewing_keys);
+
+        // Persist discovered notes first, then mark every spend seen in this
+        // batch. Order matters: a note discovered AND spent in the same batch is
+        // already in the DB when we mark it, so its is_spent flag is set (A′).
+        if !found_notes.is_empty() {
+            self.save_notes(&found_notes).await?;
+        }
+        for (nullifier, tx_hash) in &batch_spends {
+            self.check_spent_nullifier(nullifier, tx_hash, last_height).await;
         }
 
         tracing::info!(
@@ -337,7 +411,7 @@ impl WitnessSyncManager {
             first_height,
             last_height,
             found_notes.len(),
-            witnesses.len()
+            witness_count
         );
 
         Ok(found_notes)
@@ -744,10 +818,11 @@ impl WitnessSyncManager {
         let tree = self.tree.read().await;
         let chain_tip = self.get_chain_height().await.unwrap_or(0);
         let tree_height = tree.block_height();
+        let activation = self.orchard_activation_height().await;
 
-        let progress_pct = if chain_tip > 0 && chain_tip > 1_687_104 {
-            let total = chain_tip - 1_687_104;
-            let scanned = tree_height.saturating_sub(1_687_104);
+        let progress_pct = if chain_tip > 0 && chain_tip > activation {
+            let total = chain_tip - activation;
+            let scanned = tree_height.saturating_sub(activation);
             (scanned as f64 / total as f64) * 100.0
         } else {
             0.0
@@ -792,42 +867,40 @@ impl WitnessSyncManager {
             chain_tip
         );
 
-        // Fetch commitments and update tree
-        let commitments = self.fetch_commitments_range(tree_height + 1, chain_tip).await?;
-
-        if !commitments.is_empty() {
-            let mut tree = self.tree.write().await;
-            let mut witnesses = self.witnesses.write().await;
-
-            for cmx in &commitments {
-                // Update all existing witnesses
-                for witness in witnesses.values_mut() {
-                    let hash = Self::parse_commitment(cmx)?;
-                    witness.append(hash)
-                        .map_err(|_| OrchardError::Scanner("Failed to update witness".to_string()))?;
-                }
-
-                // Append to tree
-                tree.append_commitment(cmx)?;
+        // Full incremental scan — NOT a commitment-only append.
+        //
+        // Advancing the tree over these blocks MUST also run note discovery and
+        // nullifier spent-marking. `process_blocks` does all three (append to
+        // tree + update/create witnesses + discover notes + mark spends), then
+        // sets the tree height. If we only appended commitments here (the old
+        // behaviour) the tree height would jump to chain_tip while the notes /
+        // spends in those blocks were never processed — and the sync path,
+        // gated on `tree_height < chain_tip`, would then treat them as already
+        // scanned and skip them forever. That silently dropped received notes,
+        // change notes, and is_spent flags for any tx mined between two spends
+        // (Bug A: 5c15@241 zero-recognized after a pre-spend refresh crossed it).
+        let known_positions = self.build_known_positions_map().await?;
+        let mut current = tree_height + 1;
+        let batch_size = 100u64;
+        while current <= chain_tip {
+            let end = std::cmp::min(current + batch_size - 1, chain_tip);
+            let blocks = self.fetch_blocks(current, end).await?;
+            if !blocks.is_empty() {
+                // process_blocks persists discovered notes and marks spends.
+                let _ = self.process_blocks(blocks, &known_positions).await?;
             }
-
-            tree.set_block_height(chain_tip);
-
-            tracing::info!(
-                "[WitnessSync] Updated {} witnesses with {} new commitments",
-                witnesses.len(),
-                commitments.len()
-            );
+            current = end + 1;
         }
 
-        // Save state after refresh
-        drop(self.tree.read().await);  // Release read lock
+        // Persist tree + witness state after the scan
         self.save_state().await?;
 
         Ok(true)
     }
 
-    /// Fetch commitments from a range of blocks
+    /// Fetch commitments from a range of blocks (commitment-only helper; the
+    /// spend refresh now does a full scan via process_blocks instead).
+    #[allow(dead_code)]
     async fn fetch_commitments_range(&self, from_height: u64, to_height: u64) -> OrchardResult<Vec<[u8; 32]>> {
         let mut commitments = Vec::new();
 
@@ -1049,7 +1122,7 @@ impl WitnessSyncManager {
         }
 
         if min_height == u64::MAX {
-            min_height = 1_687_104; // Orchard activation height
+            min_height = self.orchard_activation_height().await; // network Orchard activation
         }
 
         Ok(min_height)
@@ -1087,8 +1160,9 @@ impl WitnessSyncManager {
         self.db_repo.delete_tree_state().await
             .map_err(|e| OrchardError::DatabaseError(e.to_string()))?;
 
-        // Initialize from frontier at height-1
-        let frontier_height = from_height.saturating_sub(1).max(1_687_104);
+        // Initialize from frontier at height-1, floored at network activation
+        let activation = self.orchard_activation_height().await;
+        let frontier_height = from_height.saturating_sub(1).max(activation);
         tracing::info!(
             "[WitnessSync] Resetting tree state. Will init from frontier at height {}",
             frontier_height

@@ -149,6 +149,42 @@ pub trait ChainClient: Send + Sync {
         None
     }
 
+    /// Consensus network moniker for shielded (Zcash) address derivation:
+    /// "main" | "test" | "regtest". Read live from the node so address HRPs
+    /// (t-addr prefix, unified-address HRP) match the chain the RPC endpoint
+    /// currently points at. Default "main" for chains that don't override.
+    async fn get_shielded_network(&self) -> AppResult<String> {
+        Ok("main".to_string())
+    }
+
+    /// Orchard (NU5) activation height, read live from the node's
+    /// getblockchaininfo `upgrades`. Scanning / frontier init must start at or
+    /// after this height; hardcoding mainnet 1,687,104 breaks short
+    /// regtest/testnet chains ("block not in main chain"). Default is the
+    /// mainnet constant, used only when a node doesn't expose it.
+    async fn get_shielded_activation_height(&self) -> AppResult<u64> {
+        Ok(1_687_104)
+    }
+
+    /// Current consensus branch id from the node's chain tip, used to build
+    /// shielded-transaction sighashes on whatever network upgrade is active
+    /// (NU6.2 testnet/regtest, future NU7…). Hardcoding a branch id makes the
+    /// node reject the broadcast with "incorrect consensus branch id" (-25).
+    /// Default errors — only shielded (Zcash) chains implement this.
+    async fn get_consensus_branch_id(&self) -> AppResult<u32> {
+        Err(crate::error::AppError::NotImplemented(
+            "consensus branch id not supported for this chain".to_string(),
+        ))
+    }
+
+    /// NU6.3 (Ironwood) activation height from the node, or None if the node
+    /// has no NU6.3 upgrade scheduled. Drives the Orchard→Ironwood turnstile:
+    /// below this height the old-pool path is used (zero change), at/above it
+    /// spends cross into Ironwood. Default None (non-Zcash / turnstile N/A).
+    async fn get_nu63_activation_height(&self) -> AppResult<Option<u64>> {
+        Ok(None)
+    }
+
     /// Send a shielded/privacy transfer (used by Zcash)
     /// Default implementation returns an error (not applicable for non-privacy chains)
     async fn send_shielded(

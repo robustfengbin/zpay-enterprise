@@ -80,17 +80,35 @@ ripemd = "0.1"
 blake2b_simd = "1.0"
 
 # Zcash transaction primitives for proper sighash calculation
-# Upgraded as a group 2026-04-25: orchard 0.11/0.12 and their zcash_* counterparts
-# depended on core2, whose entire 0.3.x / 0.4.0 range was yanked from crates.io.
-# The 2025+ Zcash stack migrated to `corez` (fork), so we bump the whole family
-# together to restore reproducible builds.
-zcash_primitives = "0.27"
-zcash_protocol = "0.8"
+# Upgraded as a group 2026-07-24 (F4.0): NU6.3 (Ironwood) needs orchard 0.15
+# (rcm_v3 / ZIP-2005, PostNu6_3 circuit keys, Ironwood v6 bundles). Versions
+# anchored to zebra v6.2.1's dependency stack; exact patch versions come from
+# the transitive resolution in Cargo.lock, not hand-pinned here.
+# `non-standard-fees` exposes `transaction::fees::fixed::FeeRule`, used by the
+# turnstile builder to force the exact fee the proposal computed (rather than
+# have ZIP-317 recompute a possibly-different figure).
+zcash_primitives = { version = "0.29", features = ["non-standard-fees"] }
+zcash_protocol = "0.10"
 
-# Zcash Orchard privacy protocol support
-orchard = "0.13"
+# Zcash Orchard privacy protocol support (Orchard + Ironwood pools)
+orchard = "0.15"
 zcash_note_encryption = "0.4"
-zcash_address = "0.11"
+zcash_address = "0.13"
+# Direct deps for the NU6.3/Ironwood turnstile build path (F4.0-c P1.2). The
+# zcash_primitives transaction Builder handles v6 serialization, sighash_v6,
+# proving and the cross-pool value balance for the turnstile (orchard_v3 spend +
+# ironwood_v3 output), so we don't hand-roll consensus-critical bytes.
+# - `sapling` (sapling-crypto) is needed to name the SpendProver/OutputProver
+#   traits `Builder::build` requires; the turnstile carries no Sapling bundle, so
+#   we pass a fail-loud placeholder prover (panics if ever invoked).
+# - `zcash_transparent` provides `TransparentSigningSet` (empty for a pure
+#   shielded turnstile). Versions match zcash_primitives 0.29's own resolution.
+sapling = { package = "sapling-crypto", version = "0.7" }
+zcash_transparent = "0.9"
+# Named only to spell the SpendProver/OutputProver trait signatures on the
+# fail-loud placeholder (scalar param types). Versions match sapling-crypto 0.7.
+jubjub = "0.10"
+bls12_381 = "0.8"
 # zip32 was extracted out of zcash_primitives starting with 0.27
 zip32 = "0.2"
 pasta_curves = { version = "0.5", features = ["bits"] }

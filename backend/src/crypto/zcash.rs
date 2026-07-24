@@ -5,6 +5,8 @@ use ripemd::Ripemd160;
 use secp256k1::{PublicKey, Secp256k1, SecretKey};
 use sha2::{Digest, Sha256};
 
+use zcash_protocol::consensus::NetworkType;
+
 use crate::blockchain::zcash::orchard::{
     address::OrchardAddressManager, keys::OrchardKeyManager, OrchardViewingKey, UnifiedAddressInfo,
 };
@@ -13,9 +15,28 @@ use crate::error::{AppError, AppResult};
 /// Zcash mainnet transparent address prefix (t1)
 const ZCASH_T_ADDR_PREFIX: [u8; 2] = [0x1C, 0xB8];
 
+/// Map a node chain moniker ("main"/"test"/"regtest") to a consensus network.
+/// Unknown/absent monikers default to mainnet.
+pub fn consensus_network_from_kind(kind: &str) -> NetworkType {
+    match kind {
+        "test" => NetworkType::Test,
+        "regtest" => NetworkType::Regtest,
+        _ => NetworkType::Main,
+    }
+}
+
+/// Transparent (P2PKH) address version prefix for a network.
+/// mainnet t1 = 0x1CB8; testnet/regtest tm = 0x1D25.
+fn t_addr_prefix(network: NetworkType) -> [u8; 2] {
+    match network {
+        NetworkType::Main => ZCASH_T_ADDR_PREFIX,
+        NetworkType::Test | NetworkType::Regtest => [0x1D, 0x25],
+    }
+}
+
 /// Generate a new Zcash transparent address and private key
 /// Returns (address, private_key_hex)
-pub fn generate_zcash_wallet() -> AppResult<(String, String)> {
+pub fn generate_zcash_wallet(network: NetworkType) -> AppResult<(String, String)> {
     let secp = Secp256k1::new();
 
     // Generate random 32-byte private key
@@ -29,7 +50,7 @@ pub fn generate_zcash_wallet() -> AppResult<(String, String)> {
     let public_key = PublicKey::from_secret_key(&secp, &secret_key);
 
     // Generate address from public key
-    let address = public_key_to_t_address(&public_key)?;
+    let address = public_key_to_t_address(&public_key, network)?;
     let private_key_hex = hex::encode(key_bytes);
 
     Ok((address, private_key_hex))
@@ -38,7 +59,7 @@ pub fn generate_zcash_wallet() -> AppResult<(String, String)> {
 /// Import a Zcash wallet from private key
 /// Supports both WIF format (starts with 5, K, L) and raw hex format
 /// Returns the address derived from the private key
-pub fn import_zcash_wallet(private_key: &str) -> AppResult<String> {
+pub fn import_zcash_wallet(private_key: &str, network: NetworkType) -> AppResult<String> {
     tracing::debug!("Importing Zcash wallet, key length: {}, first char: {:?}",
         private_key.len(),
         private_key.chars().next()
@@ -81,7 +102,7 @@ pub fn import_zcash_wallet(private_key: &str) -> AppResult<String> {
     let public_key = PublicKey::from_secret_key(&secp, &secret_key);
 
     // Generate address from public key
-    let address = public_key_to_t_address(&public_key)?;
+    let address = public_key_to_t_address(&public_key, network)?;
     tracing::info!("Successfully derived Zcash address: {}", address);
     Ok(address)
 }
@@ -129,7 +150,7 @@ fn decode_wif_private_key(wif: &str) -> AppResult<Vec<u8>> {
 }
 
 /// Convert a secp256k1 public key to a Zcash transparent address (t-address)
-fn public_key_to_t_address(public_key: &PublicKey) -> AppResult<String> {
+fn public_key_to_t_address(public_key: &PublicKey, network: NetworkType) -> AppResult<String> {
     // Get compressed public key bytes
     let pubkey_bytes = public_key.serialize();
 
@@ -139,9 +160,9 @@ fn public_key_to_t_address(public_key: &PublicKey) -> AppResult<String> {
     // RIPEMD160 hash
     let ripemd_hash = Ripemd160::digest(&sha256_hash);
 
-    // Build payload: prefix + ripemd160 hash
+    // Build payload: network prefix + ripemd160 hash
     let mut payload = Vec::with_capacity(22);
-    payload.extend_from_slice(&ZCASH_T_ADDR_PREFIX);
+    payload.extend_from_slice(&t_addr_prefix(network));
     payload.extend_from_slice(&ripemd_hash);
 
     // Double SHA256 for checksum
@@ -168,8 +189,8 @@ pub(crate) fn validate_zcash_address(address: &str) -> bool {
         return false;
     }
 
-    // Transparent addresses (t1 or t3)
-    if address.starts_with("t1") || address.starts_with("t3") {
+    // Transparent addresses: t1/t3 (mainnet), tm (testnet/regtest)
+    if address.starts_with("t1") || address.starts_with("t3") || address.starts_with("tm") {
         // Try to decode and verify checksum
         if let Ok(decoded) = bs58::decode(address).into_vec() {
             if decoded.len() == 26 {
@@ -215,6 +236,7 @@ pub(crate) fn validate_zcash_address(address: &str) -> bool {
 pub fn enable_orchard_for_wallet(
     private_key_hex: &str,
     birthday_height: u64,
+    network: NetworkType,
 ) -> AppResult<(UnifiedAddressInfo, String)> {
     // Derive Orchard keys from the transparent private key
     let (spending_key, viewing_key) =
@@ -222,7 +244,7 @@ pub fn enable_orchard_for_wallet(
             .map_err(|e| AppError::InternalError(format!("Failed to derive Orchard keys: {}", e)))?;
 
     // Create address manager and generate unified address
-    let mut address_manager = OrchardAddressManager::new(viewing_key.clone());
+    let mut address_manager = OrchardAddressManager::with_network(viewing_key.clone(), network);
     let unified_address = address_manager
         .generate_unified_address()
         .map_err(|e| AppError::InternalError(format!("Failed to generate unified address: {}", e)))?;
@@ -247,6 +269,7 @@ pub fn enable_orchard_for_wallet(
 pub fn generate_orchard_wallet(
     seed: &[u8],
     birthday_height: u64,
+    network: NetworkType,
 ) -> AppResult<(UnifiedAddressInfo, String, String, String)> {
     if seed.len() < 32 {
         return Err(AppError::ValidationError(
@@ -268,7 +291,7 @@ pub fn generate_orchard_wallet(
         .map_err(|e| AppError::InternalError(format!("Failed to generate secret key: {}", e)))?;
 
     let public_key = PublicKey::from_secret_key(&secp, &secret_key);
-    let transparent_address = public_key_to_t_address(&public_key)?;
+    let transparent_address = public_key_to_t_address(&public_key, network)?;
     let private_key_hex = hex::encode(key_bytes.as_bytes());
 
     // Derive Orchard keys
@@ -276,7 +299,7 @@ pub fn generate_orchard_wallet(
         .map_err(|e| AppError::InternalError(format!("Failed to derive Orchard keys: {}", e)))?;
 
     // Generate unified address
-    let mut address_manager = OrchardAddressManager::new(viewing_key.clone());
+    let mut address_manager = OrchardAddressManager::with_network(viewing_key.clone(), network);
     let unified_address = address_manager
         .generate_unified_address()
         .map_err(|e| AppError::InternalError(format!("Failed to generate unified address: {}", e)))?;
@@ -302,11 +325,12 @@ pub fn generate_orchard_wallet(
 pub fn generate_unified_address(
     viewing_key_encoded: &str,
     address_index: u32,
+    network: NetworkType,
 ) -> AppResult<UnifiedAddressInfo> {
     let viewing_key = OrchardViewingKey::decode(viewing_key_encoded)
         .map_err(|e| AppError::ValidationError(format!("Invalid viewing key: {}", e)))?;
 
-    let address_manager = OrchardAddressManager::new(viewing_key);
+    let address_manager = OrchardAddressManager::with_network(viewing_key, network);
     let address_info = address_manager
         .generate_address_at_index(address_index)
         .map_err(|e| AppError::InternalError(format!("Failed to generate address: {}", e)))?;
@@ -337,7 +361,7 @@ mod tests {
 
     #[test]
     fn test_generate_zcash_wallet() {
-        let (address, private_key) = generate_zcash_wallet().unwrap();
+        let (address, private_key) = generate_zcash_wallet(NetworkType::Main).unwrap();
 
         assert!(address.starts_with("t1"));
         assert_eq!(private_key.len(), 64); // 32 bytes = 64 hex chars
@@ -345,12 +369,20 @@ mod tests {
     }
 
     #[test]
+    fn test_generate_zcash_wallet_regtest() {
+        // Regtest/testnet transparent addresses use the "tm" prefix
+        let (address, _) = generate_zcash_wallet(NetworkType::Regtest).unwrap();
+        assert!(address.starts_with("tm"), "regtest t-addr must start with tm, got {}", address);
+        assert!(validate_zcash_address(&address));
+    }
+
+    #[test]
     fn test_import_zcash_wallet() {
         // Generate a wallet first
-        let (original_address, private_key) = generate_zcash_wallet().unwrap();
+        let (original_address, private_key) = generate_zcash_wallet(NetworkType::Main).unwrap();
 
         // Import the same private key
-        let imported_address = import_zcash_wallet(&private_key).unwrap();
+        let imported_address = import_zcash_wallet(&private_key, NetworkType::Main).unwrap();
 
         assert_eq!(original_address, imported_address);
     }
@@ -362,7 +394,7 @@ mod tests {
         assert!(!validate_zcash_address("invalid")); // Random string
 
         // Generate and validate
-        let (address, _) = generate_zcash_wallet().unwrap();
+        let (address, _) = generate_zcash_wallet(NetworkType::Main).unwrap();
         assert!(validate_zcash_address(&address));
     }
 }

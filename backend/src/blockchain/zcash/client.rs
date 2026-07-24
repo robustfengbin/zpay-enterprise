@@ -4,8 +4,10 @@ use async_trait::async_trait;
 use reqwest::Proxy;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::str::FromStr;
 use tokio::sync::RwLock;
+use zcash_protocol::consensus::NetworkType;
 
 use crate::blockchain::traits::{ChainClient, GasEstimate, TokenBalance, TransferParams, TxStatus, Utxo};
 use crate::blockchain::zcash::orchard::{
@@ -29,6 +31,11 @@ pub struct ZcashClient {
     rpc_settings: RwLock<RpcSettings>,
     /// Orchard scanner for shielded note detection
     orchard_scanner: RwLock<Option<OrchardScanner>>,
+    /// Consensus network context (network + Orchard activation height) resolved
+    /// live from the node. Bound to the current RPC endpoint: `update_rpc`
+    /// clears it so a runtime endpoint switch re-reads the network and we never
+    /// derive an address for the wrong chain.
+    network_ctx: RwLock<Option<NetworkContext>>,
 }
 
 // JSON-RPC request/response types
@@ -94,8 +101,83 @@ struct AddressUtxo {
 /// Blockchain info from getblockchaininfo RPC
 #[derive(Debug, Deserialize)]
 struct BlockchainInfo {
+    /// Network moniker: "main" | "test" | "regtest". Absent on some legacy
+    /// forks, so default to "main".
+    #[serde(default = "default_chain_moniker")]
+    chain: String,
     blocks: u64,
     consensus: ConsensusInfo,
+    /// Network-upgrade table keyed by branch-id hex. Used to read the NU5
+    /// (Orchard) activation height live from the node instead of hardcoding it.
+    #[serde(default)]
+    upgrades: HashMap<String, NetworkUpgradeInfo>,
+}
+
+fn default_chain_moniker() -> String {
+    "main".to_string()
+}
+
+/// One entry of getblockchaininfo `upgrades`
+#[derive(Debug, Deserialize)]
+struct NetworkUpgradeInfo {
+    name: String,
+    #[serde(rename = "activationheight")]
+    activation_height: u64,
+}
+
+impl BlockchainInfo {
+    /// Map the node's chain moniker to a consensus network type.
+    fn network_type(&self) -> NetworkType {
+        match self.chain.as_str() {
+            "test" => NetworkType::Test,
+            "regtest" => NetworkType::Regtest,
+            "main" => NetworkType::Main,
+            other => {
+                tracing::warn!(
+                    "Unknown chain moniker '{}' from getblockchaininfo; defaulting to mainnet",
+                    other
+                );
+                NetworkType::Main
+            }
+        }
+    }
+
+    /// NU5 (Orchard) activation height as reported by the node, if present.
+    fn nu5_activation_height(&self) -> Option<u64> {
+        self.upgrades
+            .values()
+            .find(|u| u.name.eq_ignore_ascii_case("nu5"))
+            .map(|u| u.activation_height)
+    }
+
+    /// NU6.3 (Ironwood) activation height as reported by the node, if the
+    /// upgrade is scheduled/known. `None` means the node has no NU6.3 entry
+    /// (e.g. a NU6.2-only regtest), i.e. the turnstile is not in play here.
+    /// Node monikers vary ("NU6.3" / "NU6_3"); match on the digits.
+    fn nu63_activation_height(&self) -> Option<u64> {
+        self.upgrades
+            .values()
+            .find(|u| {
+                let n = u.name.to_ascii_lowercase();
+                // Match the upgrade by version number or by the pool name
+                // "Ironwood" — node implementations vary on which they report,
+                // and missing it would silently keep the turnstile dormant past
+                // activation (era stuck at PreNu63). Belt-and-suspenders.
+                n == "nu6.3" || n == "nu6_3" || n == "nu63" || n == "ironwood"
+            })
+            .map(|u| u.activation_height)
+    }
+}
+
+/// Cached, endpoint-bound consensus context resolved from getblockchaininfo.
+#[derive(Debug, Clone, Copy)]
+struct NetworkContext {
+    network: NetworkType,
+    orchard_activation_height: u64,
+    /// NU6.3 (Ironwood) activation height, or None if the node has no such
+    /// upgrade scheduled. Drives the turnstile: below it the old Orchard pool
+    /// semantics apply, at/above it spends cross into Ironwood.
+    nu63_activation_height: Option<u64>,
 }
 
 /// Consensus info containing the current branch ID
@@ -239,6 +321,7 @@ impl ZcashClient {
                 rpc_password: config.rpc_password.clone(),
             }),
             orchard_scanner: RwLock::new(None),
+            network_ctx: RwLock::new(None),
         })
     }
 
@@ -279,6 +362,11 @@ impl ZcashClient {
         if let Some(fallbacks) = fallback_rpcs {
             settings.fallback_rpcs = fallbacks;
         }
+        drop(settings);
+
+        // Endpoint changed: invalidate the cached network context so the next
+        // address derivation / scan re-reads the network from the new node.
+        *self.network_ctx.write().await = None;
 
         tracing::info!("Zcash RPC updated dynamically to: {}", primary_rpc);
         Ok(())
@@ -537,6 +625,49 @@ impl ZcashClient {
             .rpc_call("getblockchaininfo", empty_params)
             .await?;
         Ok(info)
+    }
+
+    /// Resolve (and cache) the consensus network context from the live node.
+    ///
+    /// The network moniker and NU5 activation height are read from
+    /// getblockchaininfo so address HRPs and scan start heights follow whatever
+    /// chain the RPC endpoint points at (mainnet / testnet / regtest). Cached
+    /// per endpoint; `update_rpc` clears it. Falls back to the mainnet NU5
+    /// constant only if the node omits the upgrades table.
+    async fn resolve_network_ctx(&self) -> AppResult<NetworkContext> {
+        if let Some(ctx) = *self.network_ctx.read().await {
+            return Ok(ctx);
+        }
+
+        let info = self.get_blockchain_info().await?;
+        let network = info.network_type();
+        let orchard_activation_height = info.nu5_activation_height().unwrap_or_else(|| {
+            let fallback = match network {
+                NetworkType::Test => 1_842_420,
+                _ => 1_687_104,
+            };
+            tracing::warn!(
+                "getblockchaininfo has no NU5 upgrade entry; falling back to {} for {:?}",
+                fallback,
+                network
+            );
+            fallback
+        });
+
+        let nu63_activation_height = info.nu63_activation_height();
+        let ctx = NetworkContext {
+            network,
+            orchard_activation_height,
+            nu63_activation_height,
+        };
+        *self.network_ctx.write().await = Some(ctx);
+        tracing::info!(
+            "Resolved Zcash network context: network={:?}, orchard_activation_height={}, nu63_activation_height={:?}",
+            network,
+            orchard_activation_height,
+            nu63_activation_height
+        );
+        Ok(ctx)
     }
 
     /// Send raw transaction via sendrawtransaction RPC (Zebra compatible)
@@ -1214,5 +1345,35 @@ impl ChainClient for ZcashClient {
             (Some(user), Some(pass)) => Some((user.clone(), pass.clone())),
             _ => None,
         }
+    }
+
+    async fn get_shielded_network(&self) -> AppResult<String> {
+        let ctx = self.resolve_network_ctx().await?;
+        let moniker = match ctx.network {
+            NetworkType::Main => "main",
+            NetworkType::Test => "test",
+            NetworkType::Regtest => "regtest",
+        };
+        Ok(moniker.to_string())
+    }
+
+    async fn get_shielded_activation_height(&self) -> AppResult<u64> {
+        Ok(self.resolve_network_ctx().await?.orchard_activation_height)
+    }
+
+    async fn get_consensus_branch_id(&self) -> AppResult<u32> {
+        // Read fresh (not cached): the active branch id changes across upgrades
+        // and must reflect the current chain tip for the broadcast to be valid.
+        let info = self.get_blockchain_info().await?;
+        u32::from_str_radix(&info.consensus.chaintip, 16).map_err(|e| {
+            AppError::BlockchainError(format!(
+                "Failed to parse consensus branch id '{}': {}",
+                info.consensus.chaintip, e
+            ))
+        })
+    }
+
+    async fn get_nu63_activation_height(&self) -> AppResult<Option<u64>> {
+        Ok(self.resolve_network_ctx().await?.nu63_activation_height)
     }
 }

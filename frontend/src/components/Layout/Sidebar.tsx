@@ -14,6 +14,7 @@ import {
   Eye,
   Users,
   FileText,
+  Send,
 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../hooks/useAuth';
@@ -260,6 +261,38 @@ export function Sidebar() {
             <Users className="w-5 h-5 mr-3 flex-shrink-0" />
             <span>{t('sidebar.employees')}</span>
           </NavLink>
+          {/* F4.1 — Ironwood migration runs (admin-only, whole-treasury moves) */}
+          {user?.role === 'admin' && (
+            <NavLink
+              to="/migrations"
+              className={({ isActive }) =>
+                `flex items-center px-6 py-3 text-sm transition-colors ${
+                  isActive
+                    ? 'bg-blue-600 text-white'
+                    : 'text-gray-300 hover:bg-gray-800 hover:text-white'
+                }`
+              }
+            >
+              <FileText className="w-5 h-5 mr-3 flex-shrink-0" />
+              <span>{t('sidebar.migrations')}</span>
+            </NavLink>
+          )}
+          {/* F4.2 — batch privacy transfers (admin-only, treasury payouts) */}
+          {user?.role === 'admin' && (
+            <NavLink
+              to="/batch-transfers"
+              className={({ isActive }) =>
+                `flex items-center px-6 py-3 text-sm transition-colors ${
+                  isActive
+                    ? 'bg-blue-600 text-white'
+                    : 'text-gray-300 hover:bg-gray-800 hover:text-white'
+                }`
+              }
+            >
+              <Send className="w-5 h-5 mr-3 flex-shrink-0" />
+              <span>{t('sidebar.batch_transfers')}</span>
+            </NavLink>
+          )}
         </div>
 
         {/* History & Settings */}

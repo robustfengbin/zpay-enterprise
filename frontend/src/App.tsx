@@ -1,6 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './hooks/useAuth';
-import { ProtectedRoute } from './components/Layout';
+import { ProtectedRoute, AuditorProtectedRoute } from './components/Layout';
 import {
   Login,
   Dashboard,
@@ -31,6 +31,14 @@ import {
   PayrollRunCreate,
   PayrollRunDetail,
   PayrollEmployees,
+  // F4.1
+  MigrationRunList,
+  MigrationRunCreate,
+  MigrationRunDetail,
+  // F4.2
+  BatchTransferRunList,
+  BatchTransferRunCreate,
+  BatchTransferRunDetail,
 } from './pages';
 
 function App() {
@@ -136,12 +144,19 @@ function App() {
               via /auditor/login if they need to preview the auditor's own
               dashboard. */}
           <Route path="/auditor/login" element={<AuditorLogin />} />
-          <Route path="/auditor" element={<ProtectedRoute requiredRole="auditor"><AuditorDashboard /></ProtectedRoute>} />
+          {/* Auditor session pages — guarded by the auditor_token session
+              (NOT useAuth): these hit the /auditor/* read-only backend
+              surface where only kind=auditor JWTs authenticate. */}
+          <Route path="/auditor" element={<AuditorProtectedRoute><AuditorDashboard /></AuditorProtectedRoute>} />
           <Route path="/auditor/manage" element={<ProtectedRoute requiredRole="admin"><AuditorList /></ProtectedRoute>} />
-          <Route path="/auditor/wallets/:id" element={<ProtectedRoute requiredRole="auditor"><AuditorWalletDetail /></ProtectedRoute>} />
-          <Route path="/auditor/wallets/:walletId/disclosures" element={<ProtectedRoute requiredRole="auditor"><DisclosureHistory /></ProtectedRoute>} />
-          <Route path="/auditor/disclosure/new" element={<ProtectedRoute requiredRole="auditor"><DisclosureNew /></ProtectedRoute>} />
-          <Route path="/auditor/disclosure/:id" element={<ProtectedRoute requiredRole="auditor"><DisclosureDetail /></ProtectedRoute>} />
+          <Route path="/auditor/wallets/:id" element={<AuditorProtectedRoute><AuditorWalletDetail /></AuditorProtectedRoute>} />
+          <Route path="/auditor/wallets/:walletId/disclosures" element={<AuditorProtectedRoute><DisclosureHistory /></AuditorProtectedRoute>} />
+          {/* Disclosure generation/download call admin-side endpoints
+              (POST /wallets/{id}/payment-disclosures etc.) — admin JWT only,
+              so they stay behind the admin guard. Auditors receive
+              disclosures; admins produce them. */}
+          <Route path="/auditor/disclosure/new" element={<ProtectedRoute requiredRole="admin"><DisclosureNew /></ProtectedRoute>} />
+          <Route path="/auditor/disclosure/:id" element={<ProtectedRoute requiredRole="admin"><DisclosureDetail /></ProtectedRoute>} />
 
           {/* F3.1 — Payroll routes. Create requires operator+admin;
               list/detail/employees viewable by all authenticated users. */}
@@ -149,6 +164,18 @@ function App() {
           <Route path="/payroll/runs/new" element={<ProtectedRoute requiredRole={["admin", "operator"]}><PayrollRunCreate /></ProtectedRoute>} />
           <Route path="/payroll/runs/:id" element={<ProtectedRoute><PayrollRunDetail /></ProtectedRoute>} />
           <Route path="/payroll/employees" element={<ProtectedRoute requiredRole={["admin", "operator"]}><PayrollEmployees /></ProtectedRoute>} />
+
+          {/* F4.1 — Orchard → Ironwood migration routes. Admin-only: a
+              migration moves the whole shielded treasury. */}
+          <Route path="/migrations" element={<ProtectedRoute requiredRole="admin"><MigrationRunList /></ProtectedRoute>} />
+          <Route path="/migrations/new" element={<ProtectedRoute requiredRole="admin"><MigrationRunCreate /></ProtectedRoute>} />
+          <Route path="/migrations/:id" element={<ProtectedRoute requiredRole="admin"><MigrationRunDetail /></ProtectedRoute>} />
+
+          {/* F4.2 — generic batch privacy transfers. Admin-only: moves
+              treasury funds to arbitrary recipients. */}
+          <Route path="/batch-transfers" element={<ProtectedRoute requiredRole="admin"><BatchTransferRunList /></ProtectedRoute>} />
+          <Route path="/batch-transfers/new" element={<ProtectedRoute requiredRole="admin"><BatchTransferRunCreate /></ProtectedRoute>} />
+          <Route path="/batch-transfers/:id" element={<ProtectedRoute requiredRole="admin"><BatchTransferRunDetail /></ProtectedRoute>} />
 
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

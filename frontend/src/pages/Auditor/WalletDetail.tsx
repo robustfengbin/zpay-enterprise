@@ -87,10 +87,13 @@ export function AuditorWalletDetail() {
                 <FileText className="w-4 h-4 inline mr-1" />
                 {t('auditor.disclosure.history_title')}
               </button>
+              {/* Disclosure creation is an admin capability (backend has no
+                  auditor-side create endpoint) — visible but disabled so the
+                  auditor knows the feature exists and who to ask. */}
               <button
-                className="btn-secondary"
-                disabled={wallet.current_count >= wallet.max_disclosure_count}
-                onClick={() => navigate(`/auditor/disclosure/new?wallet_id=${wallet.wallet_id}`)}
+                className="btn-secondary opacity-50 cursor-not-allowed"
+                disabled
+                title={t('auditor.disclosure.admin_only')}
               >
                 <FileText className="w-4 h-4 inline mr-1" />
                 {t('auditor.dashboard.request_disclosure')}
@@ -118,7 +121,23 @@ export function AuditorWalletDetail() {
         </Card>
       )}
 
-      {balance && (
+      {balance && balance.shielded_balance && (
+        <Card>
+          <h2 className="text-sm font-semibold mb-2">{t('auditor.detail.balance_section')}</h2>
+          <dl className="grid grid-cols-4 gap-y-2 text-sm">
+            <dt className="text-gray-500">{t('auditor.detail.transparent_balance')}</dt>
+            <dd className="font-mono">{balance.transparent_balance} ZEC</dd>
+            <dt className="text-gray-500">{t('auditor.detail.shielded_total')}</dt>
+            <dd className="font-mono">{(balance.shielded_balance.total_zatoshis / 1e8).toFixed(8)} ZEC</dd>
+            <dt className="text-gray-500">{t('auditor.detail.shielded_spendable')}</dt>
+            <dd className="font-mono">{(balance.shielded_balance.spendable_zatoshis / 1e8).toFixed(8)} ZEC</dd>
+            <dt className="text-gray-500">{t('auditor.detail.shielded_pending')}</dt>
+            <dd className="font-mono">{(balance.shielded_balance.pending_zatoshis / 1e8).toFixed(8)} ZEC</dd>
+          </dl>
+        </Card>
+      )}
+
+      {balance && !balance.shielded_balance && (
         <Card>
           <h2 className="text-sm font-semibold mb-2">{t('auditor.detail.balance_section')}</h2>
           <dl className="grid grid-cols-4 gap-y-2 text-sm">
@@ -127,7 +146,7 @@ export function AuditorWalletDetail() {
             <dt className="text-gray-500">{t('auditor.detail.chain')}</dt>
             <dd>{balance.chain}</dd>
           </dl>
-          {balance.tokens.length > 0 && (
+          {(balance.tokens ?? []).length > 0 && (
             <table className="w-full text-xs mt-3">
               <thead className="text-gray-500 uppercase">
                 <tr>
@@ -137,7 +156,7 @@ export function AuditorWalletDetail() {
                 </tr>
               </thead>
               <tbody>
-                {balance.tokens.map((tk, i) => (
+                {(balance.tokens ?? []).map((tk, i) => (
                   <tr key={i} className="border-t border-gray-100">
                     <td className="p-2 font-medium">{tk.symbol}</td>
                     <td className="p-2 font-mono text-xs truncate max-w-xs">{tk.contract}</td>

@@ -6,7 +6,7 @@
 //   POST/GET /api/v1/auditor/login + /me + /wallets        (Auditor side)
 //   GET      /api/v1/auditor/wallets/{id}/balance + transfers + disclosures
 
-import api from './axios';
+import api, { auditorApi } from './axios';
 import type {
   AuditorTenantSummary,
   AuditorTransfersResponse,
@@ -106,7 +106,7 @@ export const viewingKeyService = {
    * Replaces the earlier /auditor/tenants endpoint.
    */
   async listAuditorWallets(): Promise<AuditorTenantSummary[]> {
-    return api.get('/auditor/wallets');
+    return auditorApi.get('/auditor/wallets');
   },
 
   /**
@@ -119,7 +119,7 @@ export const viewingKeyService = {
     limit = 50,
     offset = 0,
   ): Promise<AuditorTransfersResponse> {
-    return api.get(`/auditor/wallets/${walletId}/transfers`, { params: { limit, offset } });
+    return auditorApi.get(`/auditor/wallets/${walletId}/transfers`, { params: { limit, offset } });
   },
 
   /**
@@ -128,7 +128,15 @@ export const viewingKeyService = {
    * return native + ERC-20 token balances.
    */
   async getAuditorWalletBalance(walletId: number): Promise<AuditorWalletBalance> {
-    return api.get(`/auditor/wallets/${walletId}/balance`);
+    return auditorApi.get(`/auditor/wallets/${walletId}/balance`);
+  },
+
+  /**
+   * GET /auditor/wallets/{id}/disclosures — disclosures generated for a
+   * wallet in this auditor's scope. Same row shape as the admin-side list.
+   */
+  async listAuditorWalletDisclosures(walletId: number): Promise<DisclosureRow[]> {
+    return auditorApi.get(`/auditor/wallets/${walletId}/disclosures`);
   },
 };
 
@@ -153,14 +161,14 @@ export const auditorAuthService = {
    * AuditorService design (PRD-F1.1 §3.3).
    */
   async login(email: string, password: string): Promise<{ token: string; auditor: AuditorSession }> {
-    return api.post('/auditor/login', { email, password });
+    return auditorApi.post('/auditor/login', { email, password });
   },
 
   /**
    * GET /auditor/me — current auditor session info.
    */
   async me(): Promise<AuditorSession> {
-    return api.get('/auditor/me');
+    return auditorApi.get('/auditor/me');
   },
 };
 

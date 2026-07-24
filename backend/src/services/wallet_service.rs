@@ -105,12 +105,40 @@ impl WalletService {
         )?;
 
         // Use stored birthday_height, fallback to Orchard activation height if not set
-        let birthday_height = wallet.orchard_birthday_height.unwrap_or(1_687_104);
+        let birthday_height = match wallet.orchard_birthday_height {
+            Some(h) => h,
+            None => self.orchard_activation_height().await,
+        };
 
         let (_, viewing_key) = OrchardKeyManager::derive_from_private_key(&private_key, 0, birthday_height)
             .map_err(|e| AppError::InternalError(format!("Failed to derive viewing key: {}", e)))?;
 
         Ok(viewing_key)
+    }
+
+    /// Resolve the shielded (Zcash) consensus network from the live node so
+    /// generated addresses carry the right HRP (t1/u1 mainnet vs tm/uregtest
+    /// testnet/regtest). Falls back to mainnet if the zcash client or RPC is
+    /// unavailable.
+    async fn shielded_network(&self) -> zcash_protocol::consensus::NetworkType {
+        let kind = match self.chain_registry.get("zcash") {
+            Ok(c) => c
+                .get_shielded_network()
+                .await
+                .unwrap_or_else(|_| "main".to_string()),
+            Err(_) => "main".to_string(),
+        };
+        crate::crypto::zcash::consensus_network_from_kind(&kind)
+    }
+
+    /// Orchard (NU5) activation height read live from the node — the scan
+    /// birthday / frontier floor. Falls back to the mainnet constant when the
+    /// node doesn't expose it.
+    async fn orchard_activation_height(&self) -> u64 {
+        match self.chain_registry.get("zcash") {
+            Ok(c) => c.get_shielded_activation_height().await.unwrap_or(1_687_104),
+            Err(_) => 1_687_104,
+        }
     }
 
     /// Create a new wallet with generated private key
@@ -120,7 +148,16 @@ impl WalletService {
 
         // Generate wallet based on chain type
         let (address, private_key) = match chain {
-            "zcash" => generate_zcash_wallet()?,
+            "zcash" => {
+                // Derive the address for whatever network this node runs
+                // (mainnet t1/u1 vs regtest/testnet tm/uregtest).
+                let net_kind = chain_client
+                    .get_shielded_network()
+                    .await
+                    .unwrap_or_else(|_| "main".to_string());
+                let network = crate::crypto::zcash::consensus_network_from_kind(&net_kind);
+                generate_zcash_wallet(network)?
+            }
             "ethereum" | _ => generate_ethereum_wallet()?,
         };
 
@@ -186,7 +223,14 @@ impl WalletService {
         let key = private_key.strip_prefix("0x").unwrap_or(private_key);
 
         let address = match chain {
-            "zcash" => import_zcash_wallet(key)?,
+            "zcash" => {
+                let net_kind = chain_client
+                    .get_shielded_network()
+                    .await
+                    .unwrap_or_else(|_| "main".to_string());
+                let network = crate::crypto::zcash::consensus_network_from_kind(&net_kind);
+                import_zcash_wallet(key, network)?
+            }
             "ethereum" | _ => import_ethereum_wallet(key)?,
         };
 
@@ -383,9 +427,10 @@ impl WalletService {
             &self.security_config.encryption_key,
         )?;
 
-        // Enable Orchard and get unified address
+        // Enable Orchard and get unified address (network-aware HRP)
+        let network = self.shielded_network().await;
         let (unified_address, viewing_key_encoded) =
-            enable_orchard_for_wallet(&private_key, birthday_height)?;
+            enable_orchard_for_wallet(&private_key, birthday_height, network)?;
 
         // TODO: Initialize Orchard scanner for background block scanning
         // The scanner is optional and used for discovering incoming shielded transactions.
@@ -434,10 +479,14 @@ impl WalletService {
         )?;
 
         // Use stored birthday_height, fallback to Orchard activation height
-        let birthday_height = wallet.orchard_birthday_height.unwrap_or(1_687_104);
+        let birthday_height = match wallet.orchard_birthday_height {
+            Some(h) => h,
+            None => self.orchard_activation_height().await,
+        };
 
         // Try to regenerate the unified address (deterministic from private key)
-        match enable_orchard_for_wallet(&private_key, birthday_height) {
+        let network = self.shielded_network().await;
+        match enable_orchard_for_wallet(&private_key, birthday_height, network) {
             Ok((unified_address, _viewing_key)) => Ok(vec![unified_address]),
             Err(_) => {
                 // Orchard not enabled or error - return empty list
@@ -459,7 +508,8 @@ impl WalletService {
         viewing_key_encoded: &str,
         address_index: u32,
     ) -> AppResult<UnifiedAddressInfo> {
-        generate_unified_address(viewing_key_encoded, address_index)
+        let network = self.shielded_network().await;
+        generate_unified_address(viewing_key_encoded, address_index, network)
     }
 
     /// Get shielded (Orchard) balance for a wallet
@@ -574,8 +624,11 @@ impl WalletService {
                 let min_height = manager.get_min_scan_height().await
                     .map_err(|e| AppError::BlockchainError(format!("Failed to get min height: {}", e)))?;
 
-                // Initialize from frontier at height-1 (to include notes in that block)
-                let frontier_height = min_height.saturating_sub(1).max(1_687_104);
+                // Initialize from frontier at height-1 (to include notes in that
+                // block), floored at the network's Orchard activation height so
+                // short regtest/testnet chains don't request a nonexistent block.
+                let activation = self.orchard_activation_height().await;
+                let frontier_height = min_height.saturating_sub(1).max(activation);
                 tracing::info!(
                     "[Orchard Sync] Initializing tree from frontier at height {}",
                     frontier_height
@@ -611,10 +664,11 @@ impl WalletService {
                         .map_err(|e| AppError::BlockchainError(format!("Failed to fetch blocks: {}", e)))?;
 
                     if !blocks.is_empty() {
+                        // process_blocks persists discovered notes and marks spends
+                        // (including notes discovered+spent within this same batch).
                         let found_notes = manager.process_blocks(blocks, &known_positions).await
                             .map_err(|e| AppError::BlockchainError(format!("Failed to process blocks: {}", e)))?;
 
-                        // Save any newly found notes
                         if !found_notes.is_empty() {
                             tracing::info!(
                                 "[Orchard Sync] Found {} new notes in blocks {}-{}",
@@ -622,8 +676,6 @@ impl WalletService {
                                 current,
                                 end
                             );
-                            manager.save_notes(&found_notes).await
-                                .map_err(|e| AppError::BlockchainError(format!("Failed to save notes: {}", e)))?;
                         }
                     }
 
@@ -731,8 +783,9 @@ impl WalletService {
                 .map(|c| futures::executor::block_on(c.get_block_height()).unwrap_or(2_500_000))
                 .unwrap_or(2_500_000);
 
-            // Use Orchard activation height as default starting point
-            Ok(ScanProgress::new("zcash", "orchard", 1_687_104, chain_tip))
+            // Use the network's Orchard activation height as default start
+            let activation = self.orchard_activation_height().await;
+            Ok(ScanProgress::new("zcash", "orchard", activation, chain_tip))
         }
     }
 
@@ -878,18 +931,39 @@ impl WalletService {
         )?;
 
         // Use stored birthday_height, fallback to Orchard activation height
-        let birthday_height = wallet.orchard_birthday_height.unwrap_or(1_687_104);
+        let birthday_height = match wallet.orchard_birthday_height {
+            Some(h) => h,
+            None => self.orchard_activation_height().await,
+        };
 
         // Derive Orchard spending key from private key
         let (spending_key, _viewing_key) =
             OrchardKeyManager::derive_from_private_key(&private_key, 0, birthday_height)
                 .map_err(|e| AppError::InternalError(format!("Failed to derive keys: {}", e)))?;
 
-        // Create transfer service
-        let transfer_service = OrchardTransferService::new(NetworkType::Mainnet);
-
         // Get chain client for UTXOs and broadcasting
         let chain_client = self.chain_registry.get("zcash")?;
+
+        // Create transfer service pinned to the node's live consensus branch id
+        // so the shielded-tx sighash matches the active network upgrade (NU6.2
+        // testnet/regtest, mainnet NU6.1, future NU7…). Without this the node
+        // rejects the broadcast with "incorrect consensus branch id" (-25).
+        let consensus_branch_id = chain_client
+            .get_consensus_branch_id()
+            .await
+            .map_err(|e| AppError::BlockchainError(format!(
+                "Failed to read consensus branch id: {}", e
+            )))?;
+        // NU6.3 (Ironwood) activation height from the node decides whether an
+        // old-pool spend stays in the Orchard pool (pre-NU6.3, current behaviour)
+        // or crosses the turnstile into Ironwood (NU6.3+).
+        let nu63_activation = chain_client
+            .get_nu63_activation_height()
+            .await
+            .unwrap_or(None);
+        let transfer_service =
+            OrchardTransferService::new_with_branch_id(NetworkType::Mainnet, consensus_branch_id)
+                .with_nu63_activation(nu63_activation);
 
         // Get transparent inputs (UTXOs) for shielding
         // CRITICAL: Only select UTXOs needed to cover amount + fee, not ALL UTXOs!
@@ -1313,6 +1387,19 @@ impl WalletService {
         }
 
         Ok(wallet_count)
+    }
+
+    /// F4 — confirmation lookup for the run executor's double-spend gate.
+    /// The executor must not build a new shielded spend for a wallet while
+    /// an earlier broadcast is still unmined: the note DB only learns about
+    /// a spend once the containing block is scanned, so spending again
+    /// before then re-selects the same notes (duplicate nullifier, RPC -25).
+    pub async fn zcash_tx_status(
+        &self,
+        tx_hash: &str,
+    ) -> AppResult<crate::blockchain::traits::TxStatus> {
+        let chain_client = self.chain_registry.get("zcash")?;
+        chain_client.get_tx_status(tx_hash).await
     }
 }
 

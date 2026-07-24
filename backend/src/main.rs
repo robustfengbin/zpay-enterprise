@@ -16,14 +16,15 @@ use api::handlers::load_rpc_config_from_db;
 use blockchain::{ethereum::EthereumClient, zcash::ZcashClient, ChainRegistry};
 use config::AppConfig;
 use db::repositories::{
-    ApprovalPolicyRepository, AuditorRepository, EmployeeRepository, OrchardRepository,
-    PaymentDisclosureRepository, PayrollRepository, SettingsRepository,
-    TransferApprovalRepository, TransferRepository, UserRepository, ViewingKeyExportRepository,
-    WalletRepository,
+    ApprovalPolicyRepository, AuditorRepository, BatchTransferRepository, EmployeeRepository,
+    MigrationRepository, OrchardRepository, PaymentDisclosureRepository, PayrollRepository,
+    SettingsRepository, TransferApprovalRepository, TransferRepository, UserRepository,
+    ViewingKeyExportRepository, WalletRepository,
 };
 use services::{
-    ApprovalService, AuditorService, AuthService, EmployeeService, PaymentDisclosureService,
-    PayrollService, TransferService, ViewingKeyService, WalletService,
+    ApprovalService, AuditorService, AuthService, BatchTransferService, EmployeeService,
+    MigrationService, PaymentDisclosureService, PayrollService, RunExecutor, TransferService,
+    ViewingKeyService, WalletService,
 };
 
 #[actix_web::main]
@@ -156,6 +157,26 @@ async fn main() -> std::io::Result<()> {
         ApprovalPolicyRepository::new(pool.clone()),
     ));
 
+    // F4.1 — Orchard → Ironwood migration engine.  Same shape as payroll:
+    // its own repo handles, WalletService for balances / the real
+    // privacy-transfer path, and ApprovalPolicyRepository so a whole-treasury
+    // migration pivots to awaiting_approval exactly like a large payroll run.
+    let migration_service = Arc::new(MigrationService::new(
+        MigrationRepository::new(pool.clone()),
+        WalletRepository::new(pool.clone()),
+        wallet_service.clone(),
+        ApprovalPolicyRepository::new(pool.clone()),
+    ));
+
+    // F4.2 — generic batch privacy transfer. Same wiring as migrations;
+    // the two run types share the RunExecutor below (PRD F4.2.5).
+    let batch_transfer_service = Arc::new(BatchTransferService::new(
+        BatchTransferRepository::new(pool.clone()),
+        WalletRepository::new(pool.clone()),
+        wallet_service.clone(),
+        ApprovalPolicyRepository::new(pool.clone()),
+    ));
+
     // M1 F2.1 — Approval policy + decision service.  Stage 2 adds the
     // approve / reject flow on top of policy CRUD; the upstream side
     // (POST /transfers pivoting status to awaiting_approval when amount
@@ -223,6 +244,20 @@ async fn main() -> std::io::Result<()> {
             }
         }
     });
+
+    // F4 — run executor shared by migration (F4.1) and batch transfer
+    // (F4.2) runs. DB-driven scheduler: picks due batches of `executing`
+    // runs and drives them through the real privacy-transfer path. 30s
+    // tick ≈ the schedule jitter granularity; restart-safe because all
+    // state lives in the run/item tables.
+    RunExecutor::new(
+        MigrationRepository::new(pool.clone()),
+        BatchTransferRepository::new(pool.clone()),
+        WalletRepository::new(pool.clone()),
+        wallet_service.clone(),
+        30,
+    )
+    .spawn();
 
     // M1 F2.1 — SLA worker. Every 5 minutes, sweep awaiting_approval
     // transfers whose expiry_at has passed and flip them to `expired` so the
@@ -314,6 +349,8 @@ async fn main() -> std::io::Result<()> {
             .app_data(web::Data::new(transfer_service.clone()))
             .app_data(web::Data::new(employee_service.clone()))
             .app_data(web::Data::new(payroll_service.clone()))
+            .app_data(web::Data::new(migration_service.clone()))
+            .app_data(web::Data::new(batch_transfer_service.clone()))
             .app_data(web::Data::new(approval_service.clone()))
             .app_data(web::Data::new(auditor_service.clone()))
             .app_data(web::Data::new(payment_disclosure_service.clone()))

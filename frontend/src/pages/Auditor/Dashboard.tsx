@@ -109,11 +109,13 @@ export function AuditorDashboard() {
                         <Key className="w-4 h-4 inline" />
                       </button>
                     )}
+                    {/* Disclosure creation is an admin capability (backend has
+                        no auditor-side create endpoint) — visible but disabled
+                        so the auditor knows the feature exists and who to ask. */}
                     <button
-                      className="btn-secondary"
-                      disabled={budgetExhausted}
-                      onClick={() => navigate(`/auditor/disclosure/new?wallet_id=${w.wallet_id}`)}
-                      title={budgetExhausted ? t('auditor.dashboard.budget_exhausted') : t('auditor.dashboard.request_disclosure')}
+                      className="btn-secondary opacity-50 cursor-not-allowed"
+                      disabled
+                      title={t('auditor.disclosure.admin_only')}
                     >
                       <FileText className="w-4 h-4 inline mr-1" />
                       {t('auditor.dashboard.request_disclosure')}
