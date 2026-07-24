@@ -1381,6 +1381,19 @@ impl WalletService {
 
         Ok(wallet_count)
     }
+
+    /// F4 — confirmation lookup for the run executor's double-spend gate.
+    /// The executor must not build a new shielded spend for a wallet while
+    /// an earlier broadcast is still unmined: the note DB only learns about
+    /// a spend once the containing block is scanned, so spending again
+    /// before then re-selects the same notes (duplicate nullifier, RPC -25).
+    pub async fn zcash_tx_status(
+        &self,
+        tx_hash: &str,
+    ) -> AppResult<crate::blockchain::traits::TxStatus> {
+        let chain_client = self.chain_registry.get("zcash")?;
+        chain_client.get_tx_status(tx_hash).await
+    }
 }
 
 /// Combined balance for Zcash (transparent + shielded)

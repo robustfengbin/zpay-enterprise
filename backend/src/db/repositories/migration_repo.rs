@@ -152,6 +152,28 @@ impl MigrationRepository {
             .await?)
     }
 
+    /// Most recent submitted tx hashes for a wallet — the executor's
+    /// double-spend gate checks these are mined before spending again
+    /// (note selection only sees a spend after its block is scanned).
+    pub async fn recent_submitted_tx_hashes_for_wallet(
+        &self,
+        wallet_id: i32,
+        limit: i32,
+    ) -> AppResult<Vec<String>> {
+        let rows: Vec<(String,)> = sqlx::query_as(
+            r#"SELECT i.tx_hash FROM migration_items i
+               JOIN migration_runs r ON r.id = i.run_id
+               WHERE r.source_wallet_id = ? AND i.status = 'submitted'
+                 AND i.tx_hash IS NOT NULL
+               ORDER BY i.last_attempt_at DESC LIMIT ?"#,
+        )
+        .bind(wallet_id)
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows.into_iter().map(|(h,)| h).collect())
+    }
+
     /// Runs in `executing` whose items have all reached a terminal state —
     /// candidates for final status folding.
     pub async fn find_finalizable_runs(&self) -> AppResult<Vec<MigrationRun>> {

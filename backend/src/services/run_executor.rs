@@ -19,6 +19,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::blockchain::traits::TxStatus;
 use crate::db::models_f4::{BatchTransferItem, MigrationItem};
 use crate::db::repositories::{BatchTransferRepository, MigrationRepository, WalletRepository};
 use crate::error::{AppError, AppResult};
@@ -75,7 +76,20 @@ impl RunExecutor {
         // taken stays `pending` and the next tick picks it up.
         let mut touched_wallets: HashSet<i32> = HashSet::new();
 
-        for item in self.migration_repo.find_due_items(TICK_BATCH_LIMIT).await? {
+        let due_migrations = self.migration_repo.find_due_items(TICK_BATCH_LIMIT).await?;
+        let due_batches = self.batch_repo.find_due_items(TICK_BATCH_LIMIT).await?;
+        if due_migrations.is_empty() && due_batches.is_empty() {
+            return self.finalize_runs().await;
+        }
+
+        // Scan first so notes spent by already-mined broadcasts are marked
+        // before note selection runs (half of the double-spend gate; the
+        // other half is wallet_has_unmined_spend below).
+        if let Err(e) = self.wallet_service.sync_orchard().await {
+            tracing::warn!("[run-executor] pre-spend scan sync failed: {}", e);
+        }
+
+        for item in due_migrations {
             if let Err(e) = self.execute_migration_item(&item, &mut touched_wallets).await {
                 let msg = e.to_string();
                 tracing::warn!(
@@ -89,7 +103,7 @@ impl RunExecutor {
             }
         }
 
-        for item in self.batch_repo.find_due_items(TICK_BATCH_LIMIT).await? {
+        for item in due_batches {
             if let Err(e) = self.execute_batch_item(&item, &mut touched_wallets).await {
                 let msg = e.to_string();
                 tracing::warn!(
@@ -125,6 +139,14 @@ impl RunExecutor {
                 AppError::InternalError(format!("run {} vanished mid-execution", item.run_id))
             })?;
         if !touched_wallets.insert(run.source_wallet_id) {
+            return Ok(false);
+        }
+        if self.wallet_has_unmined_spend(run.source_wallet_id).await? {
+            tracing::info!(
+                "[run-executor] wallet {} has an unmined spend; migration item {} waits",
+                run.source_wallet_id,
+                item.id
+            );
             return Ok(false);
         }
         let wallet = self
@@ -214,6 +236,14 @@ impl RunExecutor {
         if !touched_wallets.insert(run.source_wallet_id) {
             return Ok(false);
         }
+        if self.wallet_has_unmined_spend(run.source_wallet_id).await? {
+            tracing::info!(
+                "[run-executor] wallet {} has an unmined spend; batch item {} waits",
+                run.source_wallet_id,
+                item.id
+            );
+            return Ok(false);
+        }
 
         let amount_zat = zec_to_zatoshis(item.amount)?;
         let tx_id = self
@@ -234,6 +264,40 @@ impl RunExecutor {
         );
         self.batch_repo.mark_item_submitted(item.id, &tx_id).await?;
         Ok(true)
+    }
+
+    /// Double-spend gate, half two: true while any recent broadcast from
+    /// this wallet is still unmined. The note DB only marks a note spent
+    /// once the containing block is scanned, so spending before then would
+    /// re-select the same notes and the node rejects the duplicate
+    /// nullifier (RPC -25 — hit in e2e 07-24). Fail-closed: if the node
+    /// can't confirm status, we wait a tick rather than risk a double-spend.
+    async fn wallet_has_unmined_spend(&self, wallet_id: i32) -> AppResult<bool> {
+        let mut txs = self
+            .migration_repo
+            .recent_submitted_tx_hashes_for_wallet(wallet_id, 3)
+            .await?;
+        txs.extend(
+            self.batch_repo
+                .recent_submitted_tx_hashes_for_wallet(wallet_id, 3)
+                .await?,
+        );
+        for tx in txs {
+            match self.wallet_service.zcash_tx_status(&tx).await {
+                Ok(TxStatus::Pending) => return Ok(true),
+                Ok(_) => {}
+                Err(e) => {
+                    tracing::warn!(
+                        "[run-executor] tx status check failed for {} (wallet {}): {} — waiting",
+                        tx,
+                        wallet_id,
+                        e
+                    );
+                    return Ok(true);
+                }
+            }
+        }
+        Ok(false)
     }
 
     /// Shared on-chain leg: proposal → proof → broadcast via the wallet
