@@ -353,6 +353,58 @@ pub fn build_turnstile_transaction(
     Ok(TurnstileTx { raw_tx: raw, txid })
 }
 
+/// The exact ZIP-317 fee (zatoshis) for a turnstile transaction with `n_spends`
+/// old-pool spends and `n_ironwood_outputs` Ironwood outputs, no transparent or
+/// Sapling components.
+///
+/// This mirrors `zcash_primitives`' own `get_fee`/`fee_required` exactly: each
+/// bundle's action count comes from [`orchard::builder::BundleType::num_actions`]
+/// — so the padding matches the wire, including the two rules that trip up a
+/// hand-count:
+///   * the old pool (`orchard_v3`) has cross-address **disabled**, so its action
+///     count is `num_spends + num_outputs` (never `max`); we add no old-pool
+///     output, so it is `pad(n_spends → min 2)`;
+///   * the Ironwood pool (`ironwood_v3`) pads to a 2-action minimum, so with 1–2
+///     outputs it is always 2 actions (fee is therefore independent of whether a
+///     change output is present).
+/// Then `fee = MARGINAL_FEE × max(GRACE_ACTIONS, orchard + ironwood)`.
+///
+/// The proposal's fee (a v5 single-bundle estimate) under-counts the
+/// double-bundle turnstile and zebra's mempool rejects the unpaid actions
+/// (`-25: Unpaid actions is higher than the limit`), so the executor recomputes
+/// with this after note selection and feeds it to the fixed fee rule.
+pub fn turnstile_fee_zatoshis(
+    n_spends: usize,
+    n_ironwood_outputs: usize,
+) -> Result<u64, TurnstileError> {
+    use orchard::builder::BundleType;
+    use orchard::bundle::BundleVersion;
+    use zcash_primitives::transaction::fees::zip317::{GRACE_ACTIONS, MARGINAL_FEE};
+
+    let orchard_actions = BundleType::DEFAULT
+        .num_actions(
+            BundleVersion::orchard_v3().default_flags(),
+            n_spends,
+            0, // no old-pool output (只出不进)
+        )
+        .map_err(|e| TurnstileError::Build(format!("orchard action count: {e}")))?;
+    let ironwood_actions = BundleType::DEFAULT
+        .num_actions(
+            BundleVersion::ironwood_v3().default_flags(),
+            0, // no Ironwood spend
+            n_ironwood_outputs,
+        )
+        .map_err(|e| TurnstileError::Build(format!("ironwood action count: {e}")))?;
+
+    // No transparent / Sapling components, so logical actions are just the two
+    // shielded bundles' actions summed (matches fee_required with the transparent
+    // and sapling terms zero).
+    let logical_actions = orchard_actions + ironwood_actions;
+    let fee = (MARGINAL_FEE * core::cmp::max(GRACE_ACTIONS, logical_actions))
+        .ok_or_else(|| TurnstileError::Build("ZIP-317 fee overflow".to_string()))?;
+    Ok(u64::from(fee))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -417,5 +469,20 @@ mod tests {
     #[should_panic(expected = "FailLoudSaplingProver invoked")]
     fn sapling_output_prover_is_fail_loud() {
         let _ = <FailLoudSaplingProver as OutputProver>::encode_proof([0u8; 192]);
+    }
+
+    #[test]
+    fn turnstile_fee_matches_zip317_double_bundle() {
+        // The value that succeeded on 档B′ (tx 7698570627… @ height 511): 1
+        // old-pool spend (padded to 2 actions) + 2 Ironwood outputs (payment +
+        // change, 2 actions) = 4 logical actions × 5000 = 20000.
+        assert_eq!(turnstile_fee_zatoshis(1, 2).unwrap(), 20_000);
+        // No change (1 Ironwood output) still pads to 2 ironwood actions → 20000.
+        assert_eq!(turnstile_fee_zatoshis(1, 1).unwrap(), 20_000);
+        assert_eq!(turnstile_fee_zatoshis(2, 2).unwrap(), 20_000);
+        // 3 spends → orchard pads to 3, + 2 ironwood = 5 → 25000.
+        assert_eq!(turnstile_fee_zatoshis(3, 2).unwrap(), 25_000);
+        // 4 spends → 4 + 2 = 6 → 30000.
+        assert_eq!(turnstile_fee_zatoshis(4, 2).unwrap(), 30_000);
     }
 }
