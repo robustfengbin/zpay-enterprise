@@ -308,6 +308,12 @@ impl WitnessSyncManager {
         let mut witnesses = self.witnesses.write().await;
         let mut positions = self.nullifier_positions.write().await;
         let mut found_notes = Vec::new();
+        // Every (nullifier, spending_tx) seen in this batch. Spent-marking is
+        // deferred until after the discovered notes are persisted, so a note
+        // both discovered AND spent within the same batch/run still gets marked
+        // — check_spent_nullifier is a DB UPDATE that cannot match a note still
+        // only in memory (gap A′: a full rescan discovers and spends in one run).
+        let mut batch_spends: Vec<([u8; 32], String)> = Vec::new();
 
         tracing::debug!(
             "[WitnessSync] Processing blocks {}-{}, {} known positions, {} existing witnesses",
@@ -374,12 +380,30 @@ impl WitnessSyncManager {
                         found_notes.push(note);
                     }
 
-                    // 5. Check for spent notes
-                    self.check_spent_nullifier(&action.nullifier, &tx.hash, block.height).await;
+                    // 5. Record this spend; it is applied after the discovered
+                    // notes are persisted (see batch_spends / gap A′).
+                    batch_spends.push((action.nullifier, tx.hash.clone()));
                 }
             }
 
             tree.set_block_height(block.height);
+        }
+
+        let witness_count = witnesses.len();
+        // Release tree/witness locks before any DB I/O.
+        drop(positions);
+        drop(witnesses);
+        drop(tree);
+        drop(viewing_keys);
+
+        // Persist discovered notes first, then mark every spend seen in this
+        // batch. Order matters: a note discovered AND spent in the same batch is
+        // already in the DB when we mark it, so its is_spent flag is set (A′).
+        if !found_notes.is_empty() {
+            self.save_notes(&found_notes).await?;
+        }
+        for (nullifier, tx_hash) in &batch_spends {
+            self.check_spent_nullifier(nullifier, tx_hash, last_height).await;
         }
 
         tracing::info!(
@@ -387,7 +411,7 @@ impl WitnessSyncManager {
             first_height,
             last_height,
             found_notes.len(),
-            witnesses.len()
+            witness_count
         );
 
         Ok(found_notes)
@@ -862,10 +886,8 @@ impl WitnessSyncManager {
             let end = std::cmp::min(current + batch_size - 1, chain_tip);
             let blocks = self.fetch_blocks(current, end).await?;
             if !blocks.is_empty() {
-                let found_notes = self.process_blocks(blocks, &known_positions).await?;
-                if !found_notes.is_empty() {
-                    self.save_notes(&found_notes).await?;
-                }
+                // process_blocks persists discovered notes and marks spends.
+                let _ = self.process_blocks(blocks, &known_positions).await?;
             }
             current = end + 1;
         }
