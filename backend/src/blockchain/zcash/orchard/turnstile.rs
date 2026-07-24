@@ -12,13 +12,18 @@
 //!
 //! **Consensus shape (verified against `orchard` 0.15 / `zcash_primitives` 0.29
 //! source):** post-NU6.3 the old Orchard pool (`orchard_v3`) mandates the
-//! cross-address restriction — `permits_cross_address_transfers()` is `false`
-//! only for `(V3, Orchard)`. In turnstile terms the old pool is "only out, no
-//! in" (只出不进). So this builder creates **no old-pool output**: it adds only
-//! old-pool *spends* (their value leaves through the bundle's positive value
-//! balance) and routes **all** value — both the payment and any change — into
-//! the Ironwood pool via [`Builder::add_ironwood_output`]. Attaching change to
-//! the old pool would be a consensus-invalid transaction.
+//! *cross-address* restriction — `permits_cross_address_transfers()` is `false`
+//! only for `(V3, Orchard)` (see `orchard::bundle`; `default_flags(orchard_v3)`
+//! is spends✓ outputs✓ cross_address✗). Precisely: an old-pool output to a
+//! *different* address is consensus-invalid, while a *same-address* change
+//! output would still be legal — the restriction is on cross-address transfers,
+//! not on outputs wholesale. This builder nonetheless creates **no old-pool
+//! output at all**: it adds only old-pool *spends* (their value leaves through
+//! the bundle's positive value balance) and routes **all** value — both the
+//! payment and any change — into the Ironwood pool via
+//! [`Builder::add_ironwood_output`]. That is the migration semantics (funds
+//! cross to the new pool) and it also cleanly sidesteps the cross-address
+//! restriction, rather than depending on old-pool same-address change.
 //!
 //! The bundle versions (`orchard_v3` / `ironwood_v3`) and transaction version
 //! (v6) are **not** chosen here: [`Builder::new`] derives them from the target

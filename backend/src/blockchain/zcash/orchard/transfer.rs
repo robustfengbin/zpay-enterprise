@@ -527,9 +527,12 @@ impl OrchardTransferService {
     /// shielded (old Orchard pool) spend and return the signed raw tx. Engaged
     /// only at [`ProtocolEra::PostNu63`] from [`Self::build_transaction`].
     ///
-    /// Semantics (see `turnstile` module docs): the old pool is "只出不进" after
-    /// NU6.3, so we spend old-pool V2 notes (value out via the bundle's value
-    /// balance) and route ALL value — payment + change — into the Ironwood pool.
+    /// Semantics (see `turnstile` module docs): we spend old-pool V2 notes (value
+    /// out via the bundle's value balance) and route ALL value — payment + change
+    /// — into the Ironwood pool. That is the migration semantics and it also
+    /// avoids the old pool's post-NU6.3 *cross-address* restriction (a
+    /// cross-address old-pool output is invalid; same-address change would be
+    /// legal, but we cross everything to Ironwood regardless).
     /// The heavy v6/sighash/proof/value-balance work is delegated to
     /// `zcash_primitives`' Builder via [`build_turnstile_transaction`]; this
     /// method only reconstructs notes (with the same fail-closed nullifier guard
@@ -654,8 +657,10 @@ impl OrchardTransferService {
         }
 
         // Ironwood outputs: payment to the recipient + change to our own internal
-        // Ironwood address. No old-pool output (只出不进). The sum below equals
-        // total_input − fee, which is exactly the value balance the builder needs.
+        // Ironwood address. No old-pool output at all — everything crosses to the
+        // new pool (migration semantics; also avoids the old pool's post-NU6.3
+        // cross-address restriction). The sum below equals total_input − fee,
+        // which is exactly the value balance the builder needs.
         let recipient = OrchardAddressManager::extract_orchard_address(&proposal.to_address)?;
         let payment_memo = match proposal.memo.as_ref() {
             Some(m) if !m.is_empty() => MemoBytes::from_bytes(m.as_bytes()).map_err(|e| {
