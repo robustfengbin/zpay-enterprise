@@ -43,3 +43,4 @@ npm-debug.log*
 
 # Internal-only documentation (workflow notes, freeze decisions, etc.)
 docs/internal/
+.gstack/
