@@ -62,7 +62,8 @@
     "payroll": "发薪",
     "payroll_runs": "发薪批次",
     "employees": "员工",
-    "migrations": "Ironwood 迁移"
+    "migrations": "Ironwood 迁移",
+    "batch_transfers": "批量隐私转账"
   },
   "header": {
     "title": "以太坊钱包管理器",
@@ -852,6 +853,113 @@
         "status": "状态",
         "created": "创建时间"
       }
+    }
+  },
+  "batch": {
+    "list": {
+      "title": "批量隐私转账",
+      "new": "新建批量转账",
+      "empty": "还没有批量转账。",
+      "col": {
+        "title": "标题",
+        "wallet": "钱包",
+        "privacy": "隐私模式",
+        "recipients": "笔数",
+        "total": "总额 (ZEC)",
+        "status": "状态",
+        "created": "创建时间"
+      }
+    },
+    "create": {
+      "title": "新建批量隐私转账",
+      "subtitle": "一次向一批收款人发送 shielded ZEC——供应商、返佣、批量发放。所有收款地址必须是支持 Orchard 的统一地址。",
+      "run_title": "标题",
+      "run_title_placeholder": "如:7 月供应商付款",
+      "source_wallet": "付款钱包",
+      "pick_wallet": "选择 Zcash 钱包…",
+      "notes": "备注",
+      "notes_placeholder": "选填",
+      "privacy_title": "隐私调度",
+      "mode_off": "关闭——立即全部发出",
+      "mode_off_help": "所有转账立即进入队列,按顺序执行。",
+      "mode_staggered": "错峰——在时间窗内分批",
+      "mode_staggered_help": "转账打乱后分批、在时间窗内带抖动错开执行,避免时间关联暴露这是同一批付款。",
+      "batch_count": "分批数",
+      "window_hours": "时间窗(小时)",
+      "max_per_transfer": "单笔上限 (ZEC)",
+      "max_per_transfer_placeholder": "选填,如 0.5",
+      "max_per_transfer_help": "超过上限的行会自动拆成多笔随机金额的小额转账。",
+      "csv_help": "上传收款人 CSV。表头行可选;列为:",
+      "upload_csv": "上传 CSV",
+      "csv_read_error": "文件读取失败。",
+      "preview_summary": "预览",
+      "valid": "有效",
+      "invalid": "无效",
+      "total_amount": "总额",
+      "col": {
+        "address": "收款地址",
+        "amount": "金额 (ZEC)",
+        "memo": "备注",
+        "checks": "校验"
+      },
+      "submit": "创建",
+      "err_no_title": "请填写标题。",
+      "err_no_wallet": "请选择付款钱包。",
+      "err_no_valid_rows": "没有可提交的有效行。",
+      "err_server_validation": "服务端拒绝了 {{count}} 行——请修正后重新上传。",
+      "confirm_with_invalid": "有 {{count}} 行无效将被跳过。仅用有效行继续?"
+    },
+    "detail": {
+      "wallet": "钱包",
+      "total": "总额",
+      "status": "状态",
+      "progress": "进度",
+      "created_by": "创建人",
+      "approved_by": "审批人",
+      "reject_reason": "驳回原因",
+      "notes": "备注",
+      "outcome_awaiting": "该批次触发了审批策略 #{{policy_id}}(阈值 {{threshold}} ZEC),需要另一位管理员审批后才会执行。",
+      "items": "转账明细",
+      "immediately": "立即",
+      "confirm_cancel": "取消剩余转账?已上链的转账无法撤回。",
+      "back_to_list": "返回列表",
+      "reject_reason_label": "原因(至少 5 个字符)",
+      "reject_reason_placeholder": "为什么驳回?",
+      "col": {
+        "recipient": "收款地址",
+        "amount": "金额",
+        "memo": "备注",
+        "scheduled": "计划时间",
+        "status": "状态",
+        "tx": "交易哈希",
+        "reason": "错误"
+      },
+      "action": {
+        "execute": "立即执行",
+        "arm_schedule": "启动调度",
+        "approve": "批准",
+        "reject": "驳回",
+        "confirm_reject": "确认驳回",
+        "retry_failed": "重试 {{count}} 笔失败",
+        "cancel": "取消批次"
+      }
+    },
+    "run_status": {
+      "pending": "待执行",
+      "awaiting_approval": "待审批",
+      "approved": "已批准",
+      "rejected": "已驳回",
+      "executing": "执行中",
+      "partial": "部分完成",
+      "completed": "已完成",
+      "failed": "失败",
+      "canceled": "已取消"
+    },
+    "item_status": {
+      "pending": "待执行",
+      "submitted": "已提交",
+      "failed": "失败",
+      "canceled": "已取消"
     }
   }
 }

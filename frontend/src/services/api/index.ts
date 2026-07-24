@@ -11,3 +11,5 @@ export { approvalService, generateIdempotencyKey } from './approval';
 export { payrollService } from './payroll';
 // F4.1 Orchard → Ironwood migration runs
 export { migrationService } from './migration';
+// F4.2 generic batch privacy transfers
+export { batchTransferService } from './batch-transfer';

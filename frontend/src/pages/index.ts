@@ -49,3 +49,10 @@ export {
   MigrationRunDetail,
   MigrationBanner,
 } from './Migration';
+
+// F4.2 generic batch privacy transfer pages
+export {
+  BatchTransferRunList,
+  BatchTransferRunCreate,
+  BatchTransferRunDetail,
+} from './BatchTransfer';

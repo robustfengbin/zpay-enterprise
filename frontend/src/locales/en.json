@@ -62,7 +62,8 @@
     "payroll": "Payroll",
     "payroll_runs": "Payroll runs",
     "employees": "Employees",
-    "migrations": "Ironwood migration"
+    "migrations": "Ironwood migration",
+    "batch_transfers": "Batch Transfers"
   },
   "header": {
     "title": "Ethereum Wallet Manager",
@@ -852,6 +853,113 @@
         "status": "Status",
         "created": "Created"
       }
+    }
+  },
+  "batch": {
+    "list": {
+      "title": "Batch Privacy Transfers",
+      "new": "New Batch Transfer",
+      "empty": "No batch transfer runs yet.",
+      "col": {
+        "title": "Title",
+        "wallet": "Wallet",
+        "privacy": "Privacy",
+        "recipients": "Transfers",
+        "total": "Total (ZEC)",
+        "status": "Status",
+        "created": "Created"
+      }
+    },
+    "create": {
+      "title": "New Batch Privacy Transfer",
+      "subtitle": "Send shielded ZEC to a list of recipients in one run — vendors, rebates, payouts. All recipients must have Orchard-capable unified addresses.",
+      "run_title": "Title",
+      "run_title_placeholder": "e.g. July vendor payouts",
+      "source_wallet": "Source wallet",
+      "pick_wallet": "Select a Zcash wallet…",
+      "notes": "Notes",
+      "notes_placeholder": "Optional",
+      "privacy_title": "Privacy scheduling",
+      "mode_off": "Off — send everything now",
+      "mode_off_help": "All transfers become eligible immediately and drain in order.",
+      "mode_staggered": "Staggered — spread over a window",
+      "mode_staggered_help": "Transfers are shuffled into batches over a time window with jitter, so timing doesn't correlate the payouts.",
+      "batch_count": "Batches",
+      "window_hours": "Window (hours)",
+      "max_per_transfer": "Per-transfer cap (ZEC)",
+      "max_per_transfer_placeholder": "Optional, e.g. 0.5",
+      "max_per_transfer_help": "Rows above the cap are split into randomized smaller transfers.",
+      "csv_help": "Upload a CSV of recipients. The header row is optional; columns are:",
+      "upload_csv": "Upload CSV",
+      "csv_read_error": "Could not read the file.",
+      "preview_summary": "Preview",
+      "valid": "valid",
+      "invalid": "invalid",
+      "total_amount": "Total",
+      "col": {
+        "address": "Recipient address",
+        "amount": "Amount (ZEC)",
+        "memo": "Memo",
+        "checks": "Checks"
+      },
+      "submit": "Create run",
+      "err_no_title": "Enter a title.",
+      "err_no_wallet": "Select a source wallet.",
+      "err_no_valid_rows": "No valid rows to submit.",
+      "err_server_validation": "The server rejected {{count}} row(s) — fix them and re-upload.",
+      "confirm_with_invalid": "{{count}} invalid row(s) will be skipped. Continue with the valid rows only?"
+    },
+    "detail": {
+      "wallet": "Wallet",
+      "total": "Total",
+      "status": "Status",
+      "progress": "Progress",
+      "created_by": "Created by",
+      "approved_by": "Approved by",
+      "reject_reason": "Reject reason",
+      "notes": "Notes",
+      "outcome_awaiting": "This run crossed approval policy #{{policy_id}} (threshold {{threshold}} ZEC). A second admin must approve it before it executes.",
+      "items": "Transfers",
+      "immediately": "immediately",
+      "confirm_cancel": "Cancel the remaining transfers? Already-submitted transfers are on-chain and cannot be reversed.",
+      "back_to_list": "Back to list",
+      "reject_reason_label": "Reason (min 5 characters)",
+      "reject_reason_placeholder": "Why is this run rejected?",
+      "col": {
+        "recipient": "Recipient",
+        "amount": "Amount",
+        "memo": "Memo",
+        "scheduled": "Scheduled",
+        "status": "Status",
+        "tx": "Tx hash",
+        "reason": "Error"
+      },
+      "action": {
+        "execute": "Execute now",
+        "arm_schedule": "Start schedule",
+        "approve": "Approve",
+        "reject": "Reject",
+        "confirm_reject": "Confirm reject",
+        "retry_failed": "Retry {{count}} failed",
+        "cancel": "Cancel run"
+      }
+    },
+    "run_status": {
+      "pending": "Pending",
+      "awaiting_approval": "Awaiting approval",
+      "approved": "Approved",
+      "rejected": "Rejected",
+      "executing": "Executing",
+      "partial": "Partially completed",
+      "completed": "Completed",
+      "failed": "Failed",
+      "canceled": "Canceled"
+    },
+    "item_status": {
+      "pending": "Pending",
+      "submitted": "Submitted",
+      "failed": "Failed",
+      "canceled": "Canceled"
     }
   }
 }

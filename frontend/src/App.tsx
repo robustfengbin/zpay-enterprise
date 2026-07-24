@@ -35,6 +35,10 @@ import {
   MigrationRunList,
   MigrationRunCreate,
   MigrationRunDetail,
+  // F4.2
+  BatchTransferRunList,
+  BatchTransferRunCreate,
+  BatchTransferRunDetail,
 } from './pages';
 
 function App() {
@@ -159,6 +163,12 @@ function App() {
           <Route path="/migrations" element={<ProtectedRoute requiredRole="admin"><MigrationRunList /></ProtectedRoute>} />
           <Route path="/migrations/new" element={<ProtectedRoute requiredRole="admin"><MigrationRunCreate /></ProtectedRoute>} />
           <Route path="/migrations/:id" element={<ProtectedRoute requiredRole="admin"><MigrationRunDetail /></ProtectedRoute>} />
+
+          {/* F4.2 — generic batch privacy transfers. Admin-only: moves
+              treasury funds to arbitrary recipients. */}
+          <Route path="/batch-transfers" element={<ProtectedRoute requiredRole="admin"><BatchTransferRunList /></ProtectedRoute>} />
+          <Route path="/batch-transfers/new" element={<ProtectedRoute requiredRole="admin"><BatchTransferRunCreate /></ProtectedRoute>} />
+          <Route path="/batch-transfers/:id" element={<ProtectedRoute requiredRole="admin"><BatchTransferRunDetail /></ProtectedRoute>} />
 
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
