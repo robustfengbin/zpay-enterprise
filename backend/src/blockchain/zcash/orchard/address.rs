@@ -46,20 +46,37 @@ pub enum ReceiverType {
     Transparent,
 }
 
+/// Transparent (P2PKH) address version prefix bytes for a given network.
+/// mainnet t1 = 0x1CB8; testnet/regtest tm = 0x1D25.
+fn t_addr_prefix(network: NetworkType) -> [u8; 2] {
+    match network {
+        NetworkType::Main => [0x1C, 0xB8],
+        NetworkType::Test | NetworkType::Regtest => [0x1D, 0x25],
+    }
+}
+
 /// Manager for Orchard/Unified address operations
 pub struct OrchardAddressManager {
     /// The viewing key used for address derivation
     viewing_key: OrchardViewingKey,
     /// Next address index to use
     next_index: u32,
+    /// Consensus network the generated addresses are encoded for
+    network: NetworkType,
 }
 
 impl OrchardAddressManager {
-    /// Create a new address manager from a viewing key
+    /// Create a new address manager from a viewing key (mainnet encoding).
     pub fn new(viewing_key: OrchardViewingKey) -> Self {
+        Self::with_network(viewing_key, NetworkType::Main)
+    }
+
+    /// Create a new address manager encoding addresses for a specific network.
+    pub fn with_network(viewing_key: OrchardViewingKey, network: NetworkType) -> Self {
         Self {
             viewing_key,
             next_index: 0,
+            network,
         }
     }
 
@@ -130,7 +147,7 @@ impl OrchardAddressManager {
 
         // Decode and parse the unified address
         // In a real implementation, this would use F4Jumble decoding
-        let decoded = Self::decode_unified_address(address)?;
+        let (network, decoded) = Self::decode_unified_address(address)?;
 
         let has_orchard = decoded.iter().any(|(t, _)| *t == ReceiverType::Orchard);
         let has_sapling = decoded.iter().any(|(t, _)| *t == ReceiverType::Sapling);
@@ -139,7 +156,7 @@ impl OrchardAddressManager {
         let transparent_address = decoded
             .iter()
             .find(|(t, _)| *t == ReceiverType::Transparent)
-            .map(|(_, data)| Self::encode_transparent_address(data));
+            .map(|(_, data)| Self::encode_transparent_address(data, network));
 
         Ok(UnifiedAddressInfo {
             address: address.to_string(),
@@ -169,7 +186,7 @@ impl OrchardAddressManager {
     /// Extract Orchard address from a unified address
     /// Returns the orchard::Address if the unified address contains an Orchard receiver
     pub fn extract_orchard_address(address: &str) -> OrchardResult<OrchardAddress> {
-        let receivers = Self::decode_unified_address(address)?;
+        let (_network, receivers) = Self::decode_unified_address(address)?;
 
         // Find Orchard receiver (typecode 0x03, 43 bytes: 11 diversifier + 32 pk_d)
         let orchard_data = receivers
@@ -242,8 +259,8 @@ impl OrchardAddressManager {
         let sha256_hash = Sha256::digest(pubkey.as_bytes());
         let hash160 = Ripemd160::digest(&sha256_hash);
 
-        // Encode as t-address
-        let mut payload = vec![0x1C, 0xB8]; // Zcash mainnet t1 prefix
+        // Encode as t-address with the network-appropriate prefix
+        let mut payload = t_addr_prefix(self.network).to_vec();
         payload.extend_from_slice(&hash160);
 
         // Add checksum
@@ -290,8 +307,8 @@ impl OrchardAddressManager {
             OrchardError::InvalidUnifiedAddress(format!("Failed to create unified address: {:?}", e))
         })?;
 
-        // Encode for mainnet
-        let address = ua.encode(&NetworkType::Main);
+        // Encode for the manager's network
+        let address = ua.encode(&self.network);
 
         Ok(address)
     }
@@ -339,20 +356,18 @@ impl OrchardAddressManager {
             OrchardError::InvalidUnifiedAddress(format!("Failed to create unified address: {:?}", e))
         })?;
 
-        Ok(ua.encode(&NetworkType::Main))
+        Ok(ua.encode(&self.network))
     }
 
-    /// Decode unified address to receivers using the proper zcash_address crate
-    fn decode_unified_address(address: &str) -> OrchardResult<Vec<(ReceiverType, Vec<u8>)>> {
+    /// Decode unified address to receivers using the proper zcash_address crate.
+    /// Returns the network the address was encoded for alongside its receivers.
+    fn decode_unified_address(
+        address: &str,
+    ) -> OrchardResult<(NetworkType, Vec<(ReceiverType, Vec<u8>)>)> {
         // Parse the unified address using zcash_address crate
         let (network, ua) = unified::Address::decode(address).map_err(|e| {
             OrchardError::InvalidUnifiedAddress(format!("Failed to decode address: {:?}", e))
         })?;
-
-        // Check network (mainnet)
-        if network != NetworkType::Main {
-            tracing::warn!("Address is for network {:?}, expected mainnet", network);
-        }
 
         // Extract receivers
         let mut receivers = Vec::new();
@@ -383,14 +398,14 @@ impl OrchardAddressManager {
             ));
         }
 
-        Ok(receivers)
+        Ok((network, receivers))
     }
 
-    /// Encode transparent address from pubkey hash
-    fn encode_transparent_address(pubkey_hash: &[u8]) -> String {
+    /// Encode transparent address from pubkey hash for the given network
+    fn encode_transparent_address(pubkey_hash: &[u8], network: NetworkType) -> String {
         use sha2::{Digest, Sha256};
 
-        let mut payload = vec![0x1C, 0xB8];
+        let mut payload = t_addr_prefix(network).to_vec();
         payload.extend_from_slice(pubkey_hash);
 
         let checksum = Sha256::digest(&Sha256::digest(&payload));

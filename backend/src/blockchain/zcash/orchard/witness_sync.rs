@@ -42,6 +42,11 @@ pub struct WitnessSyncManager {
 
     /// Map nullifier -> position for quick lookup
     nullifier_positions: Arc<RwLock<HashMap<String, u64>>>,
+
+    /// Cached Orchard (NU5) activation height, read live from the node so scan
+    /// floors match the network (regtest/testnet chains activate far below the
+    /// mainnet 1,687,104). Populated lazily on first use.
+    orchard_activation_cache: Arc<RwLock<Option<u64>>>,
 }
 
 impl WitnessSyncManager {
@@ -62,7 +67,52 @@ impl WitnessSyncManager {
             rpc_password,
             witnesses: Arc::new(RwLock::new(HashMap::new())),
             nullifier_positions: Arc::new(RwLock::new(HashMap::new())),
+            orchard_activation_cache: Arc::new(RwLock::new(None)),
         }
+    }
+
+    /// Resolve (and cache) the Orchard (NU5) activation height from the node's
+    /// getblockchaininfo `upgrades`. Scan/frontier floors use this so short
+    /// regtest/testnet chains don't request a nonexistent block. Falls back to
+    /// the mainnet constant if the node omits the upgrades table.
+    async fn orchard_activation_height(&self) -> u64 {
+        if let Some(h) = *self.orchard_activation_cache.read().await {
+            return h;
+        }
+        let h = self.fetch_nu5_activation_height().await.unwrap_or(1_687_104);
+        *self.orchard_activation_cache.write().await = Some(h);
+        h
+    }
+
+    /// Read the NU5 activation height from getblockchaininfo `upgrades`.
+    async fn fetch_nu5_activation_height(&self) -> Option<u64> {
+        let request = serde_json::json!({
+            "jsonrpc": "1.0",
+            "id": "witness_sync",
+            "method": "getblockchaininfo",
+            "params": []
+        });
+
+        let response = self.rpc_client
+            .post(&self.rpc_url)
+            .basic_auth(&self.rpc_user, Some(&self.rpc_password))
+            .json(&request)
+            .send()
+            .await
+            .ok()?;
+
+        let result: serde_json::Value = response.json().await.ok()?;
+        let upgrades = result["result"]["upgrades"].as_object()?;
+        for (_branch_id, entry) in upgrades {
+            let is_nu5 = entry["name"]
+                .as_str()
+                .map(|s| s.eq_ignore_ascii_case("nu5"))
+                .unwrap_or(false);
+            if is_nu5 {
+                return entry["activationheight"].as_u64();
+            }
+        }
+        None
     }
 
     /// Register a viewing key for a wallet
@@ -744,10 +794,11 @@ impl WitnessSyncManager {
         let tree = self.tree.read().await;
         let chain_tip = self.get_chain_height().await.unwrap_or(0);
         let tree_height = tree.block_height();
+        let activation = self.orchard_activation_height().await;
 
-        let progress_pct = if chain_tip > 0 && chain_tip > 1_687_104 {
-            let total = chain_tip - 1_687_104;
-            let scanned = tree_height.saturating_sub(1_687_104);
+        let progress_pct = if chain_tip > 0 && chain_tip > activation {
+            let total = chain_tip - activation;
+            let scanned = tree_height.saturating_sub(activation);
             (scanned as f64 / total as f64) * 100.0
         } else {
             0.0
@@ -1049,7 +1100,7 @@ impl WitnessSyncManager {
         }
 
         if min_height == u64::MAX {
-            min_height = 1_687_104; // Orchard activation height
+            min_height = self.orchard_activation_height().await; // network Orchard activation
         }
 
         Ok(min_height)
@@ -1087,8 +1138,9 @@ impl WitnessSyncManager {
         self.db_repo.delete_tree_state().await
             .map_err(|e| OrchardError::DatabaseError(e.to_string()))?;
 
-        // Initialize from frontier at height-1
-        let frontier_height = from_height.saturating_sub(1).max(1_687_104);
+        // Initialize from frontier at height-1, floored at network activation
+        let activation = self.orchard_activation_height().await;
+        let frontier_height = from_height.saturating_sub(1).max(activation);
         tracing::info!(
             "[WitnessSync] Resetting tree state. Will init from frontier at height {}",
             frontier_height
