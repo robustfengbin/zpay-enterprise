@@ -371,6 +371,37 @@ pub async fn run_migrations(pool: &MySqlPool) -> AppResult<()> {
         tracing::info!("Added witness_state column to orchard_notes table for incremental sync");
     }
 
+    // F4.0-c dual-pool: tag each Orchard note with the shielded pool it lives in
+    // (old Orchard pool vs Ironwood/NU6.3). All existing notes predate NU6.3, so
+    // the NOT NULL DEFAULT 'orchard' backfills them correctly; the dual-pool
+    // scanner will tag freshly-scanned Ironwood (V3) notes as 'ironwood'. Additive
+    // and backward-compatible: inserts that don't set it default to 'orchard'.
+    let pool_column_exists: Option<(String,)> = sqlx::query_as(
+        r#"
+        SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME = 'orchard_notes'
+        AND COLUMN_NAME = 'pool'
+        "#,
+    )
+    .fetch_optional(pool)
+    .await?;
+
+    if pool_column_exists.is_none() {
+        sqlx::query(
+            r#"
+            ALTER TABLE orchard_notes
+            ADD COLUMN pool VARCHAR(16) NOT NULL DEFAULT 'orchard'
+                COMMENT 'Shielded pool: orchard (old, V2) or ironwood (NU6.3, V3)'
+            "#,
+        )
+        .execute(pool)
+        .await?;
+        tracing::info!(
+            "Added pool column to orchard_notes (existing notes backfilled to 'orchard')"
+        );
+    }
+
     // M1 (2026-06) migrations: F1.1 viewing-key audit, F2.1 maker/checker,
     // F3.1 payroll run.  All additive — does not modify existing schema.
     migrations_m1::run_m1_migrations(pool).await?;

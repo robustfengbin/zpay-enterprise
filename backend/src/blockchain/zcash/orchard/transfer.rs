@@ -574,6 +574,16 @@ impl OrchardTransferService {
                  refusing to build".to_string(),
             ));
         }
+        // Drop 0-value notes before selection. Post-NU6.3 same-address padding
+        // (old pool cross_address disabled) emits a zero-value output back to the
+        // spender, which the scanner decrypts and stores as a real note. It can
+        // never help cover an amount and would only add an action (and fee), so
+        // exclude it here. Turnstile path only — the v5 selection is untouched;
+        // the root fix is dropping/flagging these in the dual-pool scanner.
+        let spendable_notes: Vec<(OrchardNote, MerklePath)> = spendable_notes
+            .into_iter()
+            .filter(|(n, _)| n.value_zatoshis > 0)
+            .collect();
         if spendable_notes.is_empty() {
             return Err(OrchardError::NoSpendableNotes);
         }
