@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Link, useNavigate } from 'react-router-dom';
 import { Plus, RefreshCw } from 'lucide-react';
-import { Card, LoadingSpinner } from '../../components/Common';
+import { Card, LoadingSpinner, RunStatusBadge } from '../../components/Common';
 import { migrationService } from '../../services/api/migration';
 import type { MigrationRun } from '../../types/migration';
 
@@ -72,9 +72,7 @@ export function MigrationRunList() {
                 <td className="p-2">{t(`migration.create.mode_${run.mode}`)}</td>
                 <td className="p-2 text-right font-mono">{Number(run.total_amount)}</td>
                 <td className="p-2">
-                  <span className="px-2 py-0.5 rounded bg-gray-100 text-gray-800 text-xs">
-                    {t(`migration.run_status.${run.status}`)}
-                  </span>
+                  <RunStatusBadge status={run.status} label={t(`migration.run_status.${run.status}`)} />
                 </td>
                 <td className="p-2 text-gray-500">{new Date(run.created_at).toLocaleString()}</td>
               </tr>
