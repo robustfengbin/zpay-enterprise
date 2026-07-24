@@ -349,7 +349,7 @@ async fn add_column_if_missing(
 ) -> AppResult<()> {
     let exists: Option<(String,)> = sqlx::query_as(
         r#"
-        SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+        SELECT CAST(COLUMN_NAME AS CHAR) FROM INFORMATION_SCHEMA.COLUMNS
         WHERE TABLE_SCHEMA = DATABASE()
         AND TABLE_NAME = ?
         AND COLUMN_NAME = ?

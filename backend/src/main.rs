@@ -292,6 +292,26 @@ async fn main() -> std::io::Result<()> {
         }
     });
 
+    // Periodic DB pool visibility (10s): size/idle/active. This is the
+    // ground truth for pool-starvation incidents — an acquire timeout with
+    // active≈0 points at stuck connections/reactor, active==max points at
+    // permit exhaustion (leak or long holders).
+    let stats_pool = pool.clone();
+    tokio::spawn(async move {
+        let mut stats_interval = interval(Duration::from_secs(10));
+        loop {
+            stats_interval.tick().await;
+            let size = stats_pool.size();
+            let idle = stats_pool.num_idle();
+            tracing::info!(
+                "[DB Pool] size={} idle={} active={}",
+                size,
+                idle,
+                size.saturating_sub(idle as u32)
+            );
+        }
+    });
+
     // Start Orchard background sync task (syncs all Zcash wallets every 5 minutes)
     wallet_service.clone().start_background_sync();
 

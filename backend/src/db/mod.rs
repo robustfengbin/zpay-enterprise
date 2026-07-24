@@ -184,7 +184,7 @@ pub async fn run_migrations(pool: &MySqlPool) -> AppResult<()> {
     // This stores the block height when wallet was created (for Zcash Orchard scanning)
     let column_exists: Option<(String,)> = sqlx::query_as(
         r#"
-        SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+        SELECT CAST(COLUMN_NAME AS CHAR) FROM INFORMATION_SCHEMA.COLUMNS
         WHERE TABLE_SCHEMA = DATABASE()
         AND TABLE_NAME = 'wallets'
         AND COLUMN_NAME = 'orchard_birthday_height'
@@ -225,7 +225,7 @@ pub async fn run_migrations(pool: &MySqlPool) -> AppResult<()> {
     // These fields are required for shielded-to-shielded transfers
     let recipient_column_exists: Option<(String,)> = sqlx::query_as(
         r#"
-        SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+        SELECT CAST(COLUMN_NAME AS CHAR) FROM INFORMATION_SCHEMA.COLUMNS
         WHERE TABLE_SCHEMA = DATABASE()
         AND TABLE_NAME = 'orchard_notes'
         AND COLUMN_NAME = 'recipient'
@@ -252,7 +252,7 @@ pub async fn run_migrations(pool: &MySqlPool) -> AppResult<()> {
     // These fields store the Merkle witness (auth path) needed to spend notes
     let witness_column_exists: Option<(String,)> = sqlx::query_as(
         r#"
-        SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+        SELECT CAST(COLUMN_NAME AS CHAR) FROM INFORMATION_SCHEMA.COLUMNS
         WHERE TABLE_SCHEMA = DATABASE()
         AND TABLE_NAME = 'orchard_notes'
         AND COLUMN_NAME = 'witness_root'
@@ -279,7 +279,7 @@ pub async fn run_migrations(pool: &MySqlPool) -> AppResult<()> {
     // This tracks when witness data was last updated, allowing lazy witness sync
     let witness_height_column_exists: Option<(String,)> = sqlx::query_as(
         r#"
-        SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+        SELECT CAST(COLUMN_NAME AS CHAR) FROM INFORMATION_SCHEMA.COLUMNS
         WHERE TABLE_SCHEMA = DATABASE()
         AND TABLE_NAME = 'orchard_sync_state'
         AND COLUMN_NAME = 'last_witness_height'
@@ -305,7 +305,7 @@ pub async fn run_migrations(pool: &MySqlPool) -> AppResult<()> {
     // Zcash UA can be 250+ characters, VARCHAR(42) was for Ethereum addresses only
     let address_col_info: Option<(String,)> = sqlx::query_as(
         r#"
-        SELECT DATA_TYPE FROM INFORMATION_SCHEMA.COLUMNS
+        SELECT CAST(DATA_TYPE AS CHAR) FROM INFORMATION_SCHEMA.COLUMNS
         WHERE TABLE_SCHEMA = DATABASE()
         AND TABLE_NAME = 'transfers'
         AND COLUMN_NAME = 'from_address'
@@ -349,7 +349,7 @@ pub async fn run_migrations(pool: &MySqlPool) -> AppResult<()> {
     // This stores serialized IncrementalWitness that can be updated incrementally
     let witness_state_column_exists: Option<(String,)> = sqlx::query_as(
         r#"
-        SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+        SELECT CAST(COLUMN_NAME AS CHAR) FROM INFORMATION_SCHEMA.COLUMNS
         WHERE TABLE_SCHEMA = DATABASE()
         AND TABLE_NAME = 'orchard_notes'
         AND COLUMN_NAME = 'witness_state'
@@ -378,7 +378,7 @@ pub async fn run_migrations(pool: &MySqlPool) -> AppResult<()> {
     // and backward-compatible: inserts that don't set it default to 'orchard'.
     let pool_column_exists: Option<(String,)> = sqlx::query_as(
         r#"
-        SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+        SELECT CAST(COLUMN_NAME AS CHAR) FROM INFORMATION_SCHEMA.COLUMNS
         WHERE TABLE_SCHEMA = DATABASE()
         AND TABLE_NAME = 'orchard_notes'
         AND COLUMN_NAME = 'pool'
