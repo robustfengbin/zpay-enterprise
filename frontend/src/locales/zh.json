@@ -535,7 +535,11 @@
         "token_symbol": "代币",
         "token_contract": "合约",
         "token_balance": "余额"
-      }
+      },
+      "transparent_balance": "透明余额",
+      "shielded_total": "隐私池总额",
+      "shielded_spendable": "隐私池可用",
+      "shielded_pending": "隐私池待确认"
     },
     "viewing_key": {
       "export_title": "导出 Viewing Key",
@@ -635,7 +639,12 @@
         "recipient": "收款地址",
         "memo": "备注",
         "spent": "是否花费"
-      }
+      },
+      "admin_only": "披露文件由 zPay 管理员生成——如需新披露请联系管理员。"
+    },
+    "shell": {
+      "title": "zPay 审计员门户",
+      "sign_out": "退出登录"
     }
   },
   "payroll": {

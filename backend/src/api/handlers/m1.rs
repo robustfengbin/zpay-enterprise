@@ -331,11 +331,17 @@ pub async fn auditor_wallet_disclosures(
     auditor: AuthenticatedAuditor,
     path: web::Path<i32>,
     auditor_service: web::Data<Arc<AuditorService>>,
+    disclosure_service: web::Data<Arc<PaymentDisclosureService>>,
 ) -> AppResult<HttpResponse> {
+    let wallet_id = path.into_inner();
     auditor_service
-        .assert_wallet_in_scope(auditor.auditor_id, path.into_inner())
+        .assert_wallet_in_scope(auditor.auditor_id, wallet_id)
         .await?;
-    Ok(HttpResponse::Ok().json(json!([])))
+    // Same row shape as the admin-side list; the disclosure body
+    // (disclosure_json) is the artifact generated FOR this auditor, and
+    // the scope assertion above already bounds which wallets they see.
+    let rows = disclosure_service.list_by_wallet(wallet_id).await?;
+    Ok(HttpResponse::Ok().json(rows))
 }
 
 // ===========================================================================

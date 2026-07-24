@@ -176,11 +176,24 @@ export interface AuditorTenantSummary {
  * (transparent + shielded) total; for other chains it is the transparent
  * native balance. ERC-20 / token balances (if any) ride along on `tokens`.
  */
+/**
+ * Balance response is chain-shaped: Zcash wallets return the combined
+ * transparent + shielded shape (get_combined_zcash_balance), other chains
+ * return native_balance + ERC-20 tokens. All fields optional accordingly —
+ * discriminate on `shielded_balance` presence.
+ */
 export interface AuditorWalletBalance {
   address: string;
-  chain: string;
-  native_balance: string;
-  tokens: AuditorTokenBalance[];
+  chain?: string;
+  wallet_id?: number;
+  native_balance?: string;
+  tokens?: AuditorTokenBalance[];
+  transparent_balance?: string;
+  shielded_balance?: {
+    total_zatoshis: number;
+    spendable_zatoshis: number;
+    pending_zatoshis: number;
+  };
 }
 
 export interface AuditorTokenBalance {

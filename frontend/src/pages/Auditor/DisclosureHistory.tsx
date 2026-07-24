@@ -26,7 +26,7 @@ export function DisclosureHistory() {
     if (!Number.isFinite(wid)) { setError(t('common.not_found')); setLoading(false); return; }
     setLoading(true);
     try {
-      setRows(await viewingKeyService.listDisclosures(wid));
+      setRows(await viewingKeyService.listAuditorWalletDisclosures(wid));
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -51,7 +51,10 @@ export function DisclosureHistory() {
           <button className="btn-ghost" onClick={() => void load()} aria-label={t('common.refresh')}>
             <RefreshCw className="w-4 h-4" />
           </button>
-          <button className="btn-primary" onClick={() => navigate(`/auditor/disclosure/new?wallet_id=${wid}`)}>
+          {/* Disclosure creation is an admin capability (backend has no
+              auditor-side create endpoint) — visible but disabled so the
+              auditor knows the feature exists and who to ask. */}
+          <button className="btn-primary opacity-50 cursor-not-allowed" disabled title={t('auditor.disclosure.admin_only')}>
             <FileText className="w-4 h-4 inline mr-1" /> {t('auditor.disclosure.history_new')}
           </button>
         </div>
@@ -75,11 +78,7 @@ export function DisclosureHistory() {
           </thead>
           <tbody>
             {rows.map(r => (
-              <tr
-                key={r.id}
-                className="border-t border-gray-100 hover:bg-gray-50 cursor-pointer"
-                onClick={() => navigate(`/auditor/disclosure/${r.id}`)}
-              >
+              <tr key={r.id} className="border-t border-gray-100">
                 <td className="p-2 font-mono">{r.id}</td>
                 <td className="p-2">{t(`auditor.disclosure.granularity.${r.granularity as 'tx' | 'address' | 'range'}`)}</td>
                 <td className="p-2 font-mono text-xs truncate max-w-[200px]" title={JSON.stringify(r.scope_param)}>
