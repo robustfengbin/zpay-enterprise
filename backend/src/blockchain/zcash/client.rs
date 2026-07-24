@@ -149,6 +149,20 @@ impl BlockchainInfo {
             .find(|u| u.name.eq_ignore_ascii_case("nu5"))
             .map(|u| u.activation_height)
     }
+
+    /// NU6.3 (Ironwood) activation height as reported by the node, if the
+    /// upgrade is scheduled/known. `None` means the node has no NU6.3 entry
+    /// (e.g. a NU6.2-only regtest), i.e. the turnstile is not in play here.
+    /// Node monikers vary ("NU6.3" / "NU6_3"); match on the digits.
+    fn nu63_activation_height(&self) -> Option<u64> {
+        self.upgrades
+            .values()
+            .find(|u| {
+                let n = u.name.to_ascii_lowercase();
+                n == "nu6.3" || n == "nu6_3" || n == "nu63"
+            })
+            .map(|u| u.activation_height)
+    }
 }
 
 /// Cached, endpoint-bound consensus context resolved from getblockchaininfo.
@@ -156,6 +170,10 @@ impl BlockchainInfo {
 struct NetworkContext {
     network: NetworkType,
     orchard_activation_height: u64,
+    /// NU6.3 (Ironwood) activation height, or None if the node has no such
+    /// upgrade scheduled. Drives the turnstile: below it the old Orchard pool
+    /// semantics apply, at/above it spends cross into Ironwood.
+    nu63_activation_height: Option<u64>,
 }
 
 /// Consensus info containing the current branch ID
@@ -632,15 +650,18 @@ impl ZcashClient {
             fallback
         });
 
+        let nu63_activation_height = info.nu63_activation_height();
         let ctx = NetworkContext {
             network,
             orchard_activation_height,
+            nu63_activation_height,
         };
         *self.network_ctx.write().await = Some(ctx);
         tracing::info!(
-            "Resolved Zcash network context: network={:?}, orchard_activation_height={}",
+            "Resolved Zcash network context: network={:?}, orchard_activation_height={}, nu63_activation_height={:?}",
             network,
-            orchard_activation_height
+            orchard_activation_height,
+            nu63_activation_height
         );
         Ok(ctx)
     }
@@ -1346,5 +1367,9 @@ impl ChainClient for ZcashClient {
                 info.consensus.chaintip, e
             ))
         })
+    }
+
+    async fn get_nu63_activation_height(&self) -> AppResult<Option<u64>> {
+        Ok(self.resolve_network_ctx().await?.nu63_activation_height)
     }
 }

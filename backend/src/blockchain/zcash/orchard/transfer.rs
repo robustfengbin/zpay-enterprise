@@ -48,25 +48,83 @@ const ZCASH_TRANSPARENT_SIG: &[u8] = b"Zcash___TxInHash";
 const TX_VERSION_WITH_OVERWINTERED: u32 = 0x80000005;
 const VERSION_GROUP_ID_V5: u32 = 0x26A7270A;
 
-/// Global proving key (expensive to build, so we cache it)
-static ORCHARD_PROVING_KEY: OnceLock<ProvingKey> = OnceLock::new();
+/// Global proving keys (expensive to build, so we cache them). There are two
+/// circuits: FixedPostNu6_2 (old Orchard pool, pre-NU6.3) and PostNu6_3 (shared
+/// by both the Orchard-v3 spend and Ironwood pools at NU6.3+). Cache both so the
+/// turnstile path doesn't pay a ~20s build at activation time.
+static ORCHARD_PROVING_KEY_V2: OnceLock<ProvingKey> = OnceLock::new();
+static ORCHARD_PROVING_KEY_V3: OnceLock<ProvingKey> = OnceLock::new();
 
-/// Initialize the Orchard proving key (call at startup to avoid first-transfer delay)
+/// Initialize the pre-NU6.3 Orchard proving key (call at startup to avoid the
+/// first-transfer delay). The PostNu6_3 key is built lazily on first turnstile
+/// use; it can also be warmed via [`get_proving_key_for`].
 /// This is an expensive operation (~20 seconds) but only needs to be done once.
 pub fn init_proving_key() {
-    let _ = get_proving_key();
+    let _ = get_proving_key_for(OrchardCircuitVersion::FixedPostNu6_2);
 }
 
-/// Get or build the Orchard proving key
-fn get_proving_key() -> &'static ProvingKey {
-    ORCHARD_PROVING_KEY.get_or_init(|| {
-        tracing::info!("Building Orchard proving key (this may take a moment)...");
-        // F4.0-a 旧 Orchard 池(NU6.2 语义)= FixedPostNu6_2 电路。
-        // 双池接缝:Ironwood/orchard_v3 路径改 OrchardCircuitVersion::PostNu6_3(共享 key,可能需缓存两把)。
-        let pk = ProvingKey::build(OrchardCircuitVersion::FixedPostNu6_2);
-        tracing::info!("Orchard proving key built successfully");
-        pk
-    })
+/// Get or build the proving key for a specific circuit version, cached per
+/// circuit. FixedPostNu6_2 = old Orchard pool; PostNu6_3 = NU6.3+ (Orchard-v3
+/// spend and Ironwood share this circuit, per orchard's `circuit_version()`).
+fn get_proving_key_for(circuit: OrchardCircuitVersion) -> &'static ProvingKey {
+    match circuit {
+        OrchardCircuitVersion::PostNu6_3 => ORCHARD_PROVING_KEY_V3.get_or_init(|| {
+            tracing::info!("Building Orchard PostNu6_3 proving key (turnstile/Ironwood)...");
+            let pk = ProvingKey::build(OrchardCircuitVersion::PostNu6_3);
+            tracing::info!("Orchard PostNu6_3 proving key built");
+            pk
+        }),
+        // FixedPostNu6_2 and any earlier circuit map to the pre-NU6.3 key.
+        _ => ORCHARD_PROVING_KEY_V2.get_or_init(|| {
+            tracing::info!("Building Orchard FixedPostNu6_2 proving key...");
+            let pk = ProvingKey::build(OrchardCircuitVersion::FixedPostNu6_2);
+            tracing::info!("Orchard FixedPostNu6_2 proving key built");
+            pk
+        }),
+    }
+}
+
+/// Which protocol era the chain is in, decided by the NU6.3 activation height.
+/// Below NU6.3 (or if no NU6.3 is scheduled) the old Orchard-pool path applies
+/// unchanged; at/above it, old-pool spends cross the turnstile into Ironwood.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProtocolEra {
+    /// Pre-NU6.3: Orchard pool, note V2, tx V5, FixedPostNu6_2 circuit.
+    PreNu63,
+    /// NU6.3 active: Orchard→Ironwood turnstile, note V3 outputs, tx V6,
+    /// PostNu6_3 circuit.
+    PostNu63,
+}
+
+impl ProtocolEra {
+    /// Decide the era from the current chain height and the (optional) NU6.3
+    /// activation height read from the node. `None` (no NU6.3 scheduled) or a
+    /// height below activation ⇒ pre-NU6.3 (the current, zero-change behaviour).
+    pub fn from_heights(current_height: u64, nu63_activation: Option<u64>) -> Self {
+        match nu63_activation {
+            Some(h) if current_height >= h => ProtocolEra::PostNu63,
+            _ => ProtocolEra::PreNu63,
+        }
+    }
+
+    /// The bundle version used when *spending* existing Orchard-pool notes in
+    /// this era. Pre-NU6.3: `orchard_v2()` (current). Post-NU6.3: `orchard_v3()`
+    /// (turnstile spend; outputs are routed into an Ironwood bundle).
+    fn orchard_spend_bundle_version(&self) -> BundleVersion {
+        match self {
+            ProtocolEra::PreNu63 => BundleVersion::orchard_v2(),
+            ProtocolEra::PostNu63 => BundleVersion::orchard_v3(),
+        }
+    }
+
+    /// The transaction version for this era: V5 pre-NU6.3, V6 at/after (Ironwood
+    /// bundles cannot be committed with V5).
+    fn tx_version(&self) -> TxVersion {
+        match self {
+            ProtocolEra::PreNu63 => TxVersion::V5,
+            ProtocolEra::PostNu63 => TxVersion::V6,
+        }
+    }
 }
 
 /// Fund source for a transfer
@@ -186,6 +244,10 @@ pub struct OrchardTransferService {
     /// matches whatever network upgrade the chain is actually at (NU6.2,
     /// regtest/testnet, future NU7…). `None` falls back to the network default.
     consensus_branch_id: Option<u32>,
+    /// NU6.3 (Ironwood) activation height read from the node, or None if not
+    /// scheduled. With the current chain height this decides the [`ProtocolEra`]
+    /// (pre-NU6.3 old-pool path vs the Orchard→Ironwood turnstile).
+    nu63_activation_height: Option<u64>,
 }
 
 /// Network type
@@ -220,6 +282,7 @@ impl OrchardTransferService {
         Self {
             network,
             consensus_branch_id: None,
+            nu63_activation_height: None,
         }
     }
 
@@ -230,7 +293,22 @@ impl OrchardTransferService {
         Self {
             network,
             consensus_branch_id: Some(consensus_branch_id),
+            nu63_activation_height: None,
         }
+    }
+
+    /// Set the NU6.3 activation height (read from the node) so the builder can
+    /// decide the [`ProtocolEra`]. `None` ⇒ turnstile never engages (pre-NU6.3
+    /// behaviour). Builder-style; chains off the constructors.
+    pub fn with_nu63_activation(mut self, nu63_activation_height: Option<u64>) -> Self {
+        self.nu63_activation_height = nu63_activation_height;
+        self
+    }
+
+    /// Decide the protocol era for a given chain height using the configured
+    /// NU6.3 activation height.
+    fn protocol_era(&self, current_height: u64) -> ProtocolEra {
+        ProtocolEra::from_heights(current_height, self.nu63_activation_height)
     }
 
     /// Effective consensus branch id: the live value if pinned, else the
@@ -361,6 +439,22 @@ impl OrchardTransferService {
             );
             return Err(OrchardError::TransactionBuild(
                 "Cannot build transaction with zero amount".to_string()
+            ));
+        }
+
+        // Protocol-era gate. Below NU6.3 the existing Orchard-pool path applies
+        // unchanged (zero behaviour change). At/after NU6.3 an old-pool spend
+        // must cross the turnstile into Ironwood (orchard_v3 spend + ironwood_v3
+        // outputs, v6 transaction) — that construction is P1. Until it lands we
+        // fail closed rather than build a pre-NU6.3 (v5/old-pool) transaction the
+        // post-activation consensus rules would reject. On mainnet this branch is
+        // unreachable until the 7/28 NU6.3 activation; on regtest 档B it engages
+        // at the configured NU6.3 height.
+        let era = self.protocol_era(anchor_height);
+        if era == ProtocolEra::PostNu63 {
+            return Err(OrchardError::TransactionBuild(
+                "NU6.3 (Ironwood) turnstile transaction construction is not yet available; \
+                 refusing to build a pre-NU6.3 transaction after activation".to_string(),
             ));
         }
 
@@ -676,7 +770,7 @@ impl OrchardTransferService {
         let change_amount = total_input - total_needed;
 
         // Get the proving key
-        let pk = get_proving_key();
+        let pk = get_proving_key_for(OrchardCircuitVersion::FixedPostNu6_2);
 
         // Get FVK from spending key
         let fvk = spending_key.to_fvk();
@@ -918,7 +1012,7 @@ impl OrchardTransferService {
         let change_amount = total_input - total_needed;
 
         // Get the proving key
-        let pk = get_proving_key();
+        let pk = get_proving_key_for(OrchardCircuitVersion::FixedPostNu6_2);
 
         // Get FVK from spending key
         let fvk = spending_key.to_fvk();
@@ -1651,7 +1745,7 @@ impl OrchardTransferService {
         );
 
         // Get the proving key (cached globally)
-        let pk = get_proving_key();
+        let pk = get_proving_key_for(OrchardCircuitVersion::FixedPostNu6_2);
 
         // For shielding (no spends), we use an empty tree anchor
         let anchor = Anchor::empty_tree();

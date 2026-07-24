@@ -954,8 +954,16 @@ impl WalletService {
             .map_err(|e| AppError::BlockchainError(format!(
                 "Failed to read consensus branch id: {}", e
             )))?;
+        // NU6.3 (Ironwood) activation height from the node decides whether an
+        // old-pool spend stays in the Orchard pool (pre-NU6.3, current behaviour)
+        // or crosses the turnstile into Ironwood (NU6.3+).
+        let nu63_activation = chain_client
+            .get_nu63_activation_height()
+            .await
+            .unwrap_or(None);
         let transfer_service =
-            OrchardTransferService::new_with_branch_id(NetworkType::Mainnet, consensus_branch_id);
+            OrchardTransferService::new_with_branch_id(NetworkType::Mainnet, consensus_branch_id)
+                .with_nu63_activation(nu63_activation);
 
         // Get transparent inputs (UTXOs) for shielding
         // CRITICAL: Only select UTXOs needed to cover amount + fee, not ALL UTXOs!

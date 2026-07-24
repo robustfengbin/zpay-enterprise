@@ -177,6 +177,14 @@ pub trait ChainClient: Send + Sync {
         ))
     }
 
+    /// NU6.3 (Ironwood) activation height from the node, or None if the node
+    /// has no NU6.3 upgrade scheduled. Drives the Orchard→Ironwood turnstile:
+    /// below this height the old-pool path is used (zero change), at/above it
+    /// spends cross into Ironwood. Default None (non-Zcash / turnstile N/A).
+    async fn get_nu63_activation_height(&self) -> AppResult<Option<u64>> {
+        Ok(None)
+    }
+
     /// Send a shielded/privacy transfer (used by Zcash)
     /// Default implementation returns an error (not applicable for non-privacy chains)
     async fn send_shielded(
