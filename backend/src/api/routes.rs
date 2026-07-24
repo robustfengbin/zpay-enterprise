@@ -159,7 +159,18 @@ pub fn configure_routes(
                     .route("/migrations/{id}/reject", web::post().to(handlers::migration::reject_migration_run))
                     .route("/migrations/{id}/cancel", web::post().to(handlers::migration::cancel_migration_run))
                     .route("/migrations/{run_id}/items/{item_id}/retry", web::post().to(handlers::migration::retry_migration_item))
-                    .route("/wallets/{id}/migration-status", web::get().to(handlers::migration::wallet_migration_status)),
+                    .route("/wallets/{id}/migration-status", web::get().to(handlers::migration::wallet_migration_status))
+                    // ============================================================
+                    // F4.2 2026-07 — generic batch privacy transfers
+                    // ============================================================
+                    .route("/batch-transfers", web::post().to(handlers::batch_transfer::create_batch_transfer_run))
+                    .route("/batch-transfers", web::get().to(handlers::batch_transfer::list_batch_transfer_runs))
+                    .route("/batch-transfers/{id}", web::get().to(handlers::batch_transfer::get_batch_transfer_run))
+                    .route("/batch-transfers/{id}/execute", web::post().to(handlers::batch_transfer::execute_batch_transfer_run))
+                    .route("/batch-transfers/{id}/approve", web::post().to(handlers::batch_transfer::approve_batch_transfer_run))
+                    .route("/batch-transfers/{id}/reject", web::post().to(handlers::batch_transfer::reject_batch_transfer_run))
+                    .route("/batch-transfers/{id}/cancel", web::post().to(handlers::batch_transfer::cancel_batch_transfer_run))
+                    .route("/batch-transfers/{run_id}/items/{item_id}/retry", web::post().to(handlers::batch_transfer::retry_batch_transfer_item)),
             ),
     );
 }

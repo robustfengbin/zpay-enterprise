@@ -1,5 +1,6 @@
 pub mod approval_policy_repo;
 pub mod auditor_repo;
+pub mod batch_transfer_repo;
 pub mod employee_repo;
 pub mod migration_repo;
 pub mod orchard_repo;
@@ -14,6 +15,7 @@ pub mod wallet_repo;
 
 pub use approval_policy_repo::ApprovalPolicyRepository;
 pub use auditor_repo::AuditorRepository;
+pub use batch_transfer_repo::BatchTransferRepository;
 pub use employee_repo::EmployeeRepository;
 pub use migration_repo::MigrationRepository;
 pub use orchard_repo::OrchardRepository;

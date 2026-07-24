@@ -1,4 +1,5 @@
 pub mod auth;
+pub mod batch_transfer;
 pub mod m1;
 pub mod migration;
 pub mod orchard;

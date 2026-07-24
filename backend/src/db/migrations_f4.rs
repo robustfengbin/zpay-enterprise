@@ -106,6 +106,7 @@ async fn create_f42_batch_transfer_tables(pool: &MySqlPool) -> AppResult<()> {
             status VARCHAR(32) NOT NULL DEFAULT 'pending',
             created_by_user_id INT NOT NULL,
             approved_by_user_id INT NULL,
+            reject_reason VARCHAR(255) NULL,
             executed_by_user_id INT NULL,
             executed_at TIMESTAMP NULL,
             notes VARCHAR(500) NULL,
@@ -145,6 +146,28 @@ async fn create_f42_batch_transfer_tables(pool: &MySqlPool) -> AppResult<()> {
     )
     .execute(pool)
     .await?;
+
+    // Tables created before the F4.2 execution layer landed lack
+    // reject_reason (schema was finalized first, PRD F4.2.1); add it in
+    // place — same guarded-ALTER pattern as db::run_migrations.
+    let reject_reason_exists: Option<(String,)> = sqlx::query_as(
+        r#"
+        SELECT COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+          AND TABLE_NAME = 'batch_transfer_runs'
+          AND COLUMN_NAME = 'reject_reason'
+        "#,
+    )
+    .fetch_optional(pool)
+    .await?;
+    if reject_reason_exists.is_none() {
+        sqlx::query(
+            "ALTER TABLE batch_transfer_runs ADD COLUMN reject_reason VARCHAR(255) NULL AFTER approved_by_user_id",
+        )
+        .execute(pool)
+        .await?;
+        tracing::info!("[F4 migrations] added batch_transfer_runs.reject_reason");
+    }
 
     tracing::info!("[F4 migrations] F4.2 batch_transfer_runs / batch_transfer_items ready");
     Ok(())
