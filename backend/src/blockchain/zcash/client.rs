@@ -159,7 +159,11 @@ impl BlockchainInfo {
             .values()
             .find(|u| {
                 let n = u.name.to_ascii_lowercase();
-                n == "nu6.3" || n == "nu6_3" || n == "nu63"
+                // Match the upgrade by version number or by the pool name
+                // "Ironwood" — node implementations vary on which they report,
+                // and missing it would silently keep the turnstile dormant past
+                // activation (era stuck at PreNu63). Belt-and-suspenders.
+                n == "nu6.3" || n == "nu6_3" || n == "nu63" || n == "ironwood"
             })
             .map(|u| u.activation_height)
     }
