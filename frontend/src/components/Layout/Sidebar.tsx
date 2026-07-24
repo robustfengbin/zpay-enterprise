@@ -260,6 +260,22 @@ export function Sidebar() {
             <Users className="w-5 h-5 mr-3 flex-shrink-0" />
             <span>{t('sidebar.employees')}</span>
           </NavLink>
+          {/* F4.1 — Ironwood migration runs (admin-only, whole-treasury moves) */}
+          {user?.role === 'admin' && (
+            <NavLink
+              to="/migrations"
+              className={({ isActive }) =>
+                `flex items-center px-6 py-3 text-sm transition-colors ${
+                  isActive
+                    ? 'bg-blue-600 text-white'
+                    : 'text-gray-300 hover:bg-gray-800 hover:text-white'
+                }`
+              }
+            >
+              <FileText className="w-5 h-5 mr-3 flex-shrink-0" />
+              <span>{t('sidebar.migrations')}</span>
+            </NavLink>
+          )}
         </div>
 
         {/* History & Settings */}

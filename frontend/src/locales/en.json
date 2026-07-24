@@ -61,7 +61,8 @@
     "auditor_manage": "Manage auditors",
     "payroll": "Payroll",
     "payroll_runs": "Payroll runs",
-    "employees": "Employees"
+    "employees": "Employees",
+    "migrations": "Ironwood migration"
   },
   "header": {
     "title": "Ethereum Wallet Manager",
@@ -748,6 +749,108 @@
         "token": "Preferred token",
         "privacy": "Privacy mode",
         "kyc": "KYC"
+      }
+    }
+  },
+  "migration": {
+    "run_status": {
+      "pending": "Pending",
+      "awaiting_approval": "Awaiting approval",
+      "approved": "Approved",
+      "rejected": "Rejected",
+      "executing": "Executing",
+      "partial": "Partial",
+      "completed": "Completed",
+      "failed": "Failed",
+      "canceled": "Canceled"
+    },
+    "item_status": {
+      "pending": "Pending",
+      "submitted": "Submitted",
+      "failed": "Failed",
+      "canceled": "Canceled"
+    },
+    "banner": {
+      "title": "Move your shielded funds to the Ironwood pool",
+      "body": "This wallet holds {{amount}} ZEC ({{notes}} notes) in the legacy Orchard pool. After the NU6.3 upgrade, funds move forward through the turnstile into Ironwood. Your addresses do not change.",
+      "active": "Migration run #{{id}} is {{status}}.",
+      "view": "View progress",
+      "start": "Start migration"
+    },
+    "create": {
+      "title": "Migrate to Ironwood",
+      "subtitle": "Move this wallet's shielded funds from the legacy Orchard pool into the Ironwood pool.",
+      "step1": "About",
+      "step2": "Mode",
+      "step3": "Confirm",
+      "what_title": "What is this?",
+      "what_body": "Zcash's NU6.3 upgrade introduces a new shielded pool (Ironwood). The legacy Orchard pool is closed to new deposits and in-pool transfers; funds can only move forward through the turnstile into Ironwood.\nYour addresses stay the same and your funds stay under this wallet's keys the whole time. Each batch pays a network fee.",
+      "wallet": "Wallet",
+      "select_wallet": "Select a Zcash wallet…",
+      "spendable": "Spendable shielded balance",
+      "note_count": "Unspent notes",
+      "active_exists": "This wallet already has an active migration run (#{{id}}). Finish or cancel it first.",
+      "mode_title": "How do you want to migrate?",
+      "mode": "Mode",
+      "mode_private": "Private (recommended)",
+      "mode_private_desc": "Splits the balance into randomized batches spread over a time window, reducing amount/time correlation on the public turnstile.",
+      "mode_private_fee": "More batches = more network fees, better privacy.",
+      "mode_immediate": "Immediate",
+      "mode_immediate_desc": "Moves everything in a single sweep right away. The total amount and timing are visible on the turnstile as one linkable event.",
+      "mode_immediate_fee": "One network fee, least privacy.",
+      "batches": "Batches",
+      "window": "Window (hours)",
+      "privacy_disclaimer": "Batching reduces — but cannot eliminate — the correlation between funds leaving Orchard and arriving in Ironwood.",
+      "confirm_title": "Confirm migration plan",
+      "notes": "Notes (optional)",
+      "notes_placeholder": "e.g. Q3 treasury migration",
+      "confirm_hint": "If the total meets an approval policy, the run will require a second approver before anything is broadcast. One approval covers the whole window; batches then run automatically and cancel is the only way to stop the remainder.",
+      "submit": "Create migration plan"
+    },
+    "detail": {
+      "title": "Migration run",
+      "wallet": "Wallet",
+      "total": "Planned total",
+      "status": "Status",
+      "progress": "Batches done",
+      "created_by": "Created by",
+      "approved_by": "Approved by",
+      "reject_reason": "Reject reason",
+      "notes": "Notes",
+      "outcome_awaiting": "Run total meets approval policy #{{policy_id}} (threshold {{threshold}}). A second approver must approve before anything is broadcast.",
+      "action": {
+        "execute": "Execute now",
+        "arm_schedule": "Start schedule",
+        "approve": "Approve",
+        "reject": "Reject",
+        "confirm_reject": "Confirm reject",
+        "retry_failed": "Retry failed ({{count}})",
+        "cancel": "Cancel run"
+      },
+      "confirm_cancel": "Cancel this migration run? Batches already broadcast cannot be reversed; remaining batches will stop.",
+      "back_to_list": "All runs",
+      "batches": "Batches",
+      "immediately": "Immediately",
+      "col": {
+        "amount": "Amount (ZEC)",
+        "scheduled": "Scheduled",
+        "status": "Status",
+        "tx": "Tx",
+        "reason": "Error"
+      },
+      "reject_reason_label": "Reason (min 5 characters)",
+      "reject_reason_placeholder": "Why is this migration rejected?"
+    },
+    "list": {
+      "title": "Migration runs",
+      "new": "New migration",
+      "empty": "No migration runs yet.",
+      "col": {
+        "wallet": "Wallet",
+        "mode": "Mode",
+        "total": "Total (ZEC)",
+        "status": "Status",
+        "created": "Created"
       }
     }
   }

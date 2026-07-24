@@ -9,3 +9,5 @@ export type { AuditorSession, CreateAuditorRequest, CreateAuditorResponse } from
 export { approvalService, generateIdempotencyKey } from './approval';
 // F3.1 Payroll Run (pure ZEC, no swap)
 export { payrollService } from './payroll';
+// F4.1 Orchard → Ironwood migration runs
+export { migrationService } from './migration';

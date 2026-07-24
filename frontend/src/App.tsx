@@ -31,6 +31,10 @@ import {
   PayrollRunCreate,
   PayrollRunDetail,
   PayrollEmployees,
+  // F4.1
+  MigrationRunList,
+  MigrationRunCreate,
+  MigrationRunDetail,
 } from './pages';
 
 function App() {
@@ -149,6 +153,12 @@ function App() {
           <Route path="/payroll/runs/new" element={<ProtectedRoute requiredRole={["admin", "operator"]}><PayrollRunCreate /></ProtectedRoute>} />
           <Route path="/payroll/runs/:id" element={<ProtectedRoute><PayrollRunDetail /></ProtectedRoute>} />
           <Route path="/payroll/employees" element={<ProtectedRoute requiredRole={["admin", "operator"]}><PayrollEmployees /></ProtectedRoute>} />
+
+          {/* F4.1 — Orchard → Ironwood migration routes. Admin-only: a
+              migration moves the whole shielded treasury. */}
+          <Route path="/migrations" element={<ProtectedRoute requiredRole="admin"><MigrationRunList /></ProtectedRoute>} />
+          <Route path="/migrations/new" element={<ProtectedRoute requiredRole="admin"><MigrationRunCreate /></ProtectedRoute>} />
+          <Route path="/migrations/:id" element={<ProtectedRoute requiredRole="admin"><MigrationRunDetail /></ProtectedRoute>} />
 
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

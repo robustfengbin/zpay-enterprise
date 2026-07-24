@@ -41,3 +41,11 @@ export {
   PayrollRunDetail,
   PayrollEmployees,
 } from './Payroll';
+
+// F4.1 Orchard → Ironwood migration pages
+export {
+  MigrationRunList,
+  MigrationRunCreate,
+  MigrationRunDetail,
+  MigrationBanner,
+} from './Migration';
