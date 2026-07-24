@@ -6121,6 +6121,7 @@ dependencies = [
  "async-trait",
  "base64 0.21.7",
  "blake2b_simd",
+ "bls12_381",
  "bs58",
  "chrono",
  "config",
@@ -6132,6 +6133,7 @@ dependencies = [
  "hex",
  "incrementalmerkletree",
  "jsonwebtoken 9.3.1",
+ "jubjub",
  "once_cell",
  "orchard",
  "pasta_curves",
@@ -6141,6 +6143,7 @@ dependencies = [
  "ripemd 0.1.3",
  "rolling-file",
  "rust_decimal",
+ "sapling-crypto",
  "secp256k1 0.28.2",
  "serde",
  "serde_json",
@@ -6157,6 +6160,7 @@ dependencies = [
  "zcash_note_encryption",
  "zcash_primitives",
  "zcash_protocol",
+ "zcash_transparent",
  "zip32",
 ]
 
