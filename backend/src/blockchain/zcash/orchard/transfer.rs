@@ -734,12 +734,33 @@ impl OrchardTransferService {
             }
             let orchard_note = orchard_note.unwrap();
 
-            // Verify that the reconstructed note's commitment matches the stored one
+            // Fail-closed guard: recompute this note's nullifier from the
+            // reconstructed note and require it to match the nullifier stored at
+            // scan time. If the stored rho/rseed are inconsistent with the note,
+            // add_spend would build a spend the node rejects (incorrect/duplicate
+            // nullifier, -25). Catch it here with a precise error instead of
+            // broadcasting a doomed transaction.
+            let recomputed_nf = orchard_note.nullifier(&fvk).to_bytes();
+            if recomputed_nf != note.nullifier {
+                tracing::error!(
+                    "Note {} reconstruction mismatch: recomputed nullifier {} != stored {}",
+                    idx,
+                    hex::encode(recomputed_nf),
+                    hex::encode(note.nullifier)
+                );
+                return Err(OrchardError::TransactionBuild(format!(
+                    "Note {} reconstruction mismatch: recomputed nullifier {} != stored {} \
+                     (stored rho/rseed inconsistent with note — re-scan required)",
+                    idx,
+                    hex::encode(recomputed_nf),
+                    hex::encode(note.nullifier)
+                )));
+            }
+
             let extracted_cmx = orchard::note::ExtractedNoteCommitment::from(orchard_note.commitment());
             let reconstructed_cmx = extracted_cmx.to_bytes();
-
             tracing::info!(
-                "Note {} commitment: {}, position={}",
+                "Note {} verified: nullifier matches stored, commitment {}, position={}",
                 idx,
                 hex::encode(&reconstructed_cmx[..8]),
                 note.position
@@ -954,6 +975,26 @@ impl OrchardTransferService {
                 ));
             }
             let orchard_note = orchard_note.unwrap();
+
+            // Fail-closed guard: reconstructed nullifier must match the stored one
+            // (see the shielding path for rationale). Prevents broadcasting a spend
+            // the node rejects with -25 when stored rho/rseed are inconsistent.
+            let recomputed_nf = orchard_note.nullifier(&fvk).to_bytes();
+            if recomputed_nf != note.nullifier {
+                tracing::error!(
+                    "Note {} reconstruction mismatch: recomputed nullifier {} != stored {}",
+                    idx,
+                    hex::encode(recomputed_nf),
+                    hex::encode(note.nullifier)
+                );
+                return Err(OrchardError::TransactionBuild(format!(
+                    "Note {} reconstruction mismatch: recomputed nullifier {} != stored {} \
+                     (stored rho/rseed inconsistent with note — re-scan required)",
+                    idx,
+                    hex::encode(recomputed_nf),
+                    hex::encode(note.nullifier)
+                )));
+            }
 
             // Add the spend
             match builder.add_spend(fvk.clone(), orchard_note, merkle_path.clone()) {

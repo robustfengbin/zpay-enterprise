@@ -664,10 +664,11 @@ impl WalletService {
                         .map_err(|e| AppError::BlockchainError(format!("Failed to fetch blocks: {}", e)))?;
 
                     if !blocks.is_empty() {
+                        // process_blocks persists discovered notes and marks spends
+                        // (including notes discovered+spent within this same batch).
                         let found_notes = manager.process_blocks(blocks, &known_positions).await
                             .map_err(|e| AppError::BlockchainError(format!("Failed to process blocks: {}", e)))?;
 
-                        // Save any newly found notes
                         if !found_notes.is_empty() {
                             tracing::info!(
                                 "[Orchard Sync] Found {} new notes in blocks {}-{}",
@@ -675,8 +676,6 @@ impl WalletService {
                                 current,
                                 end
                             );
-                            manager.save_notes(&found_notes).await
-                                .map_err(|e| AppError::BlockchainError(format!("Failed to save notes: {}", e)))?;
                         }
                     }
 
