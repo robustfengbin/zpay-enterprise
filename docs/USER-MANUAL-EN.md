@@ -805,10 +805,33 @@ Generalizes payroll to **any recipient list** — vendors, rebates, grants — a
    - **Staggered** — transfers are shuffled and spread over N batches across a time window (defaults: 4 / 24 h), so payout timing doesn't correlate the whole batch. An optional **per-transfer cap** splits any row above the cap into several randomly-sized smaller transfers.
 4. Approval, execution, progress, per-item retry and cancel behave exactly like migrations (§8.2 steps 5–7). Amounts are **never silently reduced**: if the balance can't cover a payment, that item fails with the node's real error and can be retried after topping up.
 
-### 8.4 FAQ / troubleshooting
+### 8.4 Two things about shielding that surprise people
+
+Both are protocol behaviour, not product defects. They apply from NU6.3, when
+shielding routes new value into Ironwood.
+
+**1. Shielding spends whole coins, and the remainder comes back shielded.**
+Ask to shield 2 ZEC out of a transparent balance made of one 3.125 ZEC coin and
+the whole coin is consumed: 2 ZEC lands where you asked, and the remaining
+~1.125 ZEC returns to *your own wallet* as a second shielded note. Nothing is
+lost — the balance moved from transparent to shielded. The alternative, paying
+change back to the transparent address, would publish "this address just spent
+and has this much left" on-chain and give away half of what shielding buys you.
+
+**2. The shielding fee is charged per coin consumed, not per amount.**
+One coin costs 15,000 zatoshis; ten small coins cost 60,000 for the same total
+value. This is the ZIP-317 rule (each transparent input is a logical action), so
+a wallet topped up by many small deposits is more expensive to shield than one
+funded by a single large payment. If the balance cannot cover the fee for the
+coins selected, the transfer is refused up front with both numbers rather than
+being under-paid and rejected by the network.
+
+### 8.5 FAQ / troubleshooting
 
 | Symptom | Cause | Fix |
 |---|---|---|
+| Shielded more than asked | Shielding spends whole coins (§8.4) | Expected — the remainder is back in your wallet as a shielded note |
+| Shielding fee higher than a colleague's for the same amount | Fee is per coin consumed (§8.4) | Expected — consolidate deposits if fee predictability matters |
 | Banner says legacy funds but balance looks normal | Expected — the banner reflects pool membership, not solvency | Migrate at your convenience before you next need shielded transfers |
 | "wallet already has migration run #N in state ..." | One active migration per wallet, by design | Finish or cancel the active run first |
 | Execute returns *awaiting approval* | Run total crossed an approval policy | A second admin approves (maker self-approval returns 403) |
