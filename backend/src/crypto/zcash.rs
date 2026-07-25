@@ -67,13 +67,19 @@ pub fn import_zcash_wallet(private_key: &str, network: NetworkType) -> AppResult
 
     let secp = Secp256k1::new();
 
-    // Determine key format and parse
-    let key_bytes = if private_key.starts_with('5') || private_key.starts_with('K') || private_key.starts_with('L') {
-        // WIF format
-        tracing::debug!("Detected WIF format private key");
-        decode_wif_private_key(private_key)?
-    } else {
-        // Hex format
+    // Determine key format by *shape*, not by first character.
+    //
+    // The old test — `starts_with('5' | 'K' | 'L')` — treated any key beginning
+    // with '5' as WIF. But '5' is also a hex digit, so roughly one raw hex key in
+    // sixteen (6%) begins with it and was sent down the WIF decoder to fail as
+    // "Invalid WIF length". That is a valid key the wallet refused to import, and
+    // it had been hiding as an intermittently failing test (the test generates a
+    // random key, so it only tripped ~6% of runs).
+    //
+    // The two encodings cannot be confused by shape: a raw key is exactly 64 hex
+    // characters (optionally 0x-prefixed), while WIF is 51–52 Base58 characters
+    // and never all-hex at that length.
+    let key_bytes = if is_hex_private_key(private_key) {
         tracing::debug!("Detected hex format private key");
         let key_hex = private_key.strip_prefix("0x").unwrap_or(private_key);
         hex::decode(key_hex)
@@ -81,6 +87,9 @@ pub fn import_zcash_wallet(private_key: &str, network: NetworkType) -> AppResult
                 tracing::error!("Failed to decode hex private key: {}", e);
                 AppError::ValidationError(format!("Invalid private key hex: {}", e))
             })?
+    } else {
+        tracing::debug!("Detected WIF format private key");
+        decode_wif_private_key(private_key)?
     };
 
     tracing::debug!("Parsed key bytes length: {}", key_bytes.len());
@@ -105,6 +114,16 @@ pub fn import_zcash_wallet(private_key: &str, network: NetworkType) -> AppResult
     let address = public_key_to_t_address(&public_key, network)?;
     tracing::info!("Successfully derived Zcash address: {}", address);
     Ok(address)
+}
+
+/// Is this a raw hex private key (32 bytes, optionally `0x`-prefixed)?
+///
+/// Used instead of a first-character guess so that a hex key beginning with a
+/// character that also starts a WIF key ('5') is not mistaken for WIF. See
+/// [`import_zcash_wallet`].
+fn is_hex_private_key(key: &str) -> bool {
+    let key = key.strip_prefix("0x").unwrap_or(key);
+    key.len() == 64 && key.chars().all(|c| c.is_ascii_hexdigit())
 }
 
 /// Decode a WIF (Wallet Import Format) private key
@@ -383,6 +402,51 @@ mod tests {
         let (address, _) = generate_zcash_wallet(NetworkType::Regtest).unwrap();
         assert!(address.starts_with("tm"), "regtest t-addr must start with tm, got {}", address);
         assert!(validate_zcash_address(&address));
+    }
+
+    /// A raw hex key beginning with '5' used to be misread as WIF and rejected —
+    /// about 6% of all keys, surfacing only as an intermittently failing test.
+    /// These vectors make both branches deterministic.
+    #[test]
+    fn hex_private_keys_are_not_mistaken_for_wif() {
+        // Deliberately starts with '5' (a hex digit *and* the first character of
+        // a mainnet WIF key).
+        let hex_key = "5".to_string() + &"a".repeat(63);
+        assert!(is_hex_private_key(&hex_key));
+        let address = import_zcash_wallet(&hex_key, NetworkType::Main)
+            .expect("a 64-char hex key starting with '5' must import");
+        assert!(address.starts_with("t1"));
+
+        // 0x-prefixed is the same key.
+        let prefixed = format!("0x{hex_key}");
+        assert!(is_hex_private_key(&prefixed));
+        assert_eq!(
+            import_zcash_wallet(&prefixed, NetworkType::Main).unwrap(),
+            address
+        );
+
+        // Same key on a test network yields a tm-address, same key material.
+        assert!(import_zcash_wallet(&hex_key, NetworkType::Regtest)
+            .unwrap()
+            .starts_with("tm"));
+    }
+
+    #[test]
+    fn wif_private_keys_still_import() {
+        // Build a real mainnet WIF (0x80 prefix + key + Base58Check) for the same
+        // key material as the hex form, and check both import to one address.
+        let key_bytes = [0x11u8; 32];
+        let mut payload = vec![0x80u8];
+        payload.extend_from_slice(&key_bytes);
+        let digest = Sha256::digest(Sha256::digest(&payload));
+        payload.extend_from_slice(&digest[..4]);
+        let wif = bs58::encode(payload).into_string();
+
+        assert!(!is_hex_private_key(&wif), "WIF must not look like hex");
+        let from_wif = import_zcash_wallet(&wif, NetworkType::Main).expect("WIF must import");
+        let from_hex =
+            import_zcash_wallet(&hex::encode(key_bytes), NetworkType::Main).expect("hex imports");
+        assert_eq!(from_wif, from_hex);
     }
 
     #[test]
