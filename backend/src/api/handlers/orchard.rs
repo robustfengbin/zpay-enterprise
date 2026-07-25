@@ -45,6 +45,16 @@ pub struct ShieldedBalanceResponse {
     pub pool: String,
 }
 
+/// Per-pool shielded balance response (F4.0-c dual pools).
+#[derive(Debug, Serialize)]
+pub struct ShieldedBalanceByPoolResponse {
+    pub wallet_id: i32,
+    /// One entry per pool, zeroes included, in old-pool-then-Ironwood order.
+    pub pools: Vec<ShieldedBalanceResponse>,
+    /// Sum across pools — the figure the wallet page shows as the headline.
+    pub total_zatoshis: u64,
+}
+
 /// Combined balance response
 #[derive(Debug, Serialize)]
 pub struct CombinedBalanceResponse {
@@ -181,6 +191,36 @@ pub async fn get_shielded_balance(
         pending_zatoshis: balance.pending_zatoshis,
         note_count: balance.note_count,
         pool: format!("{:?}", balance.pool).to_lowercase(),
+    };
+
+    Ok(HttpResponse::Ok().json(response))
+}
+
+/// Shielded balance broken down per pool.
+///
+/// During a migration the same wallet holds a draining old-Orchard balance and
+/// a filling Ironwood one; collapsing them hides whether the migration is done.
+pub async fn get_shielded_balance_by_pool(
+    wallet_service: web::Data<Arc<WalletService>>,
+    path: web::Path<i32>,
+) -> AppResult<HttpResponse> {
+    let wallet_id = path.into_inner();
+    let balances = wallet_service.get_shielded_balances_by_pool(wallet_id).await?;
+
+    let total_zatoshis = balances.iter().map(|b| b.total_zatoshis).sum();
+    let response = ShieldedBalanceByPoolResponse {
+        wallet_id,
+        pools: balances
+            .into_iter()
+            .map(|b| ShieldedBalanceResponse {
+                total_zatoshis: b.total_zatoshis,
+                spendable_zatoshis: b.spendable_zatoshis,
+                pending_zatoshis: b.pending_zatoshis,
+                note_count: b.note_count,
+                pool: format!("{:?}", b.pool).to_lowercase(),
+            })
+            .collect(),
+        total_zatoshis,
     };
 
     Ok(HttpResponse::Ok().json(response))

@@ -16,7 +16,12 @@ import { Card, LoadingSpinner, Modal } from '../../../components/Common';
 import { walletService } from '../../../services/api';
 import orchardApi from '../../../services/api/orchard';
 import { Wallet, BalanceResponse } from '../../../types';
-import type { UnifiedAddressInfo, ShieldedBalance, StoredOrchardNote } from '../../../types/orchard';
+import type {
+  UnifiedAddressInfo,
+  ShieldedBalance,
+  ShieldedBalanceByPool,
+  StoredOrchardNote,
+} from '../../../types/orchard';
 import { zatoshisToZec } from '../../../types/orchard';
 import { useAuth } from '../../../hooks/useAuth';
 import { getChain, ChainConfig } from '../../../config/chains';
@@ -35,6 +40,9 @@ export function ChainWallets({ chainId, banner }: ChainWalletsProps) {
   const [wallets, setWallets] = useState<Wallet[]>([]);
   const [balances, setBalances] = useState<Record<string, BalanceResponse>>({});
   const [shieldedBalances, setShieldedBalances] = useState<Record<number, ShieldedBalance>>({});
+  // F4.0-c: the same shielded balance split per pool, so a wallet mid-migration
+  // shows the legacy pool draining and Ironwood filling instead of one number.
+  const [poolBalances, setPoolBalances] = useState<Record<number, ShieldedBalanceByPool>>({});
   const [unifiedAddresses, setUnifiedAddresses] = useState<Record<number, UnifiedAddressInfo>>({});
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
@@ -117,6 +125,21 @@ export function ChainWallets({ chainId, banner }: ChainWalletsProps) {
             }
           });
           setShieldedBalances(newShieldedBalances);
+
+          // Per-pool split. Advisory: a failure here leaves the headline
+          // shielded balance above intact.
+          const poolResults = await Promise.all(
+            walletsWithOrchard.map((w) =>
+              orchardApi.getShieldedBalanceByPool(w.id).catch(() => null)
+            )
+          );
+          const newPoolBalances: Record<number, ShieldedBalanceByPool> = {};
+          poolResults.forEach((split, index) => {
+            if (split) {
+              newPoolBalances[walletsWithOrchard[index].id] = split;
+            }
+          });
+          setPoolBalances(newPoolBalances);
         }
       }
     } catch (err) {
@@ -450,6 +473,7 @@ export function ChainWallets({ chainId, banner }: ChainWalletsProps) {
                               )}
                             </span>
                           </div>
+                          <PoolSplit split={poolBalances[wallet.id]} symbol={chain.symbol} />
                         </div>
                       </div>
                     ) : (
@@ -799,6 +823,54 @@ export function ChainWallets({ chainId, banner }: ChainWalletsProps) {
           </div>
         </div>
       </Modal>
+    </div>
+  );
+}
+
+/**
+ * F4.0-c — legacy Orchard vs Ironwood split under the shielded balance.
+ *
+ * Rendered only once Ironwood holds something: before a wallet migrates, every
+ * shielded zatoshi is in the old pool and a second line would be noise. During
+ * and after a migration it answers the question the headline number hides —
+ * how much is still stuck behind the turnstile.
+ */
+function PoolSplit({
+  split,
+  symbol,
+}: {
+  split?: ShieldedBalanceByPool;
+  symbol: string;
+}) {
+  const { t } = useTranslation();
+  if (!split) return null;
+
+  const amount = (pool: string) =>
+    split.pools.find((p) => p.pool === pool)?.total_zatoshis ?? 0;
+  const legacy = amount('orchard');
+  const ironwood = amount('ironwood');
+  if (ironwood === 0) return null;
+
+  return (
+    <div className="ml-1 space-y-1 border-l border-line-200 pl-3 text-[0.75rem]">
+      <div className="flex items-center justify-between">
+        <span className="flex items-center gap-1.5 text-legacy-700">
+          <span className="h-1.5 w-1.5 rounded-full bg-legacy-500" />
+          {t('migration.pool.legacy')}
+        </span>
+        <span className="num">
+          {zatoshisToZec(legacy).toFixed(6)} {symbol}
+        </span>
+      </div>
+      <div className="flex items-center justify-between">
+        <span className="flex items-center gap-1.5 text-iron-700">
+          <span className="h-1.5 w-1.5 rounded-full bg-iron-500" />
+          {t('migration.pool.ironwood')}
+        </span>
+        <span className="num">
+          {zatoshisToZec(ironwood).toFixed(6)} {symbol}
+        </span>
+      </div>
     </div>
   );
 }

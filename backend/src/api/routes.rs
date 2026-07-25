@@ -101,6 +101,8 @@ pub fn configure_routes(
                     .route("/wallets/{id}/orchard/addresses", web::get().to(handlers::get_unified_addresses))
                     .route("/wallets/{id}/orchard/balance", web::get().to(handlers::get_shielded_balance))
                     .route("/wallets/{id}/orchard/balance/combined", web::get().to(handlers::get_combined_balance))
+                    // F4.0-c: per-pool split (old Orchard draining vs Ironwood filling)
+                    .route("/wallets/{id}/orchard/balance/by-pool", web::get().to(handlers::get_shielded_balance_by_pool))
                     .route("/wallets/{id}/orchard/notes", web::get().to(handlers::get_unspent_notes))
                     .route("/zcash/scan/status", web::get().to(handlers::get_scan_progress))
                     .route("/zcash/scan/sync", web::post().to(handlers::sync_orchard))

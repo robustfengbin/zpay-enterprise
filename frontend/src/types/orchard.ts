@@ -5,7 +5,7 @@
  */
 
 /** Shielded pool types */
-export type ShieldedPool = 'orchard' | 'sapling';
+export type ShieldedPool = 'orchard' | 'ironwood' | 'sapling';
 
 /** Unified address information */
 export interface UnifiedAddressInfo {
@@ -26,6 +26,20 @@ export interface UnifiedAddressInfo {
 }
 
 /** Shielded balance breakdown */
+/**
+ * Shielded balance split per pool (F4.0-c).
+ *
+ * A wallet mid-migration holds a draining legacy Orchard balance and a filling
+ * Ironwood one; the headline figure is their sum.
+ */
+export interface ShieldedBalanceByPool {
+  wallet_id: number;
+  /** One entry per pool, zeroes included, old pool first. */
+  pools: ShieldedBalance[];
+  /** Sum across pools. */
+  total_zatoshis: number;
+}
+
 export interface ShieldedBalance {
   /** Total balance in zatoshis */
   total_zatoshis: number;

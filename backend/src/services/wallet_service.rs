@@ -549,6 +549,41 @@ impl WalletService {
         Ok(ShieldedBalance::new(ShieldedPool::Orchard, 0, 0, 0))
     }
 
+    /// Shielded balance split per pool (F4.0-c).
+    ///
+    /// The headline balance sums both pools; a wallet mid-migration needs the
+    /// split to see the old pool draining and Ironwood filling. Always returns
+    /// one entry per pool, zeroes included, so callers can render both sides
+    /// without special-casing an absent pool.
+    pub async fn get_shielded_balances_by_pool(
+        &self,
+        wallet_id: i32,
+    ) -> AppResult<Vec<ShieldedBalance>> {
+        let wallet = self
+            .wallet_repo
+            .find_by_id(wallet_id)
+            .await?
+            .ok_or_else(|| AppError::NotFound("Wallet not found".to_string()))?;
+
+        if wallet.chain != "zcash" {
+            return Err(AppError::ValidationError(
+                "Shielded balance only available for Zcash wallets".to_string(),
+            ));
+        }
+
+        self.ensure_orchard_sync_initialized().await?;
+
+        let witness_sync = self.witness_sync.read().await;
+        if let Some(manager) = witness_sync.as_ref() {
+            return Ok(manager.get_wallet_balances_by_pool(wallet_id).await);
+        }
+
+        Ok(ShieldedPool::NOTE_POOLS
+            .iter()
+            .map(|pool| ShieldedBalance::new(*pool, 0, 0, 0))
+            .collect())
+    }
+
     /// Get unspent notes from database
     pub async fn get_unspent_notes_from_db(&self, wallet_id: i32) -> AppResult<Vec<crate::db::repositories::orchard_repo::StoredOrchardNote>> {
         let wallet = self

@@ -20,6 +20,7 @@ import type {
   OrchardTransferResponse,
   ScanProgress,
   ShieldedBalance,
+  ShieldedBalanceByPool,
   StoredOrchardNote,
   UnifiedAddressInfo,
 } from '../../types/orchard';
@@ -64,6 +65,15 @@ export async function getShieldedBalance(
   walletId: number
 ): Promise<ShieldedBalance> {
   return axios.get(`/wallets/${walletId}/orchard/balance`);
+}
+
+/**
+ * Get the shielded balance split per pool (legacy Orchard vs Ironwood)
+ */
+export async function getShieldedBalanceByPool(
+  walletId: number
+): Promise<ShieldedBalanceByPool> {
+  return axios.get(`/wallets/${walletId}/orchard/balance/by-pool`);
 }
 
 /**
@@ -187,6 +197,7 @@ const orchardApi = {
   getUnifiedAddresses,
   generateUnifiedAddress,
   getShieldedBalance,
+  getShieldedBalanceByPool,
   getCombinedBalance,
   getUnspentNotes,
   initiateOrchardTransfer,
