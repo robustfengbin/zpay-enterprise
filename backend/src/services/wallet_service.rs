@@ -545,8 +545,9 @@ impl WalletService {
             return Ok(balance);
         }
 
-        // Fallback to zero if sync not initialized
-        Ok(ShieldedBalance::new(ShieldedPool::Orchard, 0, 0, 0))
+        // Fallback to zero if sync not initialized. Unlabelled: with no scan
+        // state there is nothing to attribute to a pool.
+        Ok(ShieldedBalance::new_aggregate(0, 0, 0))
     }
 
     /// Get unspent notes from database
@@ -1170,19 +1171,15 @@ impl WalletService {
                 // NU6.3 while Ironwood's keeps advancing, so they are not
                 // interchangeable.
                 let anchor = manager.get_pool_anchor(source_pool).await;
-                let tree_root = {
-                    let tree = manager.tree().read().await;
-                    tree.root()
-                };
+                // Root of the pool actually being spent. Reaching through
+                // manager.tree() here would always print the Orchard root and
+                // send anyone debugging an Ironwood spend down the wrong path.
+                let tree_root = manager.get_pool_tree_root(source_pool).await;
 
                 tracing::info!(
-                    "[Privacy Transfer] Spending from {} pool ({} notes)",
+                    "[Privacy Transfer] Spending from {} pool ({} notes), tree root {}",
                     source_pool,
-                    notes.len()
-                );
-
-                tracing::info!(
-                    "[Privacy Transfer] Tree anchor: {}",
+                    notes.len(),
                     hex::encode(&tree_root)
                 );
 
@@ -1191,7 +1188,13 @@ impl WalletService {
 
                 for note in notes {
                     let nullifier_hex = hex::encode(&note.nullifier);
-                    if let Some(merkle_path) = manager.get_orchard_merkle_path(&nullifier_hex).await {
+                    // Path must come from the pool being spent: its witnesses are
+                    // paths into that pool's tree, and the anchor above is that
+                    // tree's root.
+                    if let Some(merkle_path) = manager
+                        .get_pool_merkle_path(source_pool, &nullifier_hex)
+                        .await
+                    {
                         tracing::debug!(
                             "[Privacy Transfer] Got MerklePath for note {}: position={}",
                             &nullifier_hex[..16],
@@ -1200,7 +1203,9 @@ impl WalletService {
                         notes_with_paths.push((note, merkle_path));
                     } else {
                         tracing::warn!(
-                            "[Privacy Transfer] No MerklePath for note {}",
+                            "[Privacy Transfer] No MerklePath for {} note {} — its witness is \
+                             missing from that pool's witness set (rescan needed?)",
+                            source_pool,
                             &nullifier_hex[..16]
                         );
                     }

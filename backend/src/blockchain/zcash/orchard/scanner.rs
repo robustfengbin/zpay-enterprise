@@ -924,19 +924,37 @@ pub struct ShieldedBalance {
     /// Number of unspent notes
     pub note_count: u32,
 
-    /// Pool type
-    pub pool: ShieldedPool,
+    /// Which pool this balance belongs to, or `None` when it is the total across
+    /// all shielded pools.
+    ///
+    /// A migrating wallet holds funds in both the old Orchard pool and Ironwood,
+    /// so an aggregate figure cannot honestly claim a single pool — it used to be
+    /// labelled "orchard" even when every zatoshi sat in Ironwood. Per-pool
+    /// figures come from `get_wallet_balances_by_pool`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pool: Option<ShieldedPool>,
 }
 
 impl ShieldedBalance {
-    /// Create a new balance summary
+    /// Create a balance summary for one pool
     pub fn new(pool: ShieldedPool, total: u64, spendable: u64, note_count: u32) -> Self {
         Self {
             total_zatoshis: total,
             spendable_zatoshis: spendable,
             pending_zatoshis: total - spendable,
             note_count,
-            pool,
+            pool: Some(pool),
+        }
+    }
+
+    /// Create a balance summary covering every shielded pool
+    pub fn new_aggregate(total: u64, spendable: u64, note_count: u32) -> Self {
+        Self {
+            total_zatoshis: total,
+            spendable_zatoshis: spendable,
+            pending_zatoshis: total - spendable,
+            note_count,
+            pool: None,
         }
     }
 
