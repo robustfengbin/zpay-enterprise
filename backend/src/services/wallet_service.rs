@@ -1126,24 +1126,45 @@ impl WalletService {
             // Get notes with witnesses
             let sync_guard = self.witness_sync.read().await;
             if let Some(manager) = sync_guard.as_ref() {
-                // Which pool funds this spend. A spend draws inputs, anchor and
-                // note version from ONE pool. Drain the old Orchard pool first
-                // while it still holds notes: post-NU6.3 those notes can only
-                // leave through the turnstile, so spending them is what empties
-                // the closed pool. Only when it is empty do we spend Ironwood.
-                let source_pool = if manager
+                // Which pool funds this spend. A spend draws its inputs, anchor and
+                // note version from ONE pool, so the pool is chosen up front:
+                //
+                // * prefer the old Orchard pool when it can cover the transfer —
+                //   post-NU6.3 its notes can only leave through the turnstile, so
+                //   spending them is what drains the closed pool;
+                // * otherwise fall back to Ironwood. A wallet mid-migration can
+                //   easily hold a small old-pool remainder and most of its value in
+                //   Ironwood, and picking the old pool merely because it is
+                //   non-empty would fail a payment the wallet can clearly afford.
+                //
+                // The threshold uses the proposal's fee estimate; the builder
+                // recomputes the real ZIP-317 fee after selection, and note values
+                // dwarf the difference.
+                let orchard_notes = manager
                     .get_spendable_notes_with_witnesses(wallet_id, ShieldedPool::Orchard)
-                    .await
-                    .is_empty()
-                {
-                    ShieldedPool::Ironwood
-                } else {
-                    ShieldedPool::Orchard
-                };
-
-                let notes = manager
-                    .get_spendable_notes_with_witnesses(wallet_id, source_pool)
                     .await;
+                let needed = proposal
+                    .amount_zatoshis
+                    .saturating_add(proposal.fee_zatoshis);
+                let orchard_total: u64 = orchard_notes.iter().map(|n| n.value_zatoshis).sum();
+
+                let (source_pool, notes) = if !orchard_notes.is_empty() && orchard_total >= needed {
+                    (ShieldedPool::Orchard, orchard_notes)
+                } else {
+                    let ironwood_notes = manager
+                        .get_spendable_notes_with_witnesses(wallet_id, ShieldedPool::Ironwood)
+                        .await;
+                    let ironwood_total: u64 =
+                        ironwood_notes.iter().map(|n| n.value_zatoshis).sum();
+                    // Neither pool alone covers it: go with whichever holds more,
+                    // so the resulting insufficient-balance error reports the
+                    // wallet's real best case rather than an arbitrary pool.
+                    if ironwood_total >= needed || ironwood_total > orchard_total {
+                        (ShieldedPool::Ironwood, ironwood_notes)
+                    } else {
+                        (ShieldedPool::Orchard, orchard_notes)
+                    }
+                };
 
                 // Anchor of the pool being spent — the Orchard anchor freezes at
                 // NU6.3 while Ironwood's keeps advancing, so they are not
