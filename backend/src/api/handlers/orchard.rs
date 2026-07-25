@@ -495,6 +495,9 @@ pub async fn execute_orchard_transfer(
         to_address: req.to_address.clone(),
         memo: req.memo.clone(),
         expiry_height: req.expiry_height,
+        // Single-shot API transfer: change crosses to Ironwood post-NU6.3.
+        // Staggered migration batches set their own policy (see ChangePolicy).
+        change_policy: Default::default(),
     };
 
     // Execute the transfer

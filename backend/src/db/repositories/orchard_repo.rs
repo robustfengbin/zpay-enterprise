@@ -29,6 +29,8 @@ pub struct StoredOrchardNote {
     pub witness_position: Option<u64>,
     pub witness_auth_path: Option<String>, // JSON array of hex-encoded 32-byte hashes
     pub witness_root: Option<String>,      // Hex-encoded 32-byte root
+    /// Shielded pool: "orchard" (old pool, V2 notes) or "ironwood" (NU6.3, V3)
+    pub pool: String,
 }
 
 /// Sync state for a wallet
@@ -57,6 +59,9 @@ pub struct NoteWitnessInfo {
     pub block_height: u64,
     pub witness_position: Option<u64>,
     pub witness_state: Option<Vec<u8>>,
+    /// Shielded pool of the note — decides which commitment tree its witness
+    /// belongs to when restoring state at startup.
+    pub pool: String,
 }
 
 #[derive(Clone)]
@@ -217,17 +222,19 @@ impl OrchardRepository {
         rho: &str,
         rseed: &str,
         witness_position: u64,  // Global tree position, saved at discovery
+        pool: &str,             // Shielded pool: "orchard" or "ironwood"
     ) -> AppResult<i32> {
         let result = sqlx::query(
             r#"
             INSERT INTO orchard_notes
-                (wallet_id, nullifier, value_zatoshis, block_height, tx_hash, position_in_block, memo, recipient, rho, rseed, witness_position)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (wallet_id, nullifier, value_zatoshis, block_height, tx_hash, position_in_block, memo, recipient, rho, rseed, witness_position, pool)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON DUPLICATE KEY UPDATE
                 recipient = VALUES(recipient),
                 rho = VALUES(rho),
                 rseed = VALUES(rseed),
-                witness_position = VALUES(witness_position)
+                witness_position = VALUES(witness_position),
+                pool = VALUES(pool)
             "#
         )
         .bind(wallet_id)
@@ -241,6 +248,7 @@ impl OrchardRepository {
         .bind(rho)
         .bind(rseed)
         .bind(witness_position)
+        .bind(pool)
         .execute(&self.pool)
         .await?;
         Ok(result.last_insert_id() as i32)
@@ -277,7 +285,8 @@ impl OrchardRepository {
             r#"
             SELECT id, wallet_id, nullifier, value_zatoshis, block_height, tx_hash,
                    position_in_block, is_spent, spent_in_tx, memo, recipient, rho, rseed,
-                   witness_position, witness_auth_path, witness_root
+                   witness_position, witness_auth_path, witness_root,
+                   CAST(pool AS CHAR) AS pool
             FROM orchard_notes
             WHERE wallet_id = ? AND tx_hash = ?
             ORDER BY position_in_block ASC
@@ -298,7 +307,8 @@ impl OrchardRepository {
             r#"
             SELECT id, wallet_id, nullifier, value_zatoshis, block_height, tx_hash,
                    position_in_block, is_spent, spent_in_tx, memo, recipient, rho, rseed,
-                   witness_position, witness_auth_path, witness_root
+                   witness_position, witness_auth_path, witness_root,
+                   CAST(pool AS CHAR) AS pool
             FROM orchard_notes
             WHERE wallet_id = ?
             ORDER BY block_height ASC, position_in_block ASC
@@ -320,7 +330,8 @@ impl OrchardRepository {
             r#"
             SELECT id, wallet_id, nullifier, value_zatoshis, block_height, tx_hash,
                    position_in_block, is_spent, spent_in_tx, memo, recipient, rho, rseed,
-                   witness_position, witness_auth_path, witness_root
+                   witness_position, witness_auth_path, witness_root,
+                   CAST(pool AS CHAR) AS pool
             FROM orchard_notes
             WHERE wallet_id = ? AND block_height >= ? AND block_height <= ?
             ORDER BY block_height ASC, position_in_block ASC
@@ -339,7 +350,8 @@ impl OrchardRepository {
             r#"
             SELECT id, wallet_id, nullifier, value_zatoshis, block_height, tx_hash,
                    position_in_block, is_spent, spent_in_tx, memo, recipient, rho, rseed,
-                   witness_position, witness_auth_path, witness_root
+                   witness_position, witness_auth_path, witness_root,
+                   CAST(pool AS CHAR) AS pool
             FROM orchard_notes
             WHERE wallet_id = ? AND is_spent = FALSE
             ORDER BY block_height ASC
@@ -352,39 +364,56 @@ impl OrchardRepository {
     }
 
     /// Get unspent notes with spending data (for shielded transfers)
-    pub async fn get_spendable_notes(&self, wallet_id: i32) -> AppResult<Vec<StoredOrchardNote>> {
+    ///
+    /// Scoped to one shielded pool: a spend draws its inputs, anchor and note
+    /// version from a single pool, so mixing Orchard and Ironwood notes in one
+    /// selection would build an invalid transaction.
+    pub async fn get_spendable_notes(
+        &self,
+        wallet_id: i32,
+        pool: &str,
+    ) -> AppResult<Vec<StoredOrchardNote>> {
         let notes = sqlx::query_as::<_, StoredOrchardNote>(
             r#"
             SELECT id, wallet_id, nullifier, value_zatoshis, block_height, tx_hash,
                    position_in_block, is_spent, spent_in_tx, memo, recipient, rho, rseed,
-                   witness_position, witness_auth_path, witness_root
+                   witness_position, witness_auth_path, witness_root,
+                   CAST(pool AS CHAR) AS pool
             FROM orchard_notes
-            WHERE wallet_id = ? AND is_spent = FALSE
+            WHERE wallet_id = ? AND pool = ? AND is_spent = FALSE
               AND recipient IS NOT NULL AND rho IS NOT NULL AND rseed IS NOT NULL
             ORDER BY value_zatoshis DESC
             "#
         )
         .bind(wallet_id)
+        .bind(pool)
         .fetch_all(&self.pool)
         .await?;
         Ok(notes)
     }
 
-    /// Get spendable notes with witness data
-    pub async fn get_notes_with_witnesses(&self, wallet_id: i32) -> AppResult<Vec<StoredOrchardNote>> {
+    /// Get spendable notes with witness data (single pool, see
+    /// [`Self::get_spendable_notes`])
+    pub async fn get_notes_with_witnesses(
+        &self,
+        wallet_id: i32,
+        pool: &str,
+    ) -> AppResult<Vec<StoredOrchardNote>> {
         let notes = sqlx::query_as::<_, StoredOrchardNote>(
             r#"
             SELECT id, wallet_id, nullifier, value_zatoshis, block_height, tx_hash,
                    position_in_block, is_spent, spent_in_tx, memo, recipient, rho, rseed,
-                   witness_position, witness_auth_path, witness_root
+                   witness_position, witness_auth_path, witness_root,
+                   CAST(pool AS CHAR) AS pool
             FROM orchard_notes
-            WHERE wallet_id = ? AND is_spent = FALSE
+            WHERE wallet_id = ? AND pool = ? AND is_spent = FALSE
               AND recipient IS NOT NULL AND rho IS NOT NULL AND rseed IS NOT NULL
               AND witness_auth_path IS NOT NULL AND witness_root IS NOT NULL
             ORDER BY value_zatoshis DESC
             "#
         )
         .bind(wallet_id)
+        .bind(pool)
         .fetch_all(&self.pool)
         .await?;
         Ok(notes)
@@ -450,6 +479,27 @@ impl OrchardRepository {
         Ok(result.map(|(b,)| b).unwrap_or(0))
     }
 
+    /// Get unspent balance and note count for one shielded pool
+    ///
+    /// A migrating wallet holds funds in both pools at once (old pool draining,
+    /// Ironwood filling), so balances are reported per pool as well as in total.
+    pub async fn get_balance_by_pool(&self, wallet_id: i32, pool: &str) -> AppResult<(u64, u32)> {
+        let result: Option<(u64, i64)> = sqlx::query_as(
+            r#"
+            SELECT CAST(COALESCE(SUM(value_zatoshis), 0) AS UNSIGNED), COUNT(*)
+            FROM orchard_notes
+            WHERE wallet_id = ? AND pool = ? AND is_spent = FALSE
+            "#,
+        )
+        .bind(wallet_id)
+        .bind(pool)
+        .fetch_optional(&self.pool)
+        .await?;
+        Ok(result
+            .map(|(balance, count)| (balance, count as u32))
+            .unwrap_or((0, 0)))
+    }
+
     /// Mark a note as spent
     pub async fn mark_note_spent(&self, nullifier: &str, spent_in_tx: &str) -> AppResult<bool> {
         let result = sqlx::query(
@@ -457,6 +507,30 @@ impl OrchardRepository {
         )
         .bind(spent_in_tx)
         .bind(nullifier)
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
+    /// Mark a note as spent within one shielded pool
+    ///
+    /// The Orchard and Ironwood nullifier sets are disjoint on chain, so a
+    /// nullifier only ever retires a note of the same pool.
+    pub async fn mark_note_spent_in_pool(
+        &self,
+        nullifier: &str,
+        spent_in_tx: &str,
+        pool: &str,
+    ) -> AppResult<bool> {
+        let result = sqlx::query(
+            r#"
+            UPDATE orchard_notes SET is_spent = TRUE, spent_in_tx = ?
+            WHERE nullifier = ? AND pool = ? AND is_spent = FALSE
+            "#,
+        )
+        .bind(spent_in_tx)
+        .bind(nullifier)
+        .bind(pool)
         .execute(&self.pool)
         .await?;
         Ok(result.rows_affected() > 0)
@@ -505,18 +579,28 @@ impl OrchardRepository {
     // Tree State Operations (for incremental witness sync)
     // =========================================================================
 
-    /// Save global tree state
-    /// Uses REPLACE INTO to ensure only one row exists
-    pub async fn save_tree_state(&self, tree_data: &[u8], tree_height: u64, tree_size: u64) -> AppResult<()> {
-        // First delete any existing rows, then insert new one
-        // This ensures we always have exactly one row regardless of id
-        sqlx::query("DELETE FROM orchard_tree_state")
-            .execute(&self.pool)
-            .await?;
-
+    /// Save the commitment tree state of one shielded pool
+    ///
+    /// One row per pool (`uk_tree_pool`): the Orchard and Ironwood commitment
+    /// trees are separate on chain and must not overwrite each other.
+    pub async fn save_tree_state(
+        &self,
+        pool: &str,
+        tree_data: &[u8],
+        tree_height: u64,
+        tree_size: u64,
+    ) -> AppResult<()> {
         sqlx::query(
-            "INSERT INTO orchard_tree_state (id, tree_data, tree_height, tree_size) VALUES (1, ?, ?, ?)"
+            r#"
+            INSERT INTO orchard_tree_state (pool, tree_data, tree_height, tree_size)
+            VALUES (?, ?, ?, ?)
+            ON DUPLICATE KEY UPDATE
+                tree_data = VALUES(tree_data),
+                tree_height = VALUES(tree_height),
+                tree_size = VALUES(tree_size)
+            "#,
         )
+        .bind(pool)
         .bind(tree_data)
         .bind(tree_height)
         .bind(tree_size)
@@ -525,11 +609,12 @@ impl OrchardRepository {
         Ok(())
     }
 
-    /// Load global tree state (only one row in table)
-    pub async fn load_tree_state(&self) -> AppResult<Option<OrchardTreeState>> {
+    /// Load the commitment tree state of one shielded pool
+    pub async fn load_tree_state(&self, pool: &str) -> AppResult<Option<OrchardTreeState>> {
         let result: Option<(Vec<u8>, u64, u64)> = sqlx::query_as(
-            "SELECT tree_data, tree_height, tree_size FROM orchard_tree_state LIMIT 1"
+            "SELECT tree_data, tree_height, tree_size FROM orchard_tree_state WHERE pool = ? LIMIT 1"
         )
+        .bind(pool)
         .fetch_optional(&self.pool)
         .await?;
 
@@ -540,9 +625,10 @@ impl OrchardRepository {
         }))
     }
 
-    /// Delete tree state (for reset/rebuild)
-    pub async fn delete_tree_state(&self) -> AppResult<()> {
-        sqlx::query("DELETE FROM orchard_tree_state WHERE id = 1")
+    /// Delete the tree state of one shielded pool (for reset/rebuild)
+    pub async fn delete_tree_state(&self, pool: &str) -> AppResult<()> {
+        sqlx::query("DELETE FROM orchard_tree_state WHERE pool = ?")
+            .bind(pool)
             .execute(&self.pool)
             .await?;
         Ok(())
@@ -574,7 +660,8 @@ impl OrchardRepository {
         let placeholders: Vec<String> = wallet_ids.iter().map(|_| "?".to_string()).collect();
         let query = format!(
             r#"
-            SELECT nullifier, block_height, witness_position, witness_state
+            SELECT nullifier, block_height, witness_position, witness_state,
+                   CAST(pool AS CHAR) AS pool
             FROM orchard_notes
             WHERE wallet_id IN ({}) AND is_spent = FALSE
             ORDER BY block_height ASC
@@ -582,19 +669,20 @@ impl OrchardRepository {
             placeholders.join(",")
         );
 
-        let mut q = sqlx::query_as::<_, (String, u64, Option<u64>, Option<Vec<u8>>)>(&query);
+        let mut q = sqlx::query_as::<_, (String, u64, Option<u64>, Option<Vec<u8>>, String)>(&query);
         for id in wallet_ids {
             q = q.bind(*id);
         }
 
         let rows = q.fetch_all(&self.pool).await?;
 
-        Ok(rows.into_iter().map(|(nullifier, block_height, witness_position, witness_state)| {
+        Ok(rows.into_iter().map(|(nullifier, block_height, witness_position, witness_state, pool)| {
             NoteWitnessInfo {
                 nullifier,
                 block_height,
                 witness_position,
                 witness_state,
+                pool,
             }
         }).collect())
     }
@@ -630,7 +718,8 @@ impl OrchardRepository {
         let placeholders: Vec<String> = wallet_ids.iter().map(|_| "?".to_string()).collect();
         let query = format!(
             r#"
-            SELECT nullifier, block_height, witness_position, witness_state
+            SELECT nullifier, block_height, witness_position, witness_state,
+                   CAST(pool AS CHAR) AS pool
             FROM orchard_notes
             WHERE wallet_id IN ({}) AND is_spent = FALSE
               AND witness_position IS NOT NULL
@@ -640,19 +729,20 @@ impl OrchardRepository {
             placeholders.join(",")
         );
 
-        let mut q = sqlx::query_as::<_, (String, u64, Option<u64>, Option<Vec<u8>>)>(&query);
+        let mut q = sqlx::query_as::<_, (String, u64, Option<u64>, Option<Vec<u8>>, String)>(&query);
         for id in wallet_ids {
             q = q.bind(*id);
         }
 
         let rows = q.fetch_all(&self.pool).await?;
 
-        Ok(rows.into_iter().map(|(nullifier, block_height, witness_position, witness_state)| {
+        Ok(rows.into_iter().map(|(nullifier, block_height, witness_position, witness_state, pool)| {
             NoteWitnessInfo {
                 nullifier,
                 block_height,
                 witness_position,
                 witness_state,
+                pool,
             }
         }).collect())
     }

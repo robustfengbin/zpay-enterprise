@@ -14,15 +14,31 @@ use crate::db::repositories::orchard_repo::OrchardRepository;
 use super::keys::OrchardViewingKey;
 use super::scanner::{CompactBlock, CompactOrchardAction, OrchardNote};
 use super::tree::{OrchardTreeTracker, WitnessData, ORCHARD_TREE_DEPTH};
-use super::{OrchardError, OrchardResult};
+use super::{OrchardError, OrchardResult, ShieldedPool};
 
 use incrementalmerkletree::witness::IncrementalWitness;
 use orchard::tree::MerkleHashOrchard;
 
+/// Witnesses of one pool, keyed by nullifier (hex)
+type WitnessMap = HashMap<String, IncrementalWitness<MerkleHashOrchard, ORCHARD_TREE_DEPTH>>;
+
+/// Positions of already-known notes, keyed by `(pool, position)`
+///
+/// The two pools have independent commitment trees, so their positions both
+/// start at 0 and would collide in a single position-keyed map.
+pub type KnownPositions = HashMap<(ShieldedPool, u64), String>;
+
 /// Witness sync manager for incremental updates
 pub struct WitnessSyncManager {
-    /// Tree tracker (shared with scanner for unified state)
+    /// Tree tracker for the old Orchard pool (shared with scanner for unified state)
     tree: Arc<RwLock<OrchardTreeTracker>>,
+
+    /// Tree tracker for the Ironwood pool (NU6.3 onward)
+    ///
+    /// Separate on-chain tree: Ironwood commitments must never be appended to
+    /// the Orchard tree or the old pool's anchors would stop matching the node's.
+    /// Starts empty — the pool holds nothing until the first v6 transaction.
+    ironwood_tree: Arc<RwLock<OrchardTreeTracker>>,
 
     /// Database repository
     db_repo: Arc<OrchardRepository>,
@@ -36,12 +52,18 @@ pub struct WitnessSyncManager {
     rpc_user: String,
     rpc_password: String,
 
-    /// Witnesses keyed by nullifier (hex string)
+    /// Orchard-pool witnesses keyed by nullifier (hex string)
     /// Stored separately for efficient access during sync
-    witnesses: Arc<RwLock<HashMap<String, IncrementalWitness<MerkleHashOrchard, ORCHARD_TREE_DEPTH>>>>,
+    witnesses: Arc<RwLock<WitnessMap>>,
 
-    /// Map nullifier -> position for quick lookup
+    /// Ironwood-pool witnesses keyed by nullifier (hex string)
+    ironwood_witnesses: Arc<RwLock<WitnessMap>>,
+
+    /// Map nullifier -> position for quick lookup (Orchard pool)
     nullifier_positions: Arc<RwLock<HashMap<String, u64>>>,
+
+    /// Map nullifier -> position for quick lookup (Ironwood pool)
+    ironwood_positions: Arc<RwLock<HashMap<String, u64>>>,
 
     /// Cached Orchard (NU5) activation height, read live from the node so scan
     /// floors match the network (regtest/testnet chains activate far below the
@@ -59,6 +81,7 @@ impl WitnessSyncManager {
     ) -> Self {
         Self {
             tree: Arc::new(RwLock::new(OrchardTreeTracker::new())),
+            ironwood_tree: Arc::new(RwLock::new(OrchardTreeTracker::new())),
             db_repo,
             viewing_keys: Arc::new(RwLock::new(HashMap::new())),
             rpc_client: Arc::new(reqwest::Client::new()),
@@ -66,8 +89,34 @@ impl WitnessSyncManager {
             rpc_user,
             rpc_password,
             witnesses: Arc::new(RwLock::new(HashMap::new())),
+            ironwood_witnesses: Arc::new(RwLock::new(HashMap::new())),
             nullifier_positions: Arc::new(RwLock::new(HashMap::new())),
+            ironwood_positions: Arc::new(RwLock::new(HashMap::new())),
             orchard_activation_cache: Arc::new(RwLock::new(None)),
+        }
+    }
+
+    /// The commitment tree of one pool
+    fn pool_tree(&self, pool: ShieldedPool) -> &Arc<RwLock<OrchardTreeTracker>> {
+        match pool {
+            ShieldedPool::Ironwood => &self.ironwood_tree,
+            _ => &self.tree,
+        }
+    }
+
+    /// The witness map of one pool
+    fn pool_witnesses(&self, pool: ShieldedPool) -> &Arc<RwLock<WitnessMap>> {
+        match pool {
+            ShieldedPool::Ironwood => &self.ironwood_witnesses,
+            _ => &self.witnesses,
+        }
+    }
+
+    /// The nullifier→position map of one pool
+    fn pool_positions(&self, pool: ShieldedPool) -> &Arc<RwLock<HashMap<String, u64>>> {
+        match pool {
+            ShieldedPool::Ironwood => &self.ironwood_positions,
+            _ => &self.nullifier_positions,
         }
     }
 
@@ -136,7 +185,7 @@ impl WitnessSyncManager {
     /// Returns the tree height (last synced block) or 0 if no state exists.
     pub async fn initialize(&self) -> OrchardResult<u64> {
         // Try to load existing tree state
-        let tree_state = self.db_repo.load_tree_state().await
+        let tree_state = self.db_repo.load_tree_state(ShieldedPool::Orchard.as_db_str()).await
             .map_err(|e| OrchardError::DatabaseError(e.to_string()))?;
 
         let wallet_ids = self.get_wallet_ids().await;
@@ -155,20 +204,31 @@ impl WitnessSyncManager {
                 state.tree_height,
                 state.tree_size
             );
+            drop(tree);
 
-            // Load witness states for all unspent notes
+            self.restore_ironwood_tree(state.tree_height).await?;
+
+            // Load witness states for all unspent notes, each into its own pool
             let note_infos = self.db_repo.load_witness_states(&wallet_ids).await
                 .map_err(|e| OrchardError::DatabaseError(e.to_string()))?;
 
             let mut witnesses = self.witnesses.write().await;
             let mut positions = self.nullifier_positions.write().await;
+            let mut ironwood_witnesses = self.ironwood_witnesses.write().await;
+            let mut ironwood_positions = self.ironwood_positions.write().await;
 
             for info in note_infos {
                 if let (Some(pos), Some(ws_data)) = (info.witness_position, info.witness_state) {
                     match OrchardTreeTracker::deserialize_witness(&ws_data) {
                         Ok(witness) => {
-                            witnesses.insert(info.nullifier.clone(), witness);
-                            positions.insert(info.nullifier, pos);
+                            let (w, p) = match ShieldedPool::from_db_str(&info.pool) {
+                                ShieldedPool::Ironwood => {
+                                    (&mut *ironwood_witnesses, &mut *ironwood_positions)
+                                }
+                                _ => (&mut *witnesses, &mut *positions),
+                            };
+                            w.insert(info.nullifier.clone(), witness);
+                            p.insert(info.nullifier, pos);
                         }
                         Err(e) => {
                             tracing::warn!(
@@ -181,8 +241,9 @@ impl WitnessSyncManager {
             }
 
             tracing::info!(
-                "[WitnessSync] Loaded {} witness states",
-                witnesses.len()
+                "[WitnessSync] Loaded {} orchard + {} ironwood witness states",
+                witnesses.len(),
+                ironwood_witnesses.len()
             );
 
             Ok(state.tree_height)
@@ -193,14 +254,67 @@ impl WitnessSyncManager {
         }
     }
 
-    /// Initialize tree from frontier (when no saved state exists)
+    /// Restore the Ironwood tree alongside the Orchard tree
+    ///
+    /// A wallet upgraded from before the dual-pool scanner has no saved Ironwood
+    /// state. Seeding it as "empty at height 0" would be wrong once the chain is
+    /// past NU6.3 (the sync gate follows the Orchard tree height, so those blocks
+    /// would never be replayed and real Ironwood commitments would be missed).
+    /// Instead, take the pool's frontier from the node at the same height — which
+    /// is the empty tree for any pre-NU6.3 height, and the true frontier after.
+    async fn restore_ironwood_tree(&self, orchard_tree_height: u64) -> OrchardResult<()> {
+        if let Some(state) = self.db_repo.load_tree_state(ShieldedPool::Ironwood.as_db_str()).await
+            .map_err(|e| OrchardError::DatabaseError(e.to_string()))?
+        {
+            let mut tree = self.ironwood_tree.write().await;
+            *tree = OrchardTreeTracker::from_serialized(
+                &state.tree_data,
+                state.tree_size,
+                state.tree_height,
+            )?;
+            tracing::info!(
+                "[WitnessSync] Restored ironwood tree state: height={}, size={}",
+                state.tree_height,
+                state.tree_size
+            );
+            return Ok(());
+        }
+
+        match self.get_pool_tree_state(ShieldedPool::Ironwood, orchard_tree_height).await? {
+            Some((frontier_hex, tree_size)) => {
+                let mut tree = self.ironwood_tree.write().await;
+                tree.reset_from_frontier(&frontier_hex, tree_size, orchard_tree_height)?;
+                tracing::info!(
+                    "[WitnessSync] Seeded ironwood tree from node frontier at height {}",
+                    orchard_tree_height
+                );
+            }
+            None => {
+                // Node reports no Ironwood treestate => chain is pre-NU6.3 at
+                // this height, so the pool is empty by definition.
+                let mut tree = self.ironwood_tree.write().await;
+                *tree = OrchardTreeTracker::new();
+                tree.set_block_height(orchard_tree_height);
+                tracing::info!(
+                    "[WitnessSync] Ironwood pool not active at height {}, starting from empty tree",
+                    orchard_tree_height
+                );
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Initialize both pools' trees from the node's frontiers
     ///
     /// `frontier_height` should be the block height before the earliest note
     pub async fn init_from_frontier(&self, frontier_height: u64) -> OrchardResult<()> {
         let (frontier_hex, tree_size, _root) = self.get_tree_state(frontier_height).await?;
 
-        let mut tree = self.tree.write().await;
-        tree.reset_from_frontier(&frontier_hex, tree_size, frontier_height)?;
+        {
+            let mut tree = self.tree.write().await;
+            tree.reset_from_frontier(&frontier_hex, tree_size, frontier_height)?;
+        }
 
         tracing::info!(
             "[WitnessSync] Initialized from frontier: height={}, size={}",
@@ -208,11 +322,66 @@ impl WitnessSyncManager {
             tree_size
         );
 
+        // The Ironwood frontier is only present from NU6.3 on; before that the
+        // pool is empty.
+        match self.get_pool_tree_state(ShieldedPool::Ironwood, frontier_height).await? {
+            Some((ironwood_frontier, ironwood_size)) => {
+                let mut tree = self.ironwood_tree.write().await;
+                tree.reset_from_frontier(&ironwood_frontier, ironwood_size, frontier_height)?;
+                tracing::info!(
+                    "[WitnessSync] Initialized ironwood from frontier: height={}, size={}",
+                    frontier_height,
+                    ironwood_size
+                );
+            }
+            None => {
+                let mut tree = self.ironwood_tree.write().await;
+                *tree = OrchardTreeTracker::new();
+                tree.set_block_height(frontier_height);
+            }
+        }
+
         Ok(())
     }
 
-    /// Get tree state from RPC
-    async fn get_tree_state(&self, height: u64) -> OrchardResult<(String, u64, String)> {
+    /// Get one pool's treestate from the node at `height`
+    ///
+    /// Returns `None` when the node reports no treestate for that pool at that
+    /// height — which is how a pre-NU6.3 chain answers for the Ironwood pool
+    /// (the field is omitted so pre-NU6.3 responses stay unchanged).
+    async fn get_pool_tree_state(
+        &self,
+        pool: ShieldedPool,
+        height: u64,
+    ) -> OrchardResult<Option<(String, u64)>> {
+        let result = self.fetch_tree_state(height).await?;
+
+        let pool_state = match result["result"][pool.as_db_str()].as_object() {
+            Some(state) => state,
+            None => return Ok(None),
+        };
+
+        let frontier = match pool_state
+            .get("commitments")
+            .and_then(|c| c.get("finalState"))
+            .and_then(|f| f.as_str())
+        {
+            Some(frontier) if !frontier.is_empty() => frontier.to_string(),
+            // Present but empty: pool active with an empty tree.
+            _ => return Ok(None),
+        };
+
+        let tree_size = pool_state
+            .get("commitments")
+            .and_then(|c| c.get("finalPosition"))
+            .and_then(|p| p.as_u64())
+            .unwrap_or(0);
+
+        Ok(Some((frontier, tree_size)))
+    }
+
+    /// Call `z_gettreestate` at `height`
+    async fn fetch_tree_state(&self, height: u64) -> OrchardResult<serde_json::Value> {
         let request = serde_json::json!({
             "jsonrpc": "1.0",
             "id": "witness_sync",
@@ -235,6 +404,13 @@ impl WitnessSyncManager {
             let msg = error.get("message").and_then(|m| m.as_str()).unwrap_or("Unknown error");
             return Err(OrchardError::RpcError(format!("RPC error: {}", msg)));
         }
+
+        Ok(result)
+    }
+
+    /// Get the old Orchard pool's tree state from RPC
+    async fn get_tree_state(&self, height: u64) -> OrchardResult<(String, u64, String)> {
+        let result = self.fetch_tree_state(height).await?;
 
         let orchard = result["result"]["orchard"].as_object()
             .ok_or_else(|| OrchardError::RpcError("Missing orchard field".to_string()))?;
@@ -294,19 +470,37 @@ impl WitnessSyncManager {
     pub async fn process_blocks(
         &self,
         blocks: Vec<CompactBlock>,
-        known_positions: &HashMap<u64, String>,  // position -> nullifier
+        known_positions: &KnownPositions,
     ) -> OrchardResult<Vec<OrchardNote>> {
         if blocks.is_empty() {
             return Ok(Vec::new());
         }
 
+        // Each pool is processed against its own commitment tree, witnesses and
+        // note-encryption domain. Both trees advance over the same blocks, so
+        // their heights stay in lockstep and the sync gate (tree height vs chain
+        // tip) keeps a single meaning.
+        let mut found_notes = Vec::new();
+        for pool in ShieldedPool::NOTE_POOLS {
+            found_notes.extend(self.process_pool_blocks(pool, &blocks, known_positions).await?);
+        }
+        Ok(found_notes)
+    }
+
+    /// Process a batch of blocks for a single shielded pool
+    async fn process_pool_blocks(
+        &self,
+        pool: ShieldedPool,
+        blocks: &[CompactBlock],
+        known_positions: &KnownPositions,
+    ) -> OrchardResult<Vec<OrchardNote>> {
         let first_height = blocks.first().map(|b| b.height).unwrap_or(0);
         let last_height = blocks.last().map(|b| b.height).unwrap_or(0);
         let viewing_keys = self.viewing_keys.read().await;
 
-        let mut tree = self.tree.write().await;
-        let mut witnesses = self.witnesses.write().await;
-        let mut positions = self.nullifier_positions.write().await;
+        let mut tree = self.pool_tree(pool).write().await;
+        let mut witnesses = self.pool_witnesses(pool).write().await;
+        let mut positions = self.pool_positions(pool).write().await;
         let mut found_notes = Vec::new();
         // Every (nullifier, spending_tx) seen in this batch. Spent-marking is
         // deferred until after the discovered notes are persisted, so a note
@@ -316,7 +510,8 @@ impl WitnessSyncManager {
         let mut batch_spends: Vec<([u8; 32], String)> = Vec::new();
 
         tracing::debug!(
-            "[WitnessSync] Processing blocks {}-{}, {} known positions, {} existing witnesses",
+            "[WitnessSync] Processing {} pool, blocks {}-{}, {} known positions, {} existing witnesses",
+            pool,
             first_height,
             last_height,
             known_positions.len(),
@@ -325,7 +520,7 @@ impl WitnessSyncManager {
 
         for block in blocks {
             for tx in &block.transactions {
-                for action in &tx.orchard_actions {
+                for action in tx.actions_for(pool) {
                     let current_pos = tree.position();
 
                     // 1. Update all existing witnesses with this commitment
@@ -336,12 +531,14 @@ impl WitnessSyncManager {
                     }
 
                     // 2. Check if this position belongs to a known note
-                    let is_known_position = known_positions.contains_key(&current_pos);
+                    let is_known_position = known_positions.contains_key(&(pool, current_pos));
 
                     // 3. Try to decrypt (find new notes)
                     let mut found_note = None;
                     for vk in viewing_keys.values() {
-                        if let Some(note) = self.try_decrypt_note(vk, action, &tx.hash, block.height) {
+                        if let Some(note) =
+                            self.try_decrypt_note(vk, action, &tx.hash, block.height, pool)
+                        {
                             found_note = Some(note);
                             break;
                         }
@@ -353,7 +550,7 @@ impl WitnessSyncManager {
                     // 5. Create witness for notes at this position (only if not already tracked)
                     if is_known_position {
                         // Existing note from DB - only create witness if not already loaded
-                        let nullifier = known_positions.get(&current_pos).unwrap().clone();
+                        let nullifier = known_positions.get(&(pool, current_pos)).unwrap().clone();
                         if !witnesses.contains_key(&nullifier) {
                             // First time seeing this note (no witness_state in DB)
                             // Create witness from current tree state
@@ -403,11 +600,11 @@ impl WitnessSyncManager {
             self.save_notes(&found_notes).await?;
         }
         for (nullifier, tx_hash) in &batch_spends {
-            self.check_spent_nullifier(nullifier, tx_hash, last_height).await;
+            self.check_spent_nullifier(nullifier, tx_hash, last_height, pool).await;
         }
 
         tracing::info!(
-            "[WitnessSync] Processed blocks {}-{}: {} new notes, {} witnesses tracked",
+            "[WitnessSync] Processed {pool} pool blocks {}-{}: {} new notes, {} witnesses tracked",
             first_height,
             last_height,
             found_notes.len(),
@@ -432,16 +629,24 @@ impl WitnessSyncManager {
     }
 
     /// Try to decrypt a note (simplified version)
+    ///
+    /// `pool` selects the note-encryption domain: the Orchard pool carries V2
+    /// note plaintexts (`OrchardDomain`) and the Ironwood pool carries V3 /
+    /// rcm_v3 plaintexts (`IronwoodDomain`). Each domain only accepts its own
+    /// plaintext version, so a wrong-domain attempt simply fails to decrypt —
+    /// the action's source (`tx.orchard` vs `tx.ironwood`) is the authority on
+    /// which one to use.
     fn try_decrypt_note(
         &self,
         viewing_key: &OrchardViewingKey,
         action: &CompactOrchardAction,
         tx_hash: &str,
         block_height: u64,
+        pool: ShieldedPool,
     ) -> Option<OrchardNote> {
         use orchard::keys::PreparedIncomingViewingKey;
         use orchard::note::{ExtractedNoteCommitment, Nullifier};
-        use orchard::note_encryption::{CompactAction, OrchardDomain};
+        use orchard::note_encryption::{CompactAction, IronwoodDomain, OrchardDomain};
         use zcash_note_encryption::{batch, EphemeralKeyBytes, COMPACT_NOTE_SIZE};
         use subtle::CtOption;
 
@@ -483,15 +688,46 @@ impl WitnessSyncManager {
                 EphemeralKeyBytes(action.ephemeral_key),
                 enc_ciphertext,
             );
-            let domain = OrchardDomain::for_compact_action(&compact_action);
 
-            let results = batch::try_compact_note_decryption(
-                &[prepared_ivk],
-                &[(domain, compact_action)],
-            );
+            // Both domains decrypt to (Note, Address); only the accepted note
+            // plaintext version differs.
+            let decrypted = match pool {
+                ShieldedPool::Ironwood => {
+                    let domain = IronwoodDomain::for_compact_action(&compact_action);
+                    batch::try_compact_note_decryption(&[prepared_ivk], &[(domain, compact_action)])
+                        .into_iter()
+                        .next()
+                        .flatten()
+                }
+                _ => {
+                    let domain = OrchardDomain::for_compact_action(&compact_action);
+                    batch::try_compact_note_decryption(&[prepared_ivk], &[(domain, compact_action)])
+                        .into_iter()
+                        .next()
+                        .flatten()
+                }
+            };
 
-            if let Some(Some(((note, recipient), _))) = results.into_iter().next() {
+            if let Some(((note, recipient), _)) = decrypted {
                 let value_zatoshis = note.value().inner();
+
+                // Zero-value notes are bundle padding, not funds: the builder
+                // pads bundles to the minimum action count with dummy outputs,
+                // and a change output to our own address can be fabricated at
+                // zero value. Persisting them adds unspendable rows that then
+                // have to be filtered out of every selection (they were filtered
+                // at turnstile selection time before), so drop them at discovery
+                // — the source of truth. They carry no value, so nothing is lost.
+                if value_zatoshis == 0 {
+                    tracing::debug!(
+                        "[WitnessSync] Skipping zero-value {} padding note in tx {} at height {}",
+                        pool,
+                        tx_hash,
+                        block_height
+                    );
+                    return None;
+                }
+
                 let note_nullifier = note.nullifier(fvk);
                 let recipient_bytes = recipient.to_raw_address_bytes();
                 let rho_bytes = note.rho().to_bytes();
@@ -514,6 +750,7 @@ impl WitnessSyncManager {
                     rho: rho_bytes,
                     rseed: rseed_bytes,
                     witness_data: None,
+                    pool,
                 });
             }
         }
@@ -522,11 +759,25 @@ impl WitnessSyncManager {
     }
 
     /// Check if a nullifier corresponds to a spent note
-    async fn check_spent_nullifier(&self, nullifier: &[u8; 32], tx_hash: &str, block_height: u64) {
+    ///
+    /// Scoped to the pool the nullifier was seen in: the two pools keep disjoint
+    /// nullifier sets, so an Ironwood nullifier must never retire an Orchard note
+    /// even if the bytes coincide.
+    async fn check_spent_nullifier(
+        &self,
+        nullifier: &[u8; 32],
+        tx_hash: &str,
+        block_height: u64,
+        pool: ShieldedPool,
+    ) {
         let nullifier_hex = hex::encode(nullifier);
 
         // Try to mark as spent in database
-        if let Err(e) = self.db_repo.mark_note_spent(&nullifier_hex, tx_hash).await {
+        if let Err(e) = self
+            .db_repo
+            .mark_note_spent_in_pool(&nullifier_hex, tx_hash, pool.as_db_str())
+            .await
+        {
             // This is fine - most nullifiers won't be ours
             tracing::trace!(
                 "[WitnessSync] Nullifier check at height {}: {}",
@@ -541,15 +792,23 @@ impl WitnessSyncManager {
     /// Only saves tree_state and witness_state (IncrementalWitness).
     /// auth_path and root are computed in real-time during transfers.
     pub async fn save_state(&self) -> OrchardResult<()> {
-        let tree = self.tree.read().await;
-        let witnesses = self.witnesses.read().await;
+        for pool in ShieldedPool::NOTE_POOLS {
+            self.save_pool_state(pool).await?;
+        }
+        Ok(())
+    }
+
+    /// Save one pool's tree frontier and its notes' witness states
+    async fn save_pool_state(&self, pool: ShieldedPool) -> OrchardResult<()> {
+        let tree = self.pool_tree(pool).read().await;
+        let witnesses = self.pool_witnesses(pool).read().await;
 
         // Save tree state
         let tree_data = tree.serialize_tree()?;
         let tree_height = tree.block_height();
         let tree_size = tree.position();
 
-        self.db_repo.save_tree_state(&tree_data, tree_height, tree_size).await
+        self.db_repo.save_tree_state(pool.as_db_str(), &tree_data, tree_height, tree_size).await
             .map_err(|e| OrchardError::DatabaseError(e.to_string()))?;
 
         // Save witness states only (auth_path/root computed at transfer time)
@@ -565,7 +824,8 @@ impl WitnessSyncManager {
         }
 
         tracing::info!(
-            "[WitnessSync] Saved state: tree_height={}, tree_size={}, witnesses={}",
+            "[WitnessSync] Saved {} state: tree_height={}, tree_size={}, witnesses={}",
+            pool,
             tree_height,
             tree_size,
             saved_count
@@ -615,10 +875,37 @@ impl WitnessSyncManager {
         None
     }
 
-    /// Get current tree anchor as orchard::tree::Anchor
+    /// Get current tree anchor as orchard::tree::Anchor (old Orchard pool)
     pub async fn get_orchard_anchor(&self) -> orchard::tree::Anchor {
         let tree = self.tree.read().await;
         tree.get_anchor()
+    }
+
+    /// Get the anchor of one pool's commitment tree
+    ///
+    /// A spend must anchor to the tree that holds its input notes. After NU6.3
+    /// the Orchard tree is frozen (turnstile: spend-only), so its anchor stops
+    /// moving while the Ironwood anchor keeps advancing.
+    pub async fn get_pool_anchor(&self, pool: ShieldedPool) -> orchard::tree::Anchor {
+        let tree = self.pool_tree(pool).read().await;
+        tree.get_anchor()
+    }
+
+    /// Get the Ironwood tree anchor
+    pub async fn get_ironwood_anchor(&self) -> orchard::tree::Anchor {
+        self.get_pool_anchor(ShieldedPool::Ironwood).await
+    }
+
+    /// Get the Ironwood tree's scanned height
+    pub async fn get_ironwood_tree_height(&self) -> u64 {
+        let tree = self.ironwood_tree.read().await;
+        tree.block_height()
+    }
+
+    /// Get the Ironwood tree's position (number of commitments seen)
+    pub async fn get_ironwood_tree_position(&self) -> u64 {
+        let tree = self.ironwood_tree.read().await;
+        tree.position()
     }
 
     /// Get current tree height
@@ -638,26 +925,29 @@ impl WitnessSyncManager {
         &self.tree
     }
 
-    /// Build known positions map from database notes
-    pub async fn build_known_positions_map(&self) -> OrchardResult<HashMap<u64, String>> {
+    /// Build known positions map from database notes, keyed by `(pool, position)`
+    pub async fn build_known_positions_map(&self) -> OrchardResult<KnownPositions> {
         let wallet_ids = self.get_wallet_ids().await;
         let note_infos = self.db_repo.load_witness_states(&wallet_ids).await
             .map_err(|e| OrchardError::DatabaseError(e.to_string()))?;
 
-        let mut map = HashMap::new();
+        let mut map = KnownPositions::new();
         for info in note_infos {
             if let Some(pos) = info.witness_position {
-                map.insert(pos, info.nullifier);
+                map.insert((ShieldedPool::from_db_str(&info.pool), pos), info.nullifier);
             }
         }
 
         Ok(map)
     }
 
-    /// Get wallet balance from database
+    /// Get wallet balance from database (all shielded pools combined)
+    ///
+    /// A wallet mid-migration holds funds in both pools, and both are equally
+    /// spendable, so the headline balance is their sum. Per-pool figures come
+    /// from [`Self::get_wallet_balances_by_pool`].
     pub async fn get_wallet_balance(&self, wallet_id: i32) -> super::scanner::ShieldedBalance {
         use super::scanner::ShieldedBalance;
-        use super::ShieldedPool;
 
         match self.db_repo.get_balance(wallet_id).await {
             Ok(balance) => {
@@ -676,15 +966,47 @@ impl WitnessSyncManager {
         }
     }
 
+    /// Get the wallet's balance in each shielded pool
+    ///
+    /// Reported separately because during a migration the same wallet has an
+    /// old-pool balance that is draining and an Ironwood balance that is filling;
+    /// collapsing them hides whether a migration is complete.
+    pub async fn get_wallet_balances_by_pool(
+        &self,
+        wallet_id: i32,
+    ) -> Vec<super::scanner::ShieldedBalance> {
+        use super::scanner::ShieldedBalance;
+
+        let mut balances = Vec::new();
+        for pool in ShieldedPool::NOTE_POOLS {
+            let (balance, notes) = self
+                .db_repo
+                .get_balance_by_pool(wallet_id, pool.as_db_str())
+                .await
+                .unwrap_or_else(|e| {
+                    tracing::warn!("[WitnessSync] Failed to get {} balance: {}", pool, e);
+                    (0, 0)
+                });
+            balances.push(ShieldedBalance::new(pool, balance, balance, notes));
+        }
+        balances
+    }
+
     /// Get spendable notes with witnesses for a wallet
     ///
     /// This implements the design from orchard_witness_sync_design.md section 3.3:
     /// 1. Load note's witness_state from DB
     /// 2. Deserialize to IncrementalWitness
     /// 3. Compute auth_path and root from the witness in real-time
-    pub async fn get_spendable_notes_with_witnesses(&self, wallet_id: i32) -> Vec<OrchardNote> {
+    /// Notes are scoped to a single pool: inputs, anchor and note version all
+    /// come from one pool, so a spend can never mix them.
+    pub async fn get_spendable_notes_with_witnesses(
+        &self,
+        wallet_id: i32,
+        pool: ShieldedPool,
+    ) -> Vec<OrchardNote> {
         // Load notes with spending data
-        let db_notes = match self.db_repo.get_spendable_notes(wallet_id).await {
+        let db_notes = match self.db_repo.get_spendable_notes(wallet_id, pool.as_db_str()).await {
             Ok(notes) => notes,
             Err(e) => {
                 tracing::warn!("[WitnessSync] Failed to load notes: {}", e);
@@ -693,8 +1015,8 @@ impl WitnessSyncManager {
         };
 
         // Load witness states from memory (loaded during initialize())
-        let witnesses = self.witnesses.read().await;
-        let positions = self.nullifier_positions.read().await;
+        let witnesses = self.pool_witnesses(pool).read().await;
+        let positions = self.pool_positions(pool).read().await;
 
         let mut result = Vec::new();
 
@@ -801,12 +1123,14 @@ impl WitnessSyncManager {
                 rho,
                 rseed,
                 witness_data: Some(witness_data),
+                pool,
             });
         }
 
         tracing::info!(
-            "[WitnessSync] Returning {} spendable notes with computed witnesses for wallet {}",
+            "[WitnessSync] Returning {} spendable {} notes with computed witnesses for wallet {}",
             result.len(),
+            pool,
             wallet_id
         );
 
@@ -1005,32 +1329,19 @@ impl WitnessSyncManager {
 
         if let Some(txs) = block["tx"].as_array() {
             for tx in txs {
-                if let Some(orchard) = tx["orchard"].as_object() {
-                    if let Some(actions) = orchard.get("actions").and_then(|a| a.as_array()) {
-                        let mut orchard_actions = Vec::new();
+                // The node reports the two Orchard-protocol pools under separate
+                // keys with identical action shapes: `orchard` (old pool) and
+                // `ironwood` (v6 transactions, NU6.3 onward). They are kept apart
+                // here because each pool commits to its own note commitment tree.
+                let orchard_actions = self.parse_pool_actions(&tx["orchard"])?;
+                let ironwood_actions = self.parse_pool_actions(&tx["ironwood"])?;
 
-                        for action in actions {
-                            let cmx = self.parse_hex_32(action["cmx"].as_str().unwrap_or(""))?;
-                            let nullifier = self.parse_hex_32(action["nullifier"].as_str().unwrap_or(""))?;
-                            let ephemeral_key = self.parse_hex_32(action["ephemeralKey"].as_str().unwrap_or(""))?;
-                            let ciphertext = hex::decode(action["encCiphertext"].as_str().unwrap_or(""))
-                                .unwrap_or_default();
-
-                            orchard_actions.push(CompactOrchardAction {
-                                cmx,
-                                nullifier,
-                                ephemeral_key,
-                                ciphertext,
-                            });
-                        }
-
-                        if !orchard_actions.is_empty() {
-                            transactions.push(super::scanner::CompactTransaction {
-                                hash: tx["txid"].as_str().unwrap_or("").to_string(),
-                                orchard_actions,
-                            });
-                        }
-                    }
+                if !orchard_actions.is_empty() || !ironwood_actions.is_empty() {
+                    transactions.push(super::scanner::CompactTransaction {
+                        hash: tx["txid"].as_str().unwrap_or("").to_string(),
+                        orchard_actions,
+                        ironwood_actions,
+                    });
                 }
             }
         }
@@ -1040,6 +1351,30 @@ impl WitnessSyncManager {
             hash,
             transactions,
         })
+    }
+
+    /// Parse the `actions` array of one pool's bundle (`tx.orchard` /
+    /// `tx.ironwood`). Missing bundle => no actions.
+    fn parse_pool_actions(
+        &self,
+        bundle: &serde_json::Value,
+    ) -> OrchardResult<Vec<CompactOrchardAction>> {
+        let actions = match bundle.get("actions").and_then(|a| a.as_array()) {
+            Some(actions) => actions,
+            None => return Ok(Vec::new()),
+        };
+
+        let mut parsed = Vec::with_capacity(actions.len());
+        for action in actions {
+            parsed.push(CompactOrchardAction {
+                cmx: self.parse_hex_32(action["cmx"].as_str().unwrap_or(""))?,
+                nullifier: self.parse_hex_32(action["nullifier"].as_str().unwrap_or(""))?,
+                ephemeral_key: self.parse_hex_32(action["ephemeralKey"].as_str().unwrap_or(""))?,
+                ciphertext: hex::decode(action["encCiphertext"].as_str().unwrap_or(""))
+                    .unwrap_or_default(),
+            });
+        }
+        Ok(parsed)
     }
 
     /// Parse hex string to 32-byte array
@@ -1104,6 +1439,7 @@ impl WitnessSyncManager {
                 &rho_hex,
                 &rseed_hex,
                 note.position,
+                note.pool.as_db_str(),
             ).await.map_err(|e| OrchardError::DatabaseError(e.to_string()))?;
         }
 
@@ -1148,17 +1484,23 @@ impl WitnessSyncManager {
     /// Reset tree state and prepare for rescanning from a given height
     /// This is needed when notes exist without witness_state
     pub async fn reset_for_rescan(&self, from_height: u64) -> OrchardResult<()> {
-        // Clear existing witnesses since they'll be rebuilt
+        // Clear existing witnesses of both pools since they'll be rebuilt
         {
             let mut witnesses = self.witnesses.write().await;
             let mut positions = self.nullifier_positions.write().await;
+            let mut ironwood_witnesses = self.ironwood_witnesses.write().await;
+            let mut ironwood_positions = self.ironwood_positions.write().await;
             witnesses.clear();
             positions.clear();
+            ironwood_witnesses.clear();
+            ironwood_positions.clear();
         }
 
-        // Delete saved tree state from DB
-        self.db_repo.delete_tree_state().await
-            .map_err(|e| OrchardError::DatabaseError(e.to_string()))?;
+        // Delete saved tree state of both pools from DB
+        for pool in ShieldedPool::NOTE_POOLS {
+            self.db_repo.delete_tree_state(pool.as_db_str()).await
+                .map_err(|e| OrchardError::DatabaseError(e.to_string()))?;
+        }
 
         // Initialize from frontier at height-1, floored at network activation
         let activation = self.orchard_activation_height().await;

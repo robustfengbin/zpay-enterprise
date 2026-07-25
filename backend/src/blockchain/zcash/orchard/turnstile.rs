@@ -214,6 +214,40 @@ pub struct TurnstileOutput {
     pub memo: MemoBytes,
 }
 
+/// Change retained in the **old Orchard pool** instead of crossing to Ironwood.
+///
+/// Used by intermediate batches of a private (staggered) migration: if every
+/// batch pushed its change through the turnstile, the first batch would empty
+/// the old pool and there would be nothing left for the later batches to
+/// migrate. Keeping change on the old side preserves the schedule.
+///
+/// Post-NU6.3 the old pool disables cross-address transfers, so a plain output
+/// is consensus-invalid; the only legal way to retain value is a
+/// wallet-controlled change output, which the builder pairs with a fabricated
+/// zero-valued spend at the same address (hence the `fvk`, which must own
+/// `recipient`). The retained note is a V2 note — the Orchard pool's note
+/// version is V2 under every bundle version — so the old-pool scanner picks it
+/// up unchanged.
+///
+/// **This does not violate the turnstile.** The NU6.3 rule is
+/// "`valueBalanceOrchard` MUST be nonnegative" — no *new* value may enter the old
+/// pool; retaining value already inside it is explicitly fine (zebra's
+/// `orchard_value_balance_non_negative`: "an Orchard bundle may still spend
+/// existing notes — Orchard-to-Orchard note management nets to a zero balance").
+/// Here the balance is `spends − change`, i.e. exactly the amount that crosses to
+/// Ironwood, which is positive.
+pub struct OldPoolChange {
+    /// Full viewing key that owns `recipient`; also authorizes the fabricated
+    /// paired spend through the normal signing flow.
+    pub fvk: FullViewingKey,
+    /// Outgoing viewing key so the sender can recover this change later.
+    pub ovk: Option<OutgoingViewingKey>,
+    /// Our own (internal-scope) old-pool address.
+    pub recipient: Address,
+    pub value_zatoshis: u64,
+    pub memo: MemoBytes,
+}
+
 /// A built turnstile transaction: raw consensus bytes ready for
 /// `sendrawtransaction`, plus the canonical (display-order) transaction id
 /// computed by the library from the finished v6 transaction.
@@ -272,6 +306,7 @@ pub fn build_turnstile_transaction(
     spends: Vec<(FullViewingKey, Note, MerklePath)>,
     spend_auth_keys: Vec<SpendAuthorizingKey>,
     ironwood_outputs: Vec<TurnstileOutput>,
+    old_pool_change: Option<OldPoolChange>,
     fee_zatoshis: u64,
 ) -> Result<TurnstileTx, TurnstileError> {
     if spends.is_empty() {
@@ -321,6 +356,31 @@ pub fn build_turnstile_transaction(
             .map_err(|e| TurnstileError::Build(format!("add_ironwood_output failed: {e:?}")))?;
     }
 
+    // Optional old-pool change: value that stays behind for a later batch. It
+    // must go through add_orchard_change_output — a plain old-pool output is
+    // rejected post-NU6.3 (CrossAddressDisabled) — and the builder fabricates
+    // the paired zero-valued spend at the same address, authorized by the same
+    // spend authorizing key as the real spends.
+    if let Some(change) = old_pool_change {
+        let value = Zatoshis::from_u64(change.value_zatoshis).map_err(|e| {
+            TurnstileError::Build(format!(
+                "old-pool change value {} invalid: {e:?}",
+                change.value_zatoshis
+            ))
+        })?;
+        builder
+            .add_orchard_change_output::<Infallible>(
+                change.fvk,
+                change.ovk,
+                change.recipient,
+                value,
+                change.memo,
+            )
+            .map_err(|e| {
+                TurnstileError::Build(format!("add_orchard_change_output failed: {e:?}"))
+            })?;
+    }
+
     // Force the exact fee the proposal computed; the builder balances the two
     // pools' value balances against it. (A ZIP-317 rule would recompute the fee
     // and could disagree with the proposal's figure.)
@@ -362,11 +422,14 @@ pub fn build_turnstile_transaction(
 /// — so the padding matches the wire, including the two rules that trip up a
 /// hand-count:
 ///   * the old pool (`orchard_v3`) has cross-address **disabled**, so its action
-///     count is `num_spends + num_outputs` (never `max`); we add no old-pool
-///     output, so it is `pad(n_spends → min 2)`;
+///     count is `num_spends + num_outputs` (never `max`), where `num_outputs`
+///     counts the wallet-controlled change outputs (a plain output is invalid
+///     there). With no old-pool change that is `pad(n_spends → min 2)`; a
+///     retained change adds one more action, because the builder pairs it with a
+///     fabricated zero-valued spend;
 ///   * the Ironwood pool (`ironwood_v3`) pads to a 2-action minimum, so with 1–2
-///     outputs it is always 2 actions (fee is therefore independent of whether a
-///     change output is present).
+///     outputs it is always 2 actions (fee is therefore independent of whether an
+///     Ironwood change output is present).
 /// Then `fee = MARGINAL_FEE × max(GRACE_ACTIONS, orchard + ironwood)`.
 ///
 /// The proposal's fee (a v5 single-bundle estimate) under-counts the
@@ -375,6 +438,7 @@ pub fn build_turnstile_transaction(
 /// with this after note selection and feeds it to the fixed fee rule.
 pub fn turnstile_fee_zatoshis(
     n_spends: usize,
+    n_old_pool_changes: usize,
     n_ironwood_outputs: usize,
 ) -> Result<u64, TurnstileError> {
     use orchard::builder::BundleType;
@@ -385,7 +449,9 @@ pub fn turnstile_fee_zatoshis(
         .num_actions(
             BundleVersion::orchard_v3().default_flags(),
             n_spends,
-            0, // no old-pool output (只出不进)
+            // Old-pool outputs are wallet-controlled change only (a retained
+            // batch remainder); 0 for a full crossing.
+            n_old_pool_changes,
         )
         .map_err(|e| TurnstileError::Build(format!("orchard action count: {e}")))?;
     let ironwood_actions = BundleType::DEFAULT
@@ -476,13 +542,29 @@ mod tests {
         // The value that succeeded on 档B′ (tx 7698570627… @ height 511): 1
         // old-pool spend (padded to 2 actions) + 2 Ironwood outputs (payment +
         // change, 2 actions) = 4 logical actions × 5000 = 20000.
-        assert_eq!(turnstile_fee_zatoshis(1, 2).unwrap(), 20_000);
+        assert_eq!(turnstile_fee_zatoshis(1, 0, 2).unwrap(), 20_000);
         // No change (1 Ironwood output) still pads to 2 ironwood actions → 20000.
-        assert_eq!(turnstile_fee_zatoshis(1, 1).unwrap(), 20_000);
-        assert_eq!(turnstile_fee_zatoshis(2, 2).unwrap(), 20_000);
+        assert_eq!(turnstile_fee_zatoshis(1, 0, 1).unwrap(), 20_000);
+        assert_eq!(turnstile_fee_zatoshis(2, 0, 2).unwrap(), 20_000);
         // 3 spends → orchard pads to 3, + 2 ironwood = 5 → 25000.
-        assert_eq!(turnstile_fee_zatoshis(3, 2).unwrap(), 25_000);
+        assert_eq!(turnstile_fee_zatoshis(3, 0, 2).unwrap(), 25_000);
         // 4 spends → 4 + 2 = 6 → 30000.
-        assert_eq!(turnstile_fee_zatoshis(4, 2).unwrap(), 30_000);
+        assert_eq!(turnstile_fee_zatoshis(4, 0, 2).unwrap(), 30_000);
+    }
+
+    #[test]
+    fn old_pool_change_costs_one_more_action() {
+        // Retaining change in the old pool adds an old-pool output, and with
+        // cross-address disabled that output gets its own action (paired with a
+        // fabricated zero-valued spend) — it is NOT folded into a spend's action.
+        // 1 spend + 1 change = 2 orchard actions (already the minimum) + 2
+        // ironwood = 4 → 20000, same as no change.
+        assert_eq!(turnstile_fee_zatoshis(1, 1, 1).unwrap(), 20_000);
+        // 2 spends + 1 change = 3 orchard actions + 2 ironwood = 5 → 25000,
+        // one action more than the same spend count without retained change.
+        assert_eq!(turnstile_fee_zatoshis(2, 1, 1).unwrap(), 25_000);
+        assert_eq!(turnstile_fee_zatoshis(2, 0, 1).unwrap(), 20_000);
+        // 3 spends + 1 change = 4 + 2 = 6 → 30000.
+        assert_eq!(turnstile_fee_zatoshis(3, 1, 1).unwrap(), 30_000);
     }
 }
