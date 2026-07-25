@@ -121,7 +121,7 @@ impl MigrationService {
 
         // Live balance, not a cached figure — the plan totals what is
         // actually spendable right now. The executor re-checks per batch.
-        let balance = self.wallet_service.get_shielded_balance(wallet.id).await?;
+        let balance = self.legacy_pool_balance(wallet.id).await?;
         let headroom = FEE_HEADROOM_ZATOSHIS.saturating_mul(batches as u64);
         let plannable = balance.spendable_zatoshis.saturating_sub(headroom);
         if plannable < MIN_BATCH_ZATOSHIS as u64 * batches as u64 {
@@ -198,9 +198,32 @@ impl MigrationService {
         self.repo.list_runs(limit.clamp(1, 200), offset.max(0)).await
     }
 
+    /// Balance of the pool this feature exists to drain.
+    ///
+    /// Everything migration-facing must read the old Orchard pool alone, never
+    /// the cross-pool total: once a wallet has migrated, its whole balance sits
+    /// in Ironwood, and the combined figure would keep the "you have funds to
+    /// migrate" banner up forever and let a plan be built over notes the
+    /// turnstile builder refuses to spend.
+    async fn legacy_pool_balance(
+        &self,
+        wallet_id: i32,
+    ) -> AppResult<crate::blockchain::zcash::orchard::scanner::ShieldedBalance> {
+        use crate::blockchain::zcash::orchard::{scanner::ShieldedBalance, ShieldedPool};
+
+        let by_pool = self
+            .wallet_service
+            .get_shielded_balances_by_pool(wallet_id)
+            .await?;
+        Ok(by_pool
+            .into_iter()
+            .find(|b| b.pool == Some(ShieldedPool::Orchard))
+            .unwrap_or_else(|| ShieldedBalance::new(ShieldedPool::Orchard, 0, 0, 0)))
+    }
+
     /// Wallet-page banner: legacy-pool holdings + any active run.
     pub async fn migration_status(&self, wallet_id: i32) -> AppResult<MigrationStatusResponse> {
-        let balance = self.wallet_service.get_shielded_balance(wallet_id).await?;
+        let balance = self.legacy_pool_balance(wallet_id).await?;
         let active = self.repo.find_active_run_for_wallet(wallet_id).await?;
         Ok(MigrationStatusResponse {
             wallet_id,

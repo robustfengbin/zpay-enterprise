@@ -42,7 +42,9 @@ pub struct ShieldedBalanceResponse {
     pub spendable_zatoshis: u64,
     pub pending_zatoshis: u64,
     pub note_count: u32,
-    pub pool: String,
+    /// Pool name, omitted when the figure is the cross-pool total.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pool: Option<String>,
 }
 
 /// Per-pool shielded balance response (F4.0-c dual pools).
@@ -190,7 +192,7 @@ pub async fn get_shielded_balance(
         spendable_zatoshis: balance.spendable_zatoshis,
         pending_zatoshis: balance.pending_zatoshis,
         note_count: balance.note_count,
-        pool: format!("{:?}", balance.pool).to_lowercase(),
+        pool: balance.pool.map(|p| p.as_db_str().to_string()),
     };
 
     Ok(HttpResponse::Ok().json(response))
@@ -217,7 +219,7 @@ pub async fn get_shielded_balance_by_pool(
                 spendable_zatoshis: b.spendable_zatoshis,
                 pending_zatoshis: b.pending_zatoshis,
                 note_count: b.note_count,
-                pool: format!("{:?}", b.pool).to_lowercase(),
+                pool: b.pool.map(|p| p.as_db_str().to_string()),
             })
             .collect(),
         total_zatoshis,
@@ -281,7 +283,7 @@ pub async fn get_combined_balance(
             spendable_zatoshis: b.spendable_zatoshis,
             pending_zatoshis: b.pending_zatoshis,
             note_count: b.note_count,
-            pool: format!("{:?}", b.pool).to_lowercase(),
+            pool: b.pool.map(|p| p.as_db_str().to_string()),
         }),
         total_zec: balance.total_zec,
     };

@@ -49,8 +49,8 @@ export interface ShieldedBalance {
   pending_zatoshis: number;
   /** Number of unspent notes */
   note_count: number;
-  /** Pool type */
-  pool: ShieldedPool;
+  /** Pool this balance belongs to; absent when the figure is the cross-pool total. */
+  pool?: ShieldedPool;
 }
 
 /** Combined Zcash balance (transparent + shielded) */
