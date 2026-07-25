@@ -189,8 +189,12 @@ pub(crate) fn validate_zcash_address(address: &str) -> bool {
         return false;
     }
 
-    // Transparent addresses: t1/t3 (mainnet), tm (testnet/regtest)
-    if address.starts_with("t1") || address.starts_with("t3") || address.starts_with("tm") {
+    // Transparent addresses: t1/t3 (mainnet), tm/t2 (testnet/regtest). t2 (P2SH)
+    // was missing, so a testnet P2SH address failed validation outright.
+    if crate::blockchain::zcash::orchard::transfer::TRANSPARENT_ADDRESS_PREFIXES
+        .iter()
+        .any(|prefix| address.starts_with(prefix))
+    {
         // Try to decode and verify checksum
         if let Ok(decoded) = bs58::decode(address).into_vec() {
             if decoded.len() == 26 {
@@ -217,8 +221,8 @@ pub(crate) fn validate_zcash_address(address: &str) -> bool {
         return true;
     }
 
-    // Unified addresses (u1)
-    if address.starts_with("u1") && address.len() >= 100 {
+    // Unified addresses (u1 mainnet / utest1 / uregtest1)
+    if is_unified_address(address) {
         return true;
     }
 
@@ -350,9 +354,14 @@ pub fn parse_unified_address(address: &str) -> AppResult<UnifiedAddressInfo> {
         .map_err(|e| AppError::ValidationError(format!("Invalid unified address: {}", e)))
 }
 
-/// Check if an address is a unified address
+/// Check if an address is a unified address, on any network
+///
+/// Mainnet UAs are `u1…`, testnet `utest1…`, regtest `uregtest1…`. Accepting only
+/// `u1` made every unified address on a test chain look like a non-UA, so nothing
+/// that branches on this could be exercised outside mainnet. Shared definition
+/// with the transfer path (same prefix list) so the two cannot drift apart.
 pub fn is_unified_address(address: &str) -> bool {
-    address.starts_with("u1") && address.len() >= 100
+    crate::blockchain::zcash::orchard::transfer::is_unified_address(address)
 }
 
 #[cfg(test)]

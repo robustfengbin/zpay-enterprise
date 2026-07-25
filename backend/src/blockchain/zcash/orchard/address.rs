@@ -139,10 +139,16 @@ impl OrchardAddressManager {
 
     /// Parse a unified address to extract its components
     pub fn parse_unified_address(address: &str) -> OrchardResult<UnifiedAddressInfo> {
-        if !address.starts_with("u1") {
-            return Err(OrchardError::InvalidUnifiedAddress(
-                "Unified address must start with 'u1'".to_string(),
-            ));
+        // u1 (mainnet), utest1 (testnet), uregtest1 (regtest) — gating on u1 alone
+        // rejected every unified address on a test chain.
+        if !super::transfer::UNIFIED_ADDRESS_PREFIXES
+            .iter()
+            .any(|prefix| address.starts_with(prefix))
+        {
+            return Err(OrchardError::InvalidUnifiedAddress(format!(
+                "Unified address must start with one of {:?}",
+                super::transfer::UNIFIED_ADDRESS_PREFIXES
+            )));
         }
 
         // Decode and parse the unified address
@@ -171,11 +177,7 @@ impl OrchardAddressManager {
 
     /// Validate a unified address
     pub fn validate_unified_address(address: &str) -> bool {
-        if !address.starts_with("u1") {
-            return false;
-        }
-
-        if address.len() < 100 {
+        if !super::transfer::is_unified_address(address) {
             return false;
         }
 
