@@ -87,7 +87,14 @@ blake2b_simd = "1.0"
 # `non-standard-fees` exposes `transaction::fees::fixed::FeeRule`, used by the
 # turnstile builder to force the exact fee the proposal computed (rather than
 # have ZIP-317 recompute a possibly-different figure).
-zcash_primitives = { version = "0.29", features = ["non-standard-fees"] }
+# `transparent-inputs` is required to spend transparent coins through the Builder
+# (`add_transparent_p2pkh_input`, `TransparentSigningSet::add_key`), which is how
+# shielding works from NU6.3: new value must land in Ironwood, so the pre-NU6.3
+# hand-rolled v5 shield path is consensus-invalid after activation.
+zcash_primitives = { version = "0.29", features = [
+    "non-standard-fees",
+    "transparent-inputs",
+] }
 zcash_protocol = "0.10"
 
 # Zcash Orchard privacy protocol support (Orchard + Ironwood pools)
@@ -104,7 +111,7 @@ zcash_address = "0.13"
 # - `zcash_transparent` provides `TransparentSigningSet` (empty for a pure
 #   shielded turnstile). Versions match zcash_primitives 0.29's own resolution.
 sapling = { package = "sapling-crypto", version = "0.7" }
-zcash_transparent = "0.9"
+zcash_transparent = { version = "0.9", features = ["transparent-inputs"] }
 # Named only to spell the SpendProver/OutputProver trait signatures on the
 # fail-loud placeholder (scalar param types). Versions match sapling-crypto 0.7.
 jubjub = "0.10"
@@ -117,6 +124,12 @@ subtle = "2.5"
 
 # secp256k1 for key operations
 secp256k1 = { version = "0.28", features = ["rand"] }
+# zcash_transparent 0.9 builds its keys on secp256k1 0.29, and the Builder only
+# accepts that crate's PublicKey/SecretKey types — a 0.28 key is a different type
+# even though the bytes are identical. Aliased rather than upgrading the 0.28
+# dependency, so existing key handling elsewhere is untouched. Both versions were
+# already in Cargo.lock (0.29 arrived transitively); this only names it.
+secp256k1_transparent = { package = "secp256k1", version = "0.29" }
 
 # Lazy static initialization
 once_cell = "1.19"
