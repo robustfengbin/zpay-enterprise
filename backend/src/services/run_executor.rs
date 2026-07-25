@@ -182,13 +182,17 @@ impl RunExecutor {
         // left instead of failing on a few thousand zatoshis of drift.
         // (Migration-only: a batch *payment* must never be silently
         // shrunk — see execute_batch_item.)
-        let balance = self.wallet_service.get_shielded_balance(wallet.id).await?;
+        // Old pool only: a migration moves what is still behind the turnstile.
+        // The cross-pool total would count funds this run already delivered
+        // into Ironwood, so the final batch would try to "sweep" them back
+        // through the turnstile — which the builder refuses by design.
+        let legacy_spendable = self.legacy_pool_spendable(wallet.id).await?;
         let fee_reserve = crate::blockchain::zcash::orchard::constants::DEFAULT_FEE_ZATOSHIS;
-        let available = balance.spendable_zatoshis.saturating_sub(fee_reserve);
+        let available = legacy_spendable.saturating_sub(fee_reserve);
         if available == 0 {
             return Err(AppError::InsufficientBalance(format!(
-                "no spendable shielded balance left (balance {} zatoshis, fee reserve {})",
-                balance.spendable_zatoshis, fee_reserve
+                "no spendable legacy-pool balance left (balance {} zatoshis, fee reserve {})",
+                legacy_spendable, fee_reserve
             )));
         }
         let amount_zat = planned_zat.min(available);
@@ -209,8 +213,17 @@ impl RunExecutor {
         // tx mines (and a rescan marks the notes spent) recovers it. Funds are
         // never double-spent or lost — the wallet_has_unmined_spend guard and
         // the node's nullifier check both hold.
+        // Non-final batches keep their change in the old pool so the batches
+        // still to come have notes left to migrate; the last one lets
+        // everything cross.
         let tx_id = self
-            .submit_privacy_transfer(wallet.id, &self_address, amount_zat, None)
+            .submit_privacy_transfer(
+                wallet.id,
+                &self_address,
+                amount_zat,
+                None,
+                keeps_change_in_old_pool(item.seq, run.item_count),
+            )
             .await?;
         tracing::info!(
             "[run-executor] migration run {} item {} (seq {}) submitted: tx={} amount={}",
@@ -256,12 +269,16 @@ impl RunExecutor {
         }
 
         let amount_zat = zec_to_zatoshis(item.amount)?;
+        // Same rule as a migration batch: while the run is still funded from
+        // the old pool, every payment but the last leaves its change there so
+        // the remaining payments can still be made from it.
         let tx_id = self
             .submit_privacy_transfer(
                 run.source_wallet_id,
                 &item.recipient_address,
                 amount_zat,
                 item.memo.clone(),
+                keeps_change_in_old_pool(item.seq, run.item_count),
             )
             .await?;
         tracing::info!(
@@ -310,6 +327,21 @@ impl RunExecutor {
         Ok(false)
     }
 
+    /// Spendable balance of the old Orchard pool alone.
+    async fn legacy_pool_spendable(&self, wallet_id: i32) -> AppResult<u64> {
+        use crate::blockchain::zcash::orchard::ShieldedPool;
+
+        let by_pool = self
+            .wallet_service
+            .get_shielded_balances_by_pool(wallet_id)
+            .await?;
+        Ok(by_pool
+            .iter()
+            .find(|b| b.pool == Some(ShieldedPool::Orchard))
+            .map(|b| b.spendable_zatoshis)
+            .unwrap_or(0))
+    }
+
     /// Shared on-chain leg: proposal → proof → broadcast via the wallet
     /// service's real privacy-transfer path (the F4.0 dual-pool builder
     /// slots in underneath with zero changes here).
@@ -319,9 +351,12 @@ impl RunExecutor {
         to_address: &str,
         amount_zat: u64,
         memo: Option<String>,
+        keep_change_in_old_pool: bool,
     ) -> AppResult<String> {
+        use crate::blockchain::zcash::orchard::transfer::ChangePolicy;
+
         let amount_zec = zatoshis_display(amount_zat);
-        let proposal = self
+        let mut proposal = self
             .wallet_service
             .create_privacy_transfer_proposal(
                 wallet_id,
@@ -332,6 +367,17 @@ impl RunExecutor {
                 crate::blockchain::zcash::orchard::transfer::FundSource::Shielded,
             )
             .await?;
+
+        // Where the change of a post-NU6.3 turnstile spend lands decides
+        // whether staggering survives: if a non-final batch let its change
+        // cross into Ironwood with the payment, the old pool would be empty
+        // and every later batch would have nothing left to move — the run
+        // would collapse into the single transfer the private mode exists to
+        // avoid. Ignored on the pre-NU6.3 and Ironwood-native paths, where
+        // there is only one pool in play.
+        if keep_change_in_old_pool {
+            proposal.change_policy = ChangePolicy::KeepInOldPool;
+        }
 
         let result = self
             .wallet_service
@@ -378,6 +424,17 @@ impl RunExecutor {
     }
 }
 
+/// Whether this item's change must stay in the old Orchard pool.
+///
+/// Every batch but the last: the point of a staggered run is that value
+/// leaves over a window, and that only works while the old pool still holds
+/// notes for the batches that have not run yet. The final batch lets the
+/// remainder cross. Single-item runs (immediate migration) are "final" and
+/// cross straight away.
+fn keeps_change_in_old_pool(seq: i32, item_count: i32) -> bool {
+    seq + 1 < item_count
+}
+
 fn fold_status(failed: i64, submitted: i64, total: i64) -> &'static str {
     if failed == 0 && submitted == total {
         "completed"
@@ -397,7 +454,7 @@ fn zatoshis_display(zat: u64) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{fold_status, zatoshis_display};
+    use super::{fold_status, keeps_change_in_old_pool, zatoshis_display};
 
     #[test]
     fn zatoshis_display_is_plain_decimal() {
@@ -405,6 +462,16 @@ mod tests {
         assert_eq!(zatoshis_display(1), "0.00000001");
         assert_eq!(zatoshis_display(123_456_789), "1.23456789");
         assert_eq!(zatoshis_display(2_100_000_000_000_000), "21000000.00000000");
+    }
+
+    #[test]
+    fn only_the_last_batch_lets_change_cross() {
+        // 3-batch private run: the first two retain, the last crosses.
+        assert!(keeps_change_in_old_pool(0, 3));
+        assert!(keeps_change_in_old_pool(1, 3));
+        assert!(!keeps_change_in_old_pool(2, 3));
+        // Immediate migration / single payment: nothing to stagger.
+        assert!(!keeps_change_in_old_pool(0, 1));
     }
 
     #[test]
