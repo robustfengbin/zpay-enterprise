@@ -16,7 +16,9 @@ import {
   TimeAgo,
 } from '../../components/Common';
 import { migrationService } from '../../services/api/migration';
+import orchardApi from '../../services/api/orchard';
 import type { ExecuteMigrationOutcome, MigrationRunSummary } from '../../types/migration';
+import type { ShieldedBalanceByPool } from '../../types/orchard';
 
 /** Poll cadence while a run is live (executor ticks every 30 s). */
 const POLL_MS = 10_000;
@@ -35,12 +37,20 @@ export function MigrationRunDetail() {
   const [error, setError] = useState<string | null>(null);
   const [outcome, setOutcome] = useState<ExecuteMigrationOutcome | null>(null);
   const [rejectReason, setRejectReason] = useState('');
+  const [pools, setPools] = useState<ShieldedBalanceByPool | null>(null);
   const timer = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const load = useCallback(async () => {
     try {
-      setSummary(await migrationService.getRun(Number(id)));
+      const next = await migrationService.getRun(Number(id));
+      setSummary(next);
       setError(null);
+      // Real per-pool balances for the flow header. Advisory: if it fails the
+      // page falls back to the run's own arithmetic below.
+      orchardApi
+        .getShieldedBalanceByPool(next.run.source_wallet_id)
+        .then(setPools)
+        .catch(() => setPools(null));
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -107,13 +117,18 @@ export function MigrationRunDetail() {
   const failed = items.filter((it) => it.status === 'failed');
   const submitted = items.filter((it) => it.status === 'submitted');
 
-  // Pool arithmetic is run-scoped: what this run has pushed through the
-  // turnstile vs what it still plans to move. Wallet-wide per-pool balances
-  // arrive with the dual-pool scanner.
   const total = Number(run.total_amount) || 0;
   const moved = submitted.reduce((acc, it) => acc + (Number(it.amount) || 0), 0);
-  const remaining = Math.max(0, total - moved);
   const pct = total > 0 ? (moved / total) * 100 : 0;
+
+  // The two amounts are the wallet's real per-pool balances, so the header
+  // answers "where is my money now" rather than "what does the plan say".
+  // They differ: the plan reserves fee headroom it has not spent yet. Until
+  // the balances load (or if they fail), fall back to the run's arithmetic.
+  const poolAmount = (pool: string) =>
+    (pools?.pools.find((p) => p.pool === pool)?.total_zatoshis ?? 0) / 1e8;
+  const legacyAmount = pools ? poolAmount('orchard') : Math.max(0, total - moved);
+  const ironwoodAmount = pools ? poolAmount('ironwood') : moved;
   const live = run.status === 'executing' || run.status === 'approved';
 
   return (
@@ -246,8 +261,8 @@ export function MigrationRunDetail() {
         )}
 
         <PoolFlow
-          legacy={remaining}
-          ironwood={moved}
+          legacy={legacyAmount}
+          ironwood={ironwoodAmount}
           pct={pct}
           live={live}
           caption={t('migration.detail.batches_done', {

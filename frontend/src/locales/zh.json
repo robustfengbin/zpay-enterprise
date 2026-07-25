@@ -877,9 +877,9 @@
     },
     "pool": {
       "legacy": "旧 Orchard 池",
-      "legacy_sub": "尚未迁出",
+      "legacy_sub": "旧池余额",
       "ironwood": "Ironwood 新池",
-      "ironwood_sub": "已过闸到账",
+      "ironwood_sub": "Ironwood 余额",
       "turnstile": "过闸"
     }
   },

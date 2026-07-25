@@ -877,9 +877,9 @@
     },
     "pool": {
       "legacy": "Legacy Orchard",
-      "legacy_sub": "Not yet migrated",
+      "legacy_sub": "In the legacy pool",
       "ironwood": "Ironwood",
-      "ironwood_sub": "Through the turnstile",
+      "ironwood_sub": "In Ironwood",
       "turnstile": "Turnstile"
     }
   },
