@@ -44,3 +44,6 @@ npm-debug.log*
 # Internal-only documentation (workflow notes, freeze decisions, etc.)
 docs/internal/
 .gstack/
+
+# regtest 跑道运行时产物 (状态/日志/pid/渲染后的配置)
+/tools/regtest/run/
