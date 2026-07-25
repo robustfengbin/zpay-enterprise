@@ -605,6 +605,280 @@ impl OrchardTransferService {
         })
     }
 
+    /// Reconstruct the selected notes as spendable `orchard::Note`s, with the
+    /// fail-closed nullifier guard.
+    ///
+    /// `note_version` must match the pool the notes came from: the old Orchard
+    /// pool stores V2 (rcm_v2) notes, Ironwood stores V3 (rcm_v3) notes. The
+    /// version feeds the note commitment and therefore the nullifier, so
+    /// reconstructing at the wrong version yields a different nullifier — which
+    /// is exactly what the guard below catches. Any mismatch (wrong version, or
+    /// stored rho/rseed inconsistent with the note) is reported with both values
+    /// instead of broadcasting a spend the node would reject.
+    ///
+    /// Shared by the turnstile, Ironwood-native and deshield builders: one copy of
+    /// this guard, not one per path.
+    fn reconstruct_spends(
+        &self,
+        selected: &[(OrchardNote, MerklePath)],
+        spending_key: &OrchardSpendingKey,
+        note_version: NoteVersion,
+    ) -> OrchardResult<(
+        Vec<(FullViewingKey, orchard::Note, MerklePath)>,
+        Vec<SpendAuthorizingKey>,
+    )> {
+        let fvk = spending_key.to_fvk();
+        let mut spends: Vec<(FullViewingKey, orchard::Note, MerklePath)> =
+            Vec::with_capacity(selected.len());
+        let mut saks: Vec<SpendAuthorizingKey> = Vec::with_capacity(selected.len());
+
+        for (idx, (note, merkle_path)) in selected.iter().enumerate() {
+            let recipient_addr = orchard::Address::from_raw_address_bytes(&note.recipient);
+            if recipient_addr.is_none().into() {
+                return Err(OrchardError::TransactionBuild(format!(
+                    "Invalid recipient address data for {} note {idx}",
+                    note.pool
+                )));
+            }
+            let recipient_addr = recipient_addr.unwrap();
+
+            let rho = orchard::note::Rho::from_bytes(&note.rho);
+            if rho.is_none().into() {
+                return Err(OrchardError::TransactionBuild(format!(
+                    "Invalid rho data for {} note {idx}",
+                    note.pool
+                )));
+            }
+            let rho = rho.unwrap();
+
+            let rseed = orchard::note::RandomSeed::from_bytes(note.rseed, &rho);
+            if rseed.is_none().into() {
+                return Err(OrchardError::TransactionBuild(format!(
+                    "Invalid rseed data for {} note {idx}",
+                    note.pool
+                )));
+            }
+            let rseed = rseed.unwrap();
+
+            let value = NoteValue::from_raw(note.value_zatoshis);
+            let orchard_note =
+                orchard::Note::from_parts(recipient_addr, value, rho, rseed, note_version);
+            if orchard_note.is_none().into() {
+                return Err(OrchardError::TransactionBuild(format!(
+                    "Failed to reconstruct {} note {idx} as {:?}",
+                    note.pool, note_version
+                )));
+            }
+            let orchard_note = orchard_note.unwrap();
+
+            let recomputed_nf = orchard_note.nullifier(&fvk).to_bytes();
+            if recomputed_nf != note.nullifier {
+                return Err(OrchardError::TransactionBuild(format!(
+                    "{} note {idx} reconstruction mismatch: recomputed nullifier {} != stored {} \
+                     (wrong note version, or stored rho/rseed inconsistent with the note — \
+                     re-scan required)",
+                    note.pool,
+                    hex::encode(recomputed_nf),
+                    hex::encode(note.nullifier)
+                )));
+            }
+
+            spends.push((fvk.clone(), orchard_note, merkle_path.clone()));
+            saks.push(SpendAuthorizingKey::from(spending_key.sk()));
+        }
+
+        Ok((spends, saks))
+    }
+
+    /// F4.0-e: build a **deshield** — shielded notes in, a transparent payout out.
+    ///
+    /// Post-NU6.3 this is how either pool pays a t-address: Ironwood because after
+    /// a migration every note lives there, and the old pool because unshielding
+    /// stays consensus-legal (it leaves `valueBalanceOrchard` positive, which the
+    /// turnstile permits) so those notes need no detour through Ironwood.
+    ///
+    /// `source_pool` must match the pool the selected notes and `anchor` come from
+    /// — the caller has already chosen it. Change stays shielded: into Ironwood by
+    /// default (and always, when spending Ironwood), or back into the old pool when
+    /// the proposal asks to keep it there for a later staggered batch.
+    #[allow(clippy::too_many_arguments)]
+    fn build_deshield_result(
+        &self,
+        proposal: &TransferProposal,
+        spending_key: &OrchardSpendingKey,
+        spendable_notes: Vec<(OrchardNote, MerklePath)>,
+        anchor_height: u64,
+        anchor: Anchor,
+        nu63_activation: u64,
+        source_pool: ShieldedPool,
+    ) -> OrchardResult<TransferResult> {
+        use super::turnstile::{
+            build_deshield_transaction, decode_transparent_address, deshield_fee_zatoshis,
+            OldPoolChange, ShieldedChange, TransparentPayout, TurnstileOutput, ZpayNetworkParams,
+        };
+        use orchard::keys::{Diversifier, Scope};
+        use zcash_protocol::consensus::NetworkUpgrade;
+        use zcash_protocol::memo::MemoBytes;
+
+        if proposal.fund_source == FundSource::Transparent {
+            return Err(OrchardError::TransactionBuild(
+                "a deshield spends shielded notes; transparent funds need no unshielding"
+                    .to_string(),
+            ));
+        }
+
+        // Zero-value notes cover nothing and only add an action (and fee).
+        let spendable_notes: Vec<(OrchardNote, MerklePath)> = spendable_notes
+            .into_iter()
+            .filter(|(n, _)| n.value_zatoshis > 0)
+            .collect();
+        if spendable_notes.is_empty() {
+            return Err(OrchardError::NoSpendableNotes);
+        }
+
+        let payout_address = decode_transparent_address(&proposal.to_address)
+            .map_err(|e| OrchardError::TransactionBuild(e.to_string()))?;
+        let amount = proposal.amount_zatoshis;
+
+        // Where change goes. Spending Ironwood, it can only stay in Ironwood — the
+        // old pool is closed to new value. Spending the old pool, the proposal
+        // decides: crossing advances the migration, keeping it costs one action
+        // less and leaves notes for a later batch.
+        let keep_change_in_old_pool = source_pool == ShieldedPool::Orchard
+            && proposal.change_policy == ChangePolicy::KeepInOldPool;
+        let assumed_change_pool = Some(if keep_change_in_old_pool {
+            ShieldedPool::Orchard
+        } else {
+            ShieldedPool::Ironwood
+        });
+
+        // Fee depends on the inputs selected and selection depends on the fee, so
+        // converge — as on the other post-NU6.3 paths. One transparent payout, and
+        // change assumed present (a fee that only shrinks cannot invalidate an
+        // already-covered selection).
+        let mut fee = deshield_fee_zatoshis(source_pool, 1, assumed_change_pool, 1)
+            .map_err(|e| OrchardError::TransactionBuild(e.to_string()))?;
+        let (selected, total_input, fee) = {
+            let mut settled = None;
+            for _ in 0..8 {
+                let (sel, total_input) =
+                    self.select_notes_with_paths(spendable_notes.clone(), amount + fee)?;
+                let need = deshield_fee_zatoshis(source_pool, sel.len(), assumed_change_pool, 1)
+                    .map_err(|e| OrchardError::TransactionBuild(e.to_string()))?;
+                if total_input >= amount + need {
+                    settled = Some((sel, total_input, need));
+                    break;
+                }
+                fee = need;
+            }
+            settled.ok_or_else(|| {
+                OrchardError::TransactionBuild(
+                    "could not converge deshield fee against available notes".to_string(),
+                )
+            })?
+        };
+        let mut fee = fee;
+        let mut change_amount = total_input - amount - fee;
+
+        // No change after all: drop the assumed change action instead of overpaying.
+        if change_amount == 0 {
+            let exact = deshield_fee_zatoshis(source_pool, selected.len(), None, 1)
+                .map_err(|e| OrchardError::TransactionBuild(e.to_string()))?;
+            if exact < fee {
+                fee = exact;
+                change_amount = total_input - amount - fee;
+            }
+        }
+
+        tracing::info!(
+            "Deshield build: {} {} notes selected, total_input={} zat, payout={} zat to {}, \
+             fee={} zat (ZIP-317 incl. transparent output), change={} zat → {}",
+            selected.len(),
+            source_pool,
+            total_input,
+            amount,
+            &proposal.to_address,
+            fee,
+            change_amount,
+            if change_amount == 0 {
+                "none"
+            } else if keep_change_in_old_pool {
+                "old Orchard pool"
+            } else {
+                "Ironwood"
+            }
+        );
+
+        let note_version = match source_pool {
+            ShieldedPool::Ironwood => NoteVersion::V3,
+            _ => NoteVersion::V2,
+        };
+        let (spends, saks) = self.reconstruct_spends(&selected, spending_key, note_version)?;
+
+        let fvk = spending_key.to_fvk();
+        let ovk = Some(spending_key.to_ovk());
+        let change = if change_amount == 0 {
+            None
+        } else {
+            let change_addr = fvk.address(Diversifier::from_bytes([0u8; 11]), Scope::Internal);
+            if keep_change_in_old_pool {
+                Some(ShieldedChange::OldPool(OldPoolChange {
+                    fvk: fvk.clone(),
+                    ovk,
+                    recipient: change_addr,
+                    value_zatoshis: change_amount,
+                    memo: MemoBytes::empty(),
+                }))
+            } else {
+                Some(ShieldedChange::Ironwood(TurnstileOutput {
+                    ovk,
+                    recipient: change_addr,
+                    value_zatoshis: change_amount,
+                    memo: MemoBytes::empty(),
+                }))
+            }
+        };
+
+        let zcash_network = match self.network {
+            NetworkType::Mainnet => zcash_protocol::consensus::NetworkType::Main,
+            NetworkType::Testnet => zcash_protocol::consensus::NetworkType::Test,
+        };
+        let params = ZpayNetworkParams::new(
+            zcash_network,
+            vec![(NetworkUpgrade::Nu6_3, nu63_activation)],
+        );
+
+        let built = build_deshield_transaction(
+            params,
+            anchor_height,
+            source_pool,
+            anchor,
+            spends,
+            saks,
+            TransparentPayout {
+                address: payout_address,
+                value_zatoshis: amount,
+            },
+            change,
+            fee,
+        )
+        .map_err(|e| OrchardError::TransactionBuild(format!("deshield build failed: {e}")))?;
+
+        tracing::info!(
+            "Deshield transaction built: txid={}, raw_len={} bytes",
+            built.txid,
+            built.raw_tx.len()
+        );
+
+        Ok(TransferResult {
+            tx_id: built.txid,
+            status: TransferStatus::Signed,
+            raw_tx: Some(hex::encode(&built.raw_tx)),
+            amount_zatoshis: amount,
+            fee_zatoshis: fee,
+        })
+    }
+
     /// F4.0-d: build an **Ironwood-native** transaction — Ironwood notes in,
     /// Ironwood notes out, no old-pool bundle.
     ///
@@ -639,11 +913,17 @@ impl OrchardTransferService {
         use zcash_protocol::consensus::NetworkUpgrade;
         use zcash_protocol::memo::MemoBytes;
 
+        // Paying a t-address is a deshield, not an Ironwood-to-Ironwood transfer.
         if is_transparent_address(&proposal.to_address) {
-            return Err(OrchardError::TransactionBuild(
-                "Ironwood → transparent (deshielding) is not yet wired; refusing to build"
-                    .to_string(),
-            ));
+            return self.build_deshield_result(
+                proposal,
+                spending_key,
+                spendable_notes,
+                anchor_height,
+                anchor,
+                nu63_activation,
+                ShieldedPool::Ironwood,
+            );
         }
         if proposal.fund_source == FundSource::Transparent {
             return Err(OrchardError::TransactionBuild(
@@ -706,62 +986,9 @@ impl OrchardTransferService {
         let fvk = spending_key.to_fvk();
         let ovk = Some(spending_key.to_ovk());
 
-        // Reconstruct each selected Ironwood note. Same fail-closed nullifier
-        // guard as the other paths — but at NoteVersion::V3, whose commitment (and
-        // therefore nullifier) derives from rcm_v3. Reconstructing a V3 note as V2
-        // would yield a different nullifier and a spend the node rejects; the guard
-        // catches any such inconsistency before we broadcast.
-        let mut spends: Vec<(FullViewingKey, orchard::Note, MerklePath)> =
-            Vec::with_capacity(selected.len());
-        let mut saks: Vec<SpendAuthorizingKey> = Vec::with_capacity(selected.len());
-        for (idx, (note, merkle_path)) in selected.iter().enumerate() {
-            let recipient_addr = orchard::Address::from_raw_address_bytes(&note.recipient);
-            if recipient_addr.is_none().into() {
-                return Err(OrchardError::TransactionBuild(format!(
-                    "Invalid recipient address data for Ironwood note {idx}"
-                )));
-            }
-            let recipient_addr = recipient_addr.unwrap();
-
-            let rho = orchard::note::Rho::from_bytes(&note.rho);
-            if rho.is_none().into() {
-                return Err(OrchardError::TransactionBuild(format!(
-                    "Invalid rho data for Ironwood note {idx}"
-                )));
-            }
-            let rho = rho.unwrap();
-
-            let rseed = orchard::note::RandomSeed::from_bytes(note.rseed, &rho);
-            if rseed.is_none().into() {
-                return Err(OrchardError::TransactionBuild(format!(
-                    "Invalid rseed data for Ironwood note {idx}"
-                )));
-            }
-            let rseed = rseed.unwrap();
-
-            let value = NoteValue::from_raw(note.value_zatoshis);
-            let ironwood_note =
-                orchard::Note::from_parts(recipient_addr, value, rho, rseed, NoteVersion::V3);
-            if ironwood_note.is_none().into() {
-                return Err(OrchardError::TransactionBuild(format!(
-                    "Failed to reconstruct Ironwood note {idx}"
-                )));
-            }
-            let ironwood_note = ironwood_note.unwrap();
-
-            let recomputed_nf = ironwood_note.nullifier(&fvk).to_bytes();
-            if recomputed_nf != note.nullifier {
-                return Err(OrchardError::TransactionBuild(format!(
-                    "Ironwood note {idx} reconstruction mismatch: recomputed nullifier {} != \
-                     stored {} (stored rho/rseed inconsistent with note — re-scan required)",
-                    hex::encode(recomputed_nf),
-                    hex::encode(note.nullifier)
-                )));
-            }
-
-            spends.push((fvk.clone(), ironwood_note, merkle_path.clone()));
-            saks.push(SpendAuthorizingKey::from(spending_key.sk()));
-        }
+        // Ironwood notes are V3 (rcm_v3); the guard inside catches a
+        // wrong-version or inconsistent reconstruction before broadcast.
+        let (spends, saks) = self.reconstruct_spends(&selected, spending_key, NoteVersion::V3)?;
 
         // Payment + change, both plain Ironwood outputs (cross-address permitted).
         let recipient = OrchardAddressManager::extract_orchard_address(&proposal.to_address)?;
@@ -860,11 +1087,20 @@ impl OrchardTransferService {
         use zcash_protocol::memo::MemoBytes;
 
         // Out-of-scope-this-round constructions fail closed (never mis-built).
+        // Old-pool notes paying a t-address unshield directly rather than crossing
+        // into Ironwood first: unshielding leaves valueBalanceOrchard positive,
+        // which the turnstile permits, so forcing a detour through Ironwood would
+        // cost an extra bundle for nothing.
         if is_transparent_address(&proposal.to_address) {
-            return Err(OrchardError::TransactionBuild(
-                "post-NU6.3 deshielding (shielded → transparent) turnstile is not yet wired; \
-                 refusing to build".to_string(),
-            ));
+            return self.build_deshield_result(
+                proposal,
+                spending_key,
+                spendable_notes,
+                anchor_height,
+                anchor,
+                nu63_activation,
+                ShieldedPool::Orchard,
+            );
         }
         if proposal.fund_source == FundSource::Transparent {
             return Err(OrchardError::TransactionBuild(
@@ -967,62 +1203,8 @@ impl OrchardTransferService {
         let fvk = spending_key.to_fvk();
         let ovk = Some(spending_key.to_ovk());
 
-        // Reconstruct each selected old-pool V2 note + fail-closed nullifier
-        // guard (identical discipline to the v5 path: stored rho/rseed
-        // inconsistent with the note would build a spend the node rejects —
-        // catch it here with a precise error rather than broadcasting a doomed tx).
-        let mut spends: Vec<(FullViewingKey, orchard::Note, MerklePath)> =
-            Vec::with_capacity(selected.len());
-        let mut saks: Vec<SpendAuthorizingKey> = Vec::with_capacity(selected.len());
-        for (idx, (note, merkle_path)) in selected.iter().enumerate() {
-            let recipient_addr = orchard::Address::from_raw_address_bytes(&note.recipient);
-            if recipient_addr.is_none().into() {
-                return Err(OrchardError::TransactionBuild(format!(
-                    "Invalid recipient address data for note {idx}"
-                )));
-            }
-            let recipient_addr = recipient_addr.unwrap();
-
-            let rho = orchard::note::Rho::from_bytes(&note.rho);
-            if rho.is_none().into() {
-                return Err(OrchardError::TransactionBuild(format!(
-                    "Invalid rho data for note {idx}"
-                )));
-            }
-            let rho = rho.unwrap();
-
-            let rseed = orchard::note::RandomSeed::from_bytes(note.rseed, &rho);
-            if rseed.is_none().into() {
-                return Err(OrchardError::TransactionBuild(format!(
-                    "Invalid rseed data for note {idx}"
-                )));
-            }
-            let rseed = rseed.unwrap();
-
-            // Old-pool notes are V2 (rcm_v2); the Ironwood outputs are V3.
-            let value = NoteValue::from_raw(note.value_zatoshis);
-            let orchard_note =
-                orchard::Note::from_parts(recipient_addr, value, rho, rseed, NoteVersion::V2);
-            if orchard_note.is_none().into() {
-                return Err(OrchardError::TransactionBuild(format!(
-                    "Failed to reconstruct Orchard note {idx}"
-                )));
-            }
-            let orchard_note = orchard_note.unwrap();
-
-            let recomputed_nf = orchard_note.nullifier(&fvk).to_bytes();
-            if recomputed_nf != note.nullifier {
-                return Err(OrchardError::TransactionBuild(format!(
-                    "Note {idx} reconstruction mismatch: recomputed nullifier {} != stored {} \
-                     (stored rho/rseed inconsistent with note — re-scan required)",
-                    hex::encode(recomputed_nf),
-                    hex::encode(note.nullifier)
-                )));
-            }
-
-            spends.push((fvk.clone(), orchard_note, merkle_path.clone()));
-            saks.push(SpendAuthorizingKey::from(spending_key.sk()));
-        }
+        // Old-pool notes are V2 (rcm_v2); the Ironwood outputs below are V3.
+        let (spends, saks) = self.reconstruct_spends(&selected, spending_key, NoteVersion::V2)?;
 
         // Ironwood outputs: payment to the recipient + change to our own internal
         // Ironwood address. No old-pool output at all — everything crosses to the
