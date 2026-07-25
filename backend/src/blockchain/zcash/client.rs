@@ -1205,26 +1205,23 @@ impl ChainClient for ZcashClient {
     }
 
     fn validate_address(&self, address: &str) -> bool {
-        // Zcash transparent addresses start with 't1' or 't3' (mainnet)
-        // Shielded addresses start with 'zs' (Sapling) or 'zc' (Sprout)
-        // Unified addresses start with 'u1'
+        // Transparent t1/t3 (mainnet) or tm/t2 (testnet, regtest); shielded zs
+        // (Sapling) / zc (Sprout); unified u1 / utest1 / uregtest1. The
+        // transparent and unified tests come from the canonical predicates so a
+        // test-network address is not silently judged invalid here while the
+        // transfer path accepts it.
+        use crate::blockchain::zcash::orchard::transfer::{
+            is_transparent_address, is_unified_address,
+        };
+
         if address.is_empty() {
             return false;
         }
 
-        // Basic format validation for transparent addresses
-        let is_transparent = (address.starts_with("t1") || address.starts_with("t3"))
-            && address.len() >= 34
-            && address.len() <= 36;
-
-        // Basic format validation for shielded addresses
         let is_sapling = address.starts_with("zs") && address.len() >= 78;
         let is_sprout = address.starts_with("zc") && address.len() >= 95;
 
-        // Basic format validation for unified addresses
-        let is_unified = address.starts_with("u1") && address.len() >= 100;
-
-        is_transparent || is_sapling || is_sprout || is_unified
+        is_transparent_address(address) || is_sapling || is_sprout || is_unified_address(address)
     }
 
     async fn get_gas_price(&self) -> AppResult<Decimal> {

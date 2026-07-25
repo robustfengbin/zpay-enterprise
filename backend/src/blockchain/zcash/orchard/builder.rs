@@ -365,7 +365,7 @@ impl OrchardTransactionBuilder {
 
     /// Parse recipient address to raw bytes
     fn parse_recipient_address(&self, address: &str) -> OrchardResult<Vec<u8>> {
-        if address.starts_with("u1") {
+        if super::transfer::is_unified_address(address) {
             // Unified address - extract Orchard receiver
             // In real implementation, decode the unified address
             Ok(address.as_bytes().to_vec())
@@ -528,8 +528,12 @@ mod tests {
             0xc8e71055,
         );
 
+        // A unified address is now recognised by prefix *and* plausible length
+        // (u1/utest1/uregtest1 — see transfer::is_unified_address), so the fixture
+        // has to be UA-shaped rather than the old "u1testaddress" stub.
+        let recipient = format!("u1{}", "q".repeat(120));
         builder
-            .add_output("u1testaddress", 100000, Some("Test memo"))
+            .add_output(&recipient, 100000, Some("Test memo"))
             .unwrap();
 
         assert_eq!(builder.actions.len(), 1);

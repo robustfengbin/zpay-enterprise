@@ -3509,11 +3509,31 @@ pub fn sign_transparent_inputs_with_bundle(
     Ok(signed_inputs)
 }
 
-/// Check if an address is a Zcash transparent address (t1... or t3...)
+/// Transparent-address prefixes, all networks: `t1`/`t3` mainnet (P2PKH/P2SH),
+/// `tm`/`t2` testnet and regtest.
+pub const TRANSPARENT_ADDRESS_PREFIXES: [&str; 4] = ["t1", "t3", "tm", "t2"];
+
+/// Unified-address HRPs, longest first so `utest1` is not mistaken for `u1`…
+/// (it wouldn't be, since the separator differs, but ordering keeps intent clear).
+pub const UNIFIED_ADDRESS_PREFIXES: [&str; 3] = ["uregtest1", "utest1", "u1"];
+
+/// Check if an address is a Zcash transparent (t-) address, on any network
+///
+/// This answers a *shape* question — "does paying this address need the
+/// transparent side of a transaction?" — which is why it accepts every network's
+/// prefixes rather than taking a network parameter. Whether the address belongs
+/// to the network we are connected to is a separate check (`validate_zcash_address`).
+///
+/// Recognising only the mainnet `t1`/`t3` was a latent trap: on testnet and
+/// regtest, t-addresses are `tm…`/`t2…`, so a deshield to one of them was never
+/// detected as transparent and fell through to the shielded path, which then
+/// failed decoding it as a unified address. That made the deshield path
+/// **unverifiable anywhere except mainnet with real funds** — hollowing out the
+/// rule that consensus-critical paths must be proven on a test chain first.
 pub fn is_transparent_address(address: &str) -> bool {
-    // Zcash mainnet transparent addresses start with t1 (P2PKH) or t3 (P2SH)
-    // Length should be 34-35 characters for base58check encoded address
-    (address.starts_with("t1") || address.starts_with("t3"))
+    TRANSPARENT_ADDRESS_PREFIXES
+        .iter()
+        .any(|prefix| address.starts_with(prefix))
         && address.len() >= 34
         && address.len() <= 36
         && address.chars().all(|c| {
@@ -3522,14 +3542,98 @@ pub fn is_transparent_address(address: &str) -> bool {
         })
 }
 
-/// Check if an address is a Zcash unified address (u1...)
+/// Check if an address is a Zcash unified address, on any network
+///
+/// Mainnet UAs are `u1…`, testnet `utest1…`, regtest `uregtest1…`. The length
+/// floor is a sanity check only: the shortest UA we produce (a single Orchard
+/// receiver) is comfortably over 100 characters on every network, and the longer
+/// test HRPs only push it higher.
 pub fn is_unified_address(address: &str) -> bool {
-    address.starts_with("u1") && address.len() >= 100
+    UNIFIED_ADDRESS_PREFIXES
+        .iter()
+        .any(|prefix| address.starts_with(prefix))
+        && address.len() >= 100
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The address predicates decide whether a payment takes the transparent or
+    /// the shielded construction. Recognising only mainnet prefixes sent every
+    /// test-chain deshield down the shielded path, where it failed decoding a
+    /// t-address as a unified address — and made the deshield path impossible to
+    /// prove anywhere but mainnet, with real funds. These vectors pin all three
+    /// networks so that cannot come back.
+    /// Build a real Base58Check t-address for a version prefix, so the vectors
+    /// below are correct by construction rather than pasted literals.
+    fn t_address(version: [u8; 2]) -> String {
+        use sha2::{Digest, Sha256};
+        let mut payload = version.to_vec();
+        payload.extend_from_slice(&[0x42u8; 20]);
+        let digest = Sha256::digest(Sha256::digest(&payload));
+        payload.extend_from_slice(&digest[..4]);
+        bs58::encode(payload).into_string()
+    }
+
+    #[test]
+    fn transparent_addresses_are_recognised_on_every_network() {
+        let mainnet_p2pkh = t_address([0x1C, 0xB8]); // t1
+        let mainnet_p2sh = t_address([0x1C, 0xBD]); // t3
+        let testnet_p2pkh = t_address([0x1D, 0x25]); // tm
+        let testnet_p2sh = t_address([0x1C, 0xBA]); // t2
+
+        assert!(mainnet_p2pkh.starts_with("t1"));
+        assert!(mainnet_p2sh.starts_with("t3"));
+        assert!(testnet_p2pkh.starts_with("tm"));
+        assert!(testnet_p2sh.starts_with("t2"));
+
+        for addr in [
+            &mainnet_p2pkh,
+            &mainnet_p2sh,
+            &testnet_p2pkh,
+            &testnet_p2sh,
+        ] {
+            assert!(
+                is_transparent_address(addr),
+                "{addr} must be recognised as transparent"
+            );
+            assert!(
+                !is_unified_address(addr),
+                "{addr} must not be mistaken for a unified address"
+            );
+        }
+
+        // A live regtest address this code generated and the node accepted
+        // (validateaddress isvalid=true, 档A) — the exact shape that used to fall
+        // through to the shielded path.
+        assert!(is_transparent_address("tmLMBUtAdw6VG4i8NNexJ979rg2fT1zfKdR"));
+    }
+
+    #[test]
+    fn unified_addresses_are_recognised_on_every_network() {
+        // UA length depends on the receiver set; the shortest we produce is well
+        // over 100 characters, and the test HRPs only make it longer.
+        let mainnet = format!("u1{}", "q".repeat(120));
+        let testnet = format!("utest1{}", "q".repeat(120));
+        let regtest = format!("uregtest1{}", "q".repeat(120));
+
+        for addr in [&mainnet, &testnet, &regtest] {
+            assert!(is_unified_address(addr), "{addr} must be recognised as unified");
+            assert!(
+                !is_transparent_address(addr),
+                "a unified address must not be treated as transparent"
+            );
+        }
+
+        // Too short to be a unified address, whatever the prefix.
+        assert!(!is_unified_address("u1short"));
+        assert!(!is_unified_address("utest1short"));
+        // A shielded Sapling address is neither.
+        let sapling = format!("zs1{}", "q".repeat(75));
+        assert!(!is_unified_address(&sapling));
+        assert!(!is_transparent_address(&sapling));
+    }
 
     #[test]
     fn test_transfer_request_zatoshis() {
