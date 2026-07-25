@@ -512,6 +512,20 @@ impl OrchardTransferService {
                     "PostNu63 era decided but NU6.3 activation height is missing".to_string(),
                 )
             })?;
+            // Shielding is funded by transparent coins, not shielded notes, so it
+            // is routed here — where the transparent inputs and their key are in
+            // scope — before any pool-based dispatch.
+            if proposal.is_shielding || proposal.fund_source == FundSource::Transparent {
+                return self.build_shield_result(
+                    proposal,
+                    spending_key,
+                    private_key_hex,
+                    transparent_inputs,
+                    anchor_height,
+                    nu63_activation,
+                );
+            }
+
             // Ironwood inputs are a native Ironwood spend (no old pool involved);
             // old-pool inputs cross the turnstile.
             return if input_pool == ShieldedPool::Ironwood {
@@ -688,6 +702,155 @@ impl OrchardTransferService {
         }
 
         Ok((spends, saks))
+    }
+
+    /// F4.0-f: build a **shield** — transparent coins in, Ironwood notes out.
+    ///
+    /// From NU6.3 this is the only legal way to shield: new value may not enter
+    /// the old Orchard pool (`valueBalanceOrchard` must stay nonnegative), so the
+    /// pre-NU6.3 path that shielded into Orchard becomes consensus-invalid at
+    /// activation. Without this, funding a shielded wallet — the intake of the
+    /// whole product — stops working on activation day.
+    ///
+    /// Value flow mirrors the pre-NU6.3 shield exactly: the transparent inputs
+    /// cover payment + change + fee, and **both** payment and change land in the
+    /// shielded pool (change to our own internal address), leaving no transparent
+    /// change output.
+    fn build_shield_result(
+        &self,
+        proposal: &TransferProposal,
+        spending_key: &OrchardSpendingKey,
+        private_key_hex: &str,
+        transparent_inputs: Vec<TransparentInput>,
+        anchor_height: u64,
+        nu63_activation: u64,
+    ) -> OrchardResult<TransferResult> {
+        use super::address::OrchardAddressManager;
+        use super::turnstile::{
+            build_shield_transaction, shield_fee_zatoshis, TransparentCoin, TurnstileOutput,
+            ZpayNetworkParams,
+        };
+        use orchard::keys::{Diversifier, Scope};
+        use zcash_protocol::consensus::NetworkUpgrade;
+        use zcash_protocol::memo::MemoBytes;
+
+        if transparent_inputs.is_empty() {
+            return Err(OrchardError::TransactionBuild(
+                "shielding requires transparent inputs, none were provided".to_string(),
+            ));
+        }
+        if is_transparent_address(&proposal.to_address) {
+            return Err(OrchardError::TransactionBuild(
+                "shielding must pay a shielded address; a transparent destination would be an \
+                 ordinary transparent transfer"
+                    .to_string(),
+            ));
+        }
+
+        let amount = proposal.amount_zatoshis;
+        let total_input: u64 = transparent_inputs.iter().map(|i| i.value).sum();
+
+        // Every transparent input costs a ZIP-317 logical action, so the fee
+        // depends on how many coins the caller selected (not on their value).
+        let fee = shield_fee_zatoshis(transparent_inputs.len(), 2)
+            .map_err(|e| OrchardError::TransactionBuild(e.to_string()))?;
+        if total_input < amount + fee {
+            return Err(OrchardError::InsufficientBalance {
+                available: total_input,
+                required: amount + fee,
+            });
+        }
+        let change_amount = total_input - amount - fee;
+
+        tracing::info!(
+            "Shield build: {} transparent coins, total_input={} zat, amount={} zat, fee={} zat \
+             (ZIP-317 incl. {} transparent inputs), change={} zat → Ironwood",
+            transparent_inputs.len(),
+            total_input,
+            amount,
+            fee,
+            transparent_inputs.len(),
+            change_amount
+        );
+
+        let secret_key_bytes = {
+            let bytes = hex::decode(private_key_hex.trim_start_matches("0x")).map_err(|e| {
+                OrchardError::TransactionBuild(format!("invalid transparent private key hex: {e}"))
+            })?;
+            let arr: [u8; 32] = bytes.try_into().map_err(|_| {
+                OrchardError::TransactionBuild(
+                    "transparent private key must be 32 bytes".to_string(),
+                )
+            })?;
+            arr
+        };
+
+        let coins: Vec<TransparentCoin> = transparent_inputs
+            .iter()
+            .map(|input| TransparentCoin {
+                txid_display_order: input.prev_tx_hash,
+                output_index: input.prev_tx_index,
+                script_pubkey: input.script_pubkey.clone(),
+                value_zatoshis: input.value,
+            })
+            .collect();
+
+        let fvk = spending_key.to_fvk();
+        let ovk = Some(spending_key.to_ovk());
+        let recipient = OrchardAddressManager::extract_orchard_address(&proposal.to_address)?;
+        let payment_memo = match proposal.memo.as_ref() {
+            Some(m) if !m.is_empty() => MemoBytes::from_bytes(m.as_bytes())
+                .map_err(|e| OrchardError::TransactionBuild(format!("invalid memo: {e:?}")))?,
+            _ => MemoBytes::empty(),
+        };
+        let mut outputs = vec![TurnstileOutput {
+            ovk: ovk.clone(),
+            recipient,
+            value_zatoshis: amount,
+            memo: payment_memo,
+        }];
+        if change_amount > 0 {
+            let change_addr = fvk.address(Diversifier::from_bytes([0u8; 11]), Scope::Internal);
+            outputs.push(TurnstileOutput {
+                ovk,
+                recipient: change_addr,
+                value_zatoshis: change_amount,
+                memo: MemoBytes::empty(),
+            });
+        }
+
+        let zcash_network = match self.network {
+            NetworkType::Mainnet => zcash_protocol::consensus::NetworkType::Main,
+            NetworkType::Testnet => zcash_protocol::consensus::NetworkType::Test,
+        };
+        let params = ZpayNetworkParams::new(
+            zcash_network,
+            vec![(NetworkUpgrade::Nu6_3, nu63_activation)],
+        );
+
+        let built = build_shield_transaction(
+            params,
+            anchor_height,
+            coins,
+            secret_key_bytes,
+            outputs,
+            fee,
+        )
+        .map_err(|e| OrchardError::TransactionBuild(format!("shield build failed: {e}")))?;
+
+        tracing::info!(
+            "Shield transaction built: txid={}, raw_len={} bytes",
+            built.txid,
+            built.raw_tx.len()
+        );
+
+        Ok(TransferResult {
+            tx_id: built.txid,
+            status: TransferStatus::Signed,
+            raw_tx: Some(hex::encode(&built.raw_tx)),
+            amount_zatoshis: amount,
+            fee_zatoshis: fee,
+        })
     }
 
     /// F4.0-e: build a **deshield** — shielded notes in, a transparent payout out.
@@ -925,9 +1088,13 @@ impl OrchardTransferService {
                 ShieldedPool::Ironwood,
             );
         }
+        // Shielding is routed to build_shield_result before this point; reaching
+        // here means the dispatch changed and transparent funds would be silently
+        // ignored.
         if proposal.fund_source == FundSource::Transparent {
             return Err(OrchardError::TransactionBuild(
-                "transparent → Ironwood (shielding) is not yet wired; refusing to build"
+                "transparent-funded proposal reached the Ironwood spend path; shielding must go \
+                 through the shield builder"
                     .to_string(),
             ));
         }
@@ -1102,10 +1269,12 @@ impl OrchardTransferService {
                 ShieldedPool::Orchard,
             );
         }
+        // As above: shielding never reaches the turnstile path.
         if proposal.fund_source == FundSource::Transparent {
             return Err(OrchardError::TransactionBuild(
-                "post-NU6.3 shielding (transparent → Ironwood) is not yet wired; \
-                 refusing to build".to_string(),
+                "transparent-funded proposal reached the turnstile path; shielding must go \
+                 through the shield builder"
+                    .to_string(),
             ));
         }
         // Drop 0-value notes before selection. Post-NU6.3 same-address padding

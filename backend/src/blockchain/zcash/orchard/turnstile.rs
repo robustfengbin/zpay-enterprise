@@ -742,6 +742,182 @@ pub fn build_deshield_transaction(
     Ok(TurnstileTx { raw_tx: raw, txid })
 }
 
+/// A transparent coin to be shielded (spent into a shielded pool).
+pub struct TransparentCoin {
+    /// Txid of the transaction that created this coin, in **display** order —
+    /// the same orientation the node's RPC reports and zpay stores. It is
+    /// reversed here for the wire-order [`OutPoint`].
+    pub txid_display_order: [u8; 32],
+    /// Index of the output within that transaction.
+    pub output_index: u32,
+    /// The coin's locking script (`scriptPubKey`).
+    pub script_pubkey: Vec<u8>,
+    pub value_zatoshis: u64,
+}
+
+/// Build a signed, proven **shield**: transparent coins in, Ironwood notes out.
+///
+/// From NU6.3 this is the only way to shield. New value may not enter the old
+/// Orchard pool — `valueBalanceOrchard` must stay nonnegative — so the pre-NU6.3
+/// path that shielded into Orchard becomes consensus-invalid at activation, and
+/// funding a shielded wallet has to target Ironwood instead.
+///
+/// All coins must be P2PKH outputs controlled by `spending_key_bytes` (zpay
+/// wallets hold a single transparent key). The key is added to the signing set
+/// once; the resulting pubkey identifies every input, and `build()` produces the
+/// signatures.
+///
+/// The caller must ensure `sum(ironwood_outputs) == sum(coins) − fee`.
+pub fn build_shield_transaction(
+    params: ZpayNetworkParams,
+    target_height: u64,
+    coins: Vec<TransparentCoin>,
+    spending_key_bytes: [u8; 32],
+    ironwood_outputs: Vec<TurnstileOutput>,
+    fee_zatoshis: u64,
+) -> Result<TurnstileTx, TurnstileError> {
+    use zcash_transparent::bundle::{OutPoint, TxOut};
+
+    if coins.is_empty() {
+        return Err(TurnstileError::Build(
+            "a shield requires at least one transparent coin to spend".to_string(),
+        ));
+    }
+    if ironwood_outputs.is_empty() {
+        return Err(TurnstileError::Build(
+            "a shield requires at least one Ironwood output (value has nowhere to land)"
+                .to_string(),
+        ));
+    }
+
+    let target = block_height_saturating(target_height);
+
+    // Ironwood outputs only: no old-pool bundle (it could not legally receive
+    // this value anyway), and no Ironwood spends, so no anchor constrains it.
+    let build_config = BuildConfig::Standard {
+        sapling_anchor: None,
+        orchard_anchor: None,
+        ironwood_anchor: Some(Anchor::empty_tree()),
+        orchard_pool_bundle_type: orchard::builder::BundleType::DEFAULT,
+    };
+
+    let mut builder = Builder::new(params, target, build_config);
+
+    // The signing set owns the key and hands back the pubkey each input is
+    // matched against at signing time.
+    let mut signing_set = TransparentSigningSet::new();
+    let secret_key = secp256k1_transparent::SecretKey::from_slice(&spending_key_bytes)
+        .map_err(|e| TurnstileError::Build(format!("invalid transparent secret key: {e}")))?;
+    let pubkey = signing_set.add_key(secret_key);
+
+    // The P2PKH script our key can actually sign for. Every coin's own
+    // scriptPubKey is checked against it below: a coin locked to some other
+    // script would be signed with a signature that can never satisfy it, so the
+    // transaction would be rejected — better to say which coin and why.
+    let our_address = TransparentAddress::from_pubkey(&pubkey);
+    let our_script: zcash_transparent::address::Script = our_address.script().into();
+
+    for coin in coins {
+        if coin.script_pubkey != our_script.0 .0 {
+            return Err(TurnstileError::Build(format!(
+                "transparent coin {}:{} is locked to a script this key cannot sign \
+                 (expected the P2PKH script of our own address)",
+                hex::encode(coin.txid_display_order),
+                coin.output_index
+            )));
+        }
+
+        // zpay stores txids in display order; the wire format (and OutPoint) is
+        // the reverse. Getting this backwards produces a transaction that spends
+        // a nonexistent outpoint, which the node rejects outright.
+        let mut txid_wire = coin.txid_display_order;
+        txid_wire.reverse();
+
+        let value = Zatoshis::from_u64(coin.value_zatoshis).map_err(|e| {
+            TurnstileError::Build(format!(
+                "transparent coin value {} invalid: {e:?}",
+                coin.value_zatoshis
+            ))
+        })?;
+        let script = our_script.clone();
+
+        builder
+            .add_transparent_p2pkh_input(
+                pubkey,
+                OutPoint::new(txid_wire, coin.output_index),
+                TxOut::new(value, script),
+            )
+            .map_err(|e| {
+                TurnstileError::Build(format!("add_transparent_p2pkh_input failed: {e:?}"))
+            })?;
+    }
+
+    for out in ironwood_outputs {
+        let value = Zatoshis::from_u64(out.value_zatoshis).map_err(|e| {
+            TurnstileError::Build(format!(
+                "Ironwood output value {} invalid: {e:?}",
+                out.value_zatoshis
+            ))
+        })?;
+        builder
+            .add_ironwood_output::<Infallible>(out.ovk, out.recipient, value, out.memo)
+            .map_err(|e| TurnstileError::Build(format!("add_ironwood_output failed: {e:?}")))?;
+    }
+
+    let fee = Zatoshis::from_u64(fee_zatoshis)
+        .map_err(|e| TurnstileError::Build(format!("fee {fee_zatoshis} invalid: {e:?}")))?;
+    let fee_rule = FeeRule::non_standard(fee);
+
+    let prover = FailLoudSaplingProver;
+    let result = builder
+        .build(
+            &signing_set,
+            &[], // no Sapling extended spending keys
+            &[], // no shielded spends, so no spend authorizing keys
+            OsRng,
+            &prover,
+            &prover,
+            &fee_rule,
+        )
+        .map_err(|e| TurnstileError::Build(format!("shield build failed: {e:?}")))?;
+
+    let tx = result.transaction();
+    let txid = tx.txid().to_string();
+    let mut raw = Vec::new();
+    tx.write(&mut raw)
+        .map_err(|e| TurnstileError::Serialize(format!("transaction serialize failed: {e}")))?;
+    Ok(TurnstileTx { raw_tx: raw, txid })
+}
+
+/// The exact ZIP-317 fee (zatoshis) for a shield: `n_coins` P2PKH transparent
+/// inputs into `n_ironwood_outputs` Ironwood outputs.
+///
+/// The transparent term is `ceil(n_coins × 150 / 150) = n_coins` (standard P2PKH
+/// input size), with no transparent outputs, added to the Ironwood bundle's
+/// action count. So shielding many small UTXOs costs proportionally more — the
+/// fee grows with the number of coins consumed, not the value.
+pub fn shield_fee_zatoshis(
+    n_coins: usize,
+    n_ironwood_outputs: usize,
+) -> Result<u64, TurnstileError> {
+    use orchard::builder::BundleType;
+    use orchard::bundle::BundleVersion;
+    use zcash_primitives::transaction::fees::zip317::{GRACE_ACTIONS, MARGINAL_FEE};
+
+    let ironwood_actions = BundleType::DEFAULT
+        .num_actions(
+            BundleVersion::ironwood_v3().default_flags(),
+            0, // no Ironwood spend
+            n_ironwood_outputs,
+        )
+        .map_err(|e| TurnstileError::Build(format!("ironwood action count: {e}")))?;
+
+    let logical_actions = n_coins + ironwood_actions;
+    let fee = (MARGINAL_FEE * core::cmp::max(GRACE_ACTIONS, logical_actions))
+        .ok_or_else(|| TurnstileError::Build("ZIP-317 fee overflow".to_string()))?;
+    Ok(u64::from(fee))
+}
+
 /// The exact ZIP-317 fee (zatoshis) for a deshield.
 ///
 /// Unlike the fully shielded paths this one has a transparent component, and
@@ -968,6 +1144,20 @@ mod tests {
         assert_eq!(turnstile_fee_zatoshis(3, 0, 2).unwrap(), 25_000);
         // 4 spends → 4 + 2 = 6 → 30000.
         assert_eq!(turnstile_fee_zatoshis(4, 0, 2).unwrap(), 30_000);
+    }
+
+    #[test]
+    fn shield_fee_grows_with_the_number_of_coins() {
+        // Each P2PKH input is a standard 150-byte coin, so it adds exactly one
+        // logical action: shielding many dust UTXOs costs proportionally more,
+        // regardless of their value. 1 coin + 2 ironwood actions = 3 → 15000.
+        assert_eq!(shield_fee_zatoshis(1, 2).unwrap(), 15_000);
+        // A single output still pads the ironwood bundle to 2 actions.
+        assert_eq!(shield_fee_zatoshis(1, 1).unwrap(), 15_000);
+        // 3 coins → 3 + 2 = 5 actions → 25000.
+        assert_eq!(shield_fee_zatoshis(3, 2).unwrap(), 25_000);
+        // 10 coins → 12 actions → 60000; the coin count, not the amount, drives it.
+        assert_eq!(shield_fee_zatoshis(10, 2).unwrap(), 60_000);
     }
 
     #[test]
