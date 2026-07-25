@@ -153,6 +153,15 @@ pub struct OrchardNote {
     /// Contains the authentication path to prove the note exists
     #[serde(skip)]
     pub witness_data: Option<WitnessData>,
+
+    /// Which shielded pool this note lives in.
+    ///
+    /// Decides the note plaintext version (Orchard = V2 / Ironwood = V3), which
+    /// commitment tree holds its witness, and which anchor a spend must use. A
+    /// spend may never mix notes from different pools. Defaults to `Orchard` so
+    /// notes persisted before the dual-pool scanner keep their meaning.
+    #[serde(default)]
+    pub pool: ShieldedPool,
 }
 
 fn default_recipient() -> [u8; 43] {
@@ -661,6 +670,11 @@ impl OrchardScanner {
                     rseed: rseed_bytes,
                     // Witness data will be set after adding to tree
                     witness_data: None,
+                    // This scanner decrypts with OrchardDomain (V2 plaintexts)
+                    // against the Orchard tree, so anything it finds is an old-pool
+                    // note. Ironwood notes are discovered by the dual-pool scan in
+                    // witness_sync.
+                    pool: ShieldedPool::Orchard,
                 });
             }
         }
@@ -862,8 +876,23 @@ pub struct CompactBlock {
 pub struct CompactTransaction {
     /// Transaction hash
     pub hash: String,
-    /// Orchard actions
+    /// Actions of the old Orchard pool (`tx.orchard` in getblock output)
     pub orchard_actions: Vec<CompactOrchardAction>,
+    /// Actions of the Ironwood pool (`tx.ironwood`, v6 transactions from NU6.3
+    /// onward). Kept separate from `orchard_actions`: the two pools have their
+    /// own commitment trees, so their commitments must never be appended to the
+    /// same tree, and their notes decrypt under different domains.
+    pub ironwood_actions: Vec<CompactOrchardAction>,
+}
+
+impl CompactTransaction {
+    /// Actions belonging to one pool.
+    pub fn actions_for(&self, pool: ShieldedPool) -> &[CompactOrchardAction] {
+        match pool {
+            ShieldedPool::Ironwood => &self.ironwood_actions,
+            _ => &self.orchard_actions,
+        }
+    }
 }
 
 /// Compact Orchard action data

@@ -606,6 +606,13 @@ impl OrchardSyncService {
                     transactions.push(CompactTransaction {
                         hash: tx.txid.clone(),
                         orchard_actions: actions,
+                        // Old-pool only. This legacy sync path predates the
+                        // dual-pool scanner and never reads `tx.ironwood`; the
+                        // live scan (witness_sync) covers both pools. Leaving it
+                        // empty degrades safely — Ironwood notes are simply not
+                        // seen here, and no Ironwood commitment can leak into the
+                        // Orchard tree.
+                        ironwood_actions: Vec::new(),
                     });
                 }
             }
@@ -997,6 +1004,7 @@ impl OrchardSyncService {
                         &rho_hex,
                         &rseed_hex,
                         note.position,  // witness_position = global tree position
+                        note.pool.as_db_str(),
                     ).await {
                         Ok(_) => {
                             tracing::debug!(
@@ -1328,7 +1336,11 @@ impl OrchardSyncService {
 
             // Otherwise, try to load notes directly from database (including witness data)
             if let Some(repo) = &self.db_repo {
-                match repo.get_notes_with_witnesses(wallet_id).await {
+                // Legacy path: old Orchard pool only (see to_compact_block).
+                match repo
+                    .get_notes_with_witnesses(wallet_id, ShieldedPool::Orchard.as_db_str())
+                    .await
+                {
                     Ok(db_notes) => {
                         tracing::info!(
                             "[Orchard Sync] Loading {} notes with witnesses from database",
@@ -1462,6 +1474,7 @@ impl OrchardSyncService {
                                 rho,
                                 rseed,
                                 witness_data,
+                                pool: ShieldedPool::from_db_str(&db_note.pool),
                             };
 
                             tracing::debug!(

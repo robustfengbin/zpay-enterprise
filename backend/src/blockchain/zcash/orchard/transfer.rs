@@ -12,7 +12,7 @@ use super::{
     constants::DEFAULT_FEE_ZATOSHIS,
     keys::OrchardSpendingKey,
     scanner::{OrchardNote, ShieldedBalance},
-    OrchardError, OrchardResult,
+    OrchardError, OrchardResult, ShieldedPool,
 };
 use serde::{Deserialize, Serialize};
 
@@ -440,6 +440,25 @@ impl OrchardTransferService {
             return Err(OrchardError::TransactionBuild(
                 "Cannot build transaction with zero amount".to_string()
             ));
+        }
+
+        // Input-pool discipline (F4.0-c). Every builder below spends old Orchard
+        // pool (V2) notes: the pre-NU6.3 v5 path and the turnstile both call
+        // add_orchard_spend and anchor to the Orchard tree. An Ironwood (V3) note
+        // reaching them would be reconstructed at the wrong note version against
+        // the wrong anchor, so refuse loudly instead of building bytes that could
+        // strand funds. Ironwood-native spends get their own v6 builder.
+        if let Some((note, _)) = spendable_notes
+            .iter()
+            .find(|(note, _)| note.pool != ShieldedPool::Orchard)
+        {
+            return Err(OrchardError::TransactionBuild(format!(
+                "Cannot spend a {} note here: this path builds old-Orchard-pool spends only \
+                 (note {} at position {}). Ironwood-native spends require the v6 Ironwood builder.",
+                note.pool,
+                hex::encode(&note.nullifier[..8]),
+                note.position
+            )));
         }
 
         // Protocol-era gate. Below NU6.3 the existing Orchard-pool path applies

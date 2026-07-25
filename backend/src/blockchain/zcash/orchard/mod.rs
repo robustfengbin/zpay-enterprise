@@ -96,20 +96,86 @@ impl From<tree::TreeError> for OrchardError {
 pub type OrchardResult<T> = Result<T, OrchardError>;
 
 /// Shielded pool type indicator
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+///
+/// `Orchard` and `Ironwood` are the two Orchard-protocol pools this wallet
+/// tracks. They share the Action/Halo2 wire format but are *type-distinct* on
+/// chain: separate note commitment trees, separate nullifier sets, separate
+/// chain value pools, and different note plaintext versions (V2 vs V3/rcm_v3).
+/// A note therefore only ever belongs to one of them, and spends must never mix
+/// the two.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ShieldedPool {
-    /// Orchard pool (Halo 2)
+    /// Orchard pool (Halo 2). Turnstile-closed from NU6.3 (spend-only).
+    #[default]
     Orchard,
+    /// Ironwood pool (NU6.3 onward, ZIP-2005 rcm_v3 notes)
+    Ironwood,
     /// Sapling pool (Groth16)
     Sapling,
 }
 
+impl ShieldedPool {
+    /// The value stored in `orchard_notes.pool` / `orchard_tree_state.pool`.
+    pub fn as_db_str(&self) -> &'static str {
+        match self {
+            ShieldedPool::Orchard => "orchard",
+            ShieldedPool::Ironwood => "ironwood",
+            ShieldedPool::Sapling => "sapling",
+        }
+    }
+
+    /// Parse a `pool` column value. Unknown values fall back to the Orchard
+    /// pool, which is what the column default backfilled existing rows to.
+    pub fn from_db_str(s: &str) -> Self {
+        match s {
+            "ironwood" => ShieldedPool::Ironwood,
+            "sapling" => ShieldedPool::Sapling,
+            _ => ShieldedPool::Orchard,
+        }
+    }
+
+    /// The two note pools a Zcash wallet scans, in scan order.
+    pub const NOTE_POOLS: [ShieldedPool; 2] = [ShieldedPool::Orchard, ShieldedPool::Ironwood];
+}
+
 impl std::fmt::Display for ShieldedPool {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ShieldedPool::Orchard => write!(f, "orchard"),
-            ShieldedPool::Sapling => write!(f, "sapling"),
+        write!(f, "{}", self.as_db_str())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_pool_db_str_round_trip() {
+        for pool in [
+            ShieldedPool::Orchard,
+            ShieldedPool::Ironwood,
+            ShieldedPool::Sapling,
+        ] {
+            assert_eq!(ShieldedPool::from_db_str(pool.as_db_str()), pool);
         }
+    }
+
+    #[test]
+    fn test_pool_defaults_to_orchard() {
+        // Notes written before the pool column existed were backfilled to
+        // 'orchard'; anything unrecognised must read the same way, never as
+        // Ironwood (which would send a spend to the wrong tree).
+        assert_eq!(ShieldedPool::default(), ShieldedPool::Orchard);
+        assert_eq!(ShieldedPool::from_db_str(""), ShieldedPool::Orchard);
+        assert_eq!(ShieldedPool::from_db_str("Ironwood"), ShieldedPool::Orchard);
+        assert_eq!(ShieldedPool::from_db_str("nonsense"), ShieldedPool::Orchard);
+    }
+
+    #[test]
+    fn test_note_pools_are_the_two_scanned_pools() {
+        assert_eq!(
+            ShieldedPool::NOTE_POOLS,
+            [ShieldedPool::Orchard, ShieldedPool::Ironwood]
+        );
     }
 }

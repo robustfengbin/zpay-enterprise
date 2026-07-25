@@ -88,10 +88,18 @@ impl OrchardTreeTracker {
             tree.size()
         );
 
+        // See reset_from_frontier: z_gettreestate reports no leaf count, so a
+        // caller-supplied 0 means "ask the frontier".
+        let current_position = if position == 0 {
+            tree.size() as u64
+        } else {
+            position
+        };
+
         Ok(Self {
             tree,
             witnesses: HashMap::new(),
-            current_position: position,
+            current_position,
             last_block_height: block_height,
         })
     }
@@ -105,7 +113,16 @@ impl OrchardTreeTracker {
             .map_err(|e| TreeError::InvalidCommitment(format!("Failed to parse frontier: {}", e)))?;
 
         self.witnesses.clear();
-        self.current_position = position;
+        // z_gettreestate reports only finalState/finalRoot — no leaf count — so
+        // callers pass 0 and the frontier itself is the authority on how many
+        // commitments precede us. Starting a non-empty frontier at position 0
+        // would number every note we then discover from 0 instead of its true
+        // global tree position.
+        self.current_position = if position == 0 {
+            self.tree.size() as u64
+        } else {
+            position
+        };
         self.last_block_height = block_height;
 
         tracing::info!(
@@ -566,5 +583,96 @@ mod tests {
         // We should be able to get a witness
         let witness = tracker.get_witness(2);
         assert!(witness.is_some());
+    }
+
+    // =====================================================================
+    // F4.0-c dual-pool: the two pools' commitments build two independent
+    // trees. These vectors are the *real* chain data from regtest 档B′ (the
+    // W4 turnstile run, NU6.3 active at 500): every Orchard and Ironwood
+    // commitment on that chain up to height 520, in append order, with the
+    // roots the node itself reports via `z_gettreestate(520)`.
+    //
+    // Building each pool's tree from its own commitments must reproduce that
+    // pool's root exactly. This is what guarantees a spend's anchor is
+    // accepted: an Ironwood commitment appended to the Orchard tree (or vice
+    // versa) would silently shift both roots and every proof would fail.
+    // =====================================================================
+
+    /// `tx.orchard` commitments of 档B′ blocks 1..=520 (cmx, append order)
+    const ORCHARD_CMX: [&str; 6] = [
+        "2f415b070c52de9bc713fd6420cc38ca57bf2b7de837077252c0c67e65dd8905",
+        "bb4d592e5abaf0e2338e7353183f8757d7339e8c10241f5fd953e02a27b2360e",
+        "af56c4f4e1e0a708913eab5767f280e4c88a562a3dc20bbec65e7e29fee20d10",
+        "bcc6f3c9e47ede2774f085934eea50d9e57470a5ae27cf7284965945a9636810",
+        "6a0a3192bcc23c8640c2da81ca88790a5c5aa1e2969faa191696091a9e7cf82c",
+        "1e643a40755cfa01bf3f16ee44a8737a14b00d62962f4a68f3c7d14eb836cb39",
+    ];
+    const ORCHARD_ROOT: &str =
+        "5d7420bbc7bb61276cfa9370777320efbd2194968ad19808252dabd364809637";
+
+    /// `tx.ironwood` commitments of the same chain — only the two turnstile
+    /// transactions (blocks 511 and 518) produced any.
+    const IRONWOOD_CMX: [&str; 4] = [
+        "bd9406ce2d0d1663fa456ff7503555c2e9da418d24e4bf27096a7b516b461e13",
+        "e3cff64ce5a1d11727a3867286ee348b8cfcd5882c68c93f2dc7fbc0ff6c5f0c",
+        "7eb893491480434a84ee03610b95022a663457c3fab90546bacacab6a5680d09",
+        "4e96517e5eb34a7ead0fd9cc6fe95e2488e981752949e43257108004f32d1613",
+    ];
+    const IRONWOOD_ROOT: &str =
+        "276296ef3aa999c46f5eb98b1f1d536328368ea401ff62adeb9b4106a7815704";
+
+    fn tree_from_hex_commitments(commitments: &[&str]) -> OrchardTreeTracker {
+        let mut tracker = OrchardTreeTracker::new();
+        for cmx_hex in commitments {
+            let bytes = hex::decode(cmx_hex).expect("valid cmx hex");
+            let mut cmx = [0u8; 32];
+            cmx.copy_from_slice(&bytes);
+            tracker.append_commitment(&cmx).expect("append cmx");
+        }
+        tracker
+    }
+
+    #[test]
+    fn test_orchard_tree_matches_node_root() {
+        let tracker = tree_from_hex_commitments(&ORCHARD_CMX);
+        assert_eq!(tracker.position(), ORCHARD_CMX.len() as u64);
+        assert_eq!(hex::encode(tracker.root()), ORCHARD_ROOT);
+    }
+
+    #[test]
+    fn test_ironwood_tree_matches_node_root() {
+        let tracker = tree_from_hex_commitments(&IRONWOOD_CMX);
+        assert_eq!(tracker.position(), IRONWOOD_CMX.len() as u64);
+        assert_eq!(hex::encode(tracker.root()), IRONWOOD_ROOT);
+    }
+
+    /// The two pools must stay separate: feeding one pool's commitments into
+    /// the other pool's tree (what a single-tree scanner would do) yields a
+    /// root the node would reject as an unknown anchor.
+    #[test]
+    fn test_mixing_pools_breaks_both_roots() {
+        let mut mixed: Vec<&str> = ORCHARD_CMX.to_vec();
+        mixed.extend_from_slice(&IRONWOOD_CMX);
+        let tracker = tree_from_hex_commitments(&mixed);
+
+        let mixed_root = hex::encode(tracker.root());
+        assert_ne!(mixed_root, ORCHARD_ROOT);
+        assert_ne!(mixed_root, IRONWOOD_ROOT);
+    }
+
+    /// A frontier restored with no leaf count (z_gettreestate reports none)
+    /// must take its position from the frontier itself, not start over at 0.
+    #[test]
+    fn test_frontier_position_derived_from_tree_size() {
+        let full = tree_from_hex_commitments(&ORCHARD_CMX);
+        let frontier = hex::encode(full.serialize_tree().expect("serialize"));
+
+        let mut restored = OrchardTreeTracker::new();
+        restored
+            .reset_from_frontier(&frontier, 0, 520)
+            .expect("reset from frontier");
+
+        assert_eq!(restored.position(), ORCHARD_CMX.len() as u64);
+        assert_eq!(hex::encode(restored.root()), ORCHARD_ROOT);
     }
 }

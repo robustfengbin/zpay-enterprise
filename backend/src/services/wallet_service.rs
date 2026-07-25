@@ -1126,14 +1126,39 @@ impl WalletService {
             // Get notes with witnesses
             let sync_guard = self.witness_sync.read().await;
             if let Some(manager) = sync_guard.as_ref() {
-                let notes = manager.get_spendable_notes_with_witnesses(wallet_id).await;
+                // Which pool funds this spend. A spend draws inputs, anchor and
+                // note version from ONE pool. Drain the old Orchard pool first
+                // while it still holds notes: post-NU6.3 those notes can only
+                // leave through the turnstile, so spending them is what empties
+                // the closed pool. Only when it is empty do we spend Ironwood.
+                let source_pool = if manager
+                    .get_spendable_notes_with_witnesses(wallet_id, ShieldedPool::Orchard)
+                    .await
+                    .is_empty()
+                {
+                    ShieldedPool::Ironwood
+                } else {
+                    ShieldedPool::Orchard
+                };
 
-                // Get anchor directly from the tree
-                let anchor = manager.get_orchard_anchor().await;
+                let notes = manager
+                    .get_spendable_notes_with_witnesses(wallet_id, source_pool)
+                    .await;
+
+                // Anchor of the pool being spent — the Orchard anchor freezes at
+                // NU6.3 while Ironwood's keeps advancing, so they are not
+                // interchangeable.
+                let anchor = manager.get_pool_anchor(source_pool).await;
                 let tree_root = {
                     let tree = manager.tree().read().await;
                     tree.root()
                 };
+
+                tracing::info!(
+                    "[Privacy Transfer] Spending from {} pool ({} notes)",
+                    source_pool,
+                    notes.len()
+                );
 
                 tracing::info!(
                     "[Privacy Transfer] Tree anchor: {}",

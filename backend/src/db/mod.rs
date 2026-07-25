@@ -331,19 +331,94 @@ pub async fn run_migrations(pool: &MySqlPool) -> AppResult<()> {
 
     // Create orchard_tree_state table for storing global commitment tree state
     // This enables incremental witness sync without rescanning from note birth height
+    //
+    // One row per shielded pool (F4.0-c): the old Orchard pool and the Ironwood
+    // pool have separate note commitment trees on chain, so their frontiers must
+    // be persisted separately. Fresh databases get the final shape here; the
+    // ALTERs below upgrade databases created before the dual-pool scanner.
     sqlx::query(
         r#"
         CREATE TABLE IF NOT EXISTS orchard_tree_state (
-            id INT PRIMARY KEY DEFAULT 1,
+            id INT PRIMARY KEY AUTO_INCREMENT,
+            pool VARCHAR(16) NOT NULL DEFAULT 'orchard'
+                COMMENT 'Shielded pool this tree belongs to: orchard or ironwood',
             tree_data MEDIUMBLOB NOT NULL COMMENT 'Serialized CommitmentTree frontier',
             tree_height BIGINT UNSIGNED NOT NULL COMMENT 'Block height of tree state',
             tree_size BIGINT UNSIGNED NOT NULL COMMENT 'Number of commitments in tree',
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            UNIQUE KEY uk_tree_pool (pool)
         )
         "#,
     )
     .execute(pool)
     .await?;
+
+    // Upgrade a pre-dual-pool orchard_tree_state: add the pool column (the one
+    // existing row is the old Orchard pool, which the default backfills), give
+    // `id` AUTO_INCREMENT so a second pool row can be inserted, and add the
+    // per-pool unique key the upsert relies on.
+    let tree_pool_column_exists: Option<(String,)> = sqlx::query_as(
+        r#"
+        SELECT CAST(COLUMN_NAME AS CHAR) FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME = 'orchard_tree_state'
+        AND COLUMN_NAME = 'pool'
+        "#,
+    )
+    .fetch_optional(pool)
+    .await?;
+
+    if tree_pool_column_exists.is_none() {
+        sqlx::query(
+            r#"
+            ALTER TABLE orchard_tree_state
+            ADD COLUMN pool VARCHAR(16) NOT NULL DEFAULT 'orchard'
+                COMMENT 'Shielded pool this tree belongs to: orchard or ironwood'
+            "#,
+        )
+        .execute(pool)
+        .await?;
+        tracing::info!(
+            "Added pool column to orchard_tree_state (existing tree backfilled to 'orchard')"
+        );
+    }
+
+    let tree_id_is_auto_increment: Option<(String,)> = sqlx::query_as(
+        r#"
+        SELECT CAST(EXTRA AS CHAR) FROM INFORMATION_SCHEMA.COLUMNS
+        WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME = 'orchard_tree_state'
+        AND COLUMN_NAME = 'id'
+        AND EXTRA LIKE '%auto_increment%'
+        "#,
+    )
+    .fetch_optional(pool)
+    .await?;
+
+    if tree_id_is_auto_increment.is_none() {
+        sqlx::query("ALTER TABLE orchard_tree_state MODIFY id INT NOT NULL AUTO_INCREMENT")
+            .execute(pool)
+            .await?;
+        tracing::info!("orchard_tree_state.id is now AUTO_INCREMENT (one row per pool)");
+    }
+
+    let tree_pool_unique_exists: Option<(String,)> = sqlx::query_as(
+        r#"
+        SELECT CAST(INDEX_NAME AS CHAR) FROM INFORMATION_SCHEMA.STATISTICS
+        WHERE TABLE_SCHEMA = DATABASE()
+        AND TABLE_NAME = 'orchard_tree_state'
+        AND INDEX_NAME = 'uk_tree_pool'
+        "#,
+    )
+    .fetch_optional(pool)
+    .await?;
+
+    if tree_pool_unique_exists.is_none() {
+        sqlx::query("ALTER TABLE orchard_tree_state ADD UNIQUE KEY uk_tree_pool (pool)")
+            .execute(pool)
+            .await?;
+        tracing::info!("Added uk_tree_pool unique key to orchard_tree_state");
+    }
 
     // Add witness_state column to orchard_notes for incremental witness sync
     // This stores serialized IncrementalWitness that can be updated incrementally
