@@ -834,13 +834,18 @@ impl WitnessSyncManager {
         Ok(())
     }
 
-    /// Get witness data for spending a note
+    /// Get witness data for spending a note from `pool`
     ///
-    /// This returns the current witness data. If the tree is behind chain tip,
-    /// it will update the witness first.
-    pub async fn get_witness_for_spending(&self, nullifier: &str) -> OrchardResult<Option<WitnessData>> {
-        let witnesses = self.witnesses.read().await;
-        let positions = self.nullifier_positions.read().await;
+    /// Witnesses live per pool (they are paths into that pool's commitment tree),
+    /// so the pool must be given: looking a nullifier up in the wrong pool's map
+    /// finds nothing.
+    pub async fn get_witness_for_spending(
+        &self,
+        pool: ShieldedPool,
+        nullifier: &str,
+    ) -> OrchardResult<Option<WitnessData>> {
+        let witnesses = self.pool_witnesses(pool).read().await;
+        let positions = self.pool_positions(pool).read().await;
 
         if let Some(witness) = witnesses.get(nullifier) {
             if let Some(path) = witness.path() {
@@ -858,12 +863,21 @@ impl WitnessSyncManager {
         Ok(None)
     }
 
-    /// Get the Orchard MerklePath directly for a note (using proper conversion)
+    /// Get the MerklePath of a note in `pool` (using proper conversion)
     ///
     /// This uses `OrchardMerklePath::from()` which is the correct way to convert
     /// from incrementalmerkletree::MerklePath to orchard::tree::MerklePath.
-    pub async fn get_orchard_merkle_path(&self, nullifier: &str) -> Option<orchard::tree::MerklePath> {
-        let witnesses = self.witnesses.read().await;
+    ///
+    /// The path must come from the same tree the spend anchors to. Reading the
+    /// Orchard map for an Ironwood nullifier silently yields `None` — every note
+    /// then looks path-less and the spend fails as "no spendable notes" with the
+    /// notes plainly in hand.
+    pub async fn get_pool_merkle_path(
+        &self,
+        pool: ShieldedPool,
+        nullifier: &str,
+    ) -> Option<orchard::tree::MerklePath> {
+        let witnesses = self.pool_witnesses(pool).read().await;
 
         if let Some(witness) = witnesses.get(nullifier) {
             if let Some(path) = witness.path() {
@@ -879,6 +893,15 @@ impl WitnessSyncManager {
     pub async fn get_orchard_anchor(&self) -> orchard::tree::Anchor {
         let tree = self.tree.read().await;
         tree.get_anchor()
+    }
+
+    /// Get the root of one pool's commitment tree (for logging / diagnostics)
+    ///
+    /// Use this rather than reaching through [`Self::tree`], which is always the
+    /// Orchard tree and prints the wrong pool's root when spending Ironwood.
+    pub async fn get_pool_tree_root(&self, pool: ShieldedPool) -> [u8; 32] {
+        let tree = self.pool_tree(pool).read().await;
+        tree.root()
     }
 
     /// Get the anchor of one pool's commitment tree
@@ -952,8 +975,9 @@ impl WitnessSyncManager {
         match self.db_repo.get_balance(wallet_id).await {
             Ok(balance) => {
                 let notes_count = self.db_repo.get_notes_count(wallet_id).await.unwrap_or(0);
-                ShieldedBalance::new(
-                    ShieldedPool::Orchard,
+                // Aggregate: unlabelled, because the funds may sit in either pool
+                // (or both) and claiming one would be wrong.
+                ShieldedBalance::new_aggregate(
                     balance,
                     balance,  // All unspent are spendable
                     notes_count as u32,
@@ -961,7 +985,7 @@ impl WitnessSyncManager {
             }
             Err(e) => {
                 tracing::warn!("[WitnessSync] Failed to get balance: {}", e);
-                ShieldedBalance::new(ShieldedPool::Orchard, 0, 0, 0)
+                ShieldedBalance::new_aggregate(0, 0, 0)
             }
         }
     }
@@ -1520,5 +1544,140 @@ impl WitnessSyncManager {
         let notes_count = self.db_repo.get_notes_count(wallet_id).await.unwrap_or(0);
         self.db_repo.upsert_sync_state(wallet_id, height, notes_count as u32).await
             .map_err(|e| OrchardError::DatabaseError(e.to_string()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::blockchain::zcash::orchard::tree::OrchardTreeTracker;
+
+    /// A manager with no live connections. `connect_lazy` builds the pool without
+    /// touching the network, and these tests only exercise the in-memory
+    /// per-pool witness/tree routing — no query is issued.
+    fn offline_manager() -> WitnessSyncManager {
+        let db_pool = sqlx::MySqlPool::connect_lazy("mysql://unused:unused@127.0.0.1:1/unused")
+            .expect("lazy pool");
+        WitnessSyncManager::new(
+            Arc::new(OrchardRepository::new(db_pool)),
+            "http://127.0.0.1:1/".to_string(),
+            "unused".to_string(),
+            "unused".to_string(),
+        )
+    }
+
+    /// A real witness over a one-commitment tree, plus that tree's root.
+    fn witness_and_root(
+        seed: u8,
+    ) -> (
+        IncrementalWitness<MerkleHashOrchard, ORCHARD_TREE_DEPTH>,
+        [u8; 32],
+    ) {
+        let mut tracker = OrchardTreeTracker::new();
+        let mut cmx = [0u8; 32];
+        cmx[0] = seed;
+        tracker.append_commitment(&cmx).expect("append");
+        let witness = tracker
+            .create_witness_from_current()
+            .expect("witness from current");
+        (witness, tracker.root())
+    }
+
+    /// Witnesses are paths into ONE pool's tree, so a lookup must be scoped to
+    /// that pool. Reading the Orchard map for an Ironwood nullifier returns None,
+    /// and the caller then discards a note it is holding — which surfaces as
+    /// "no spendable notes" while the wallet plainly has funds, not as an error
+    /// pointing at the tree. Hence this test: same nullifier, two pools, each
+    /// visible only through its own.
+    #[tokio::test]
+    async fn merkle_path_and_witness_lookup_are_pool_scoped() {
+        let manager = offline_manager();
+        let nullifier = "ab".repeat(32);
+
+        let (ironwood_witness, _) = witness_and_root(7);
+        manager
+            .ironwood_witnesses
+            .write()
+            .await
+            .insert(nullifier.clone(), ironwood_witness);
+        manager
+            .ironwood_positions
+            .write()
+            .await
+            .insert(nullifier.clone(), 0);
+
+        assert!(
+            manager
+                .get_pool_merkle_path(ShieldedPool::Ironwood, &nullifier)
+                .await
+                .is_some(),
+            "Ironwood note must resolve through the Ironwood witness set"
+        );
+        assert!(
+            manager
+                .get_pool_merkle_path(ShieldedPool::Orchard, &nullifier)
+                .await
+                .is_none(),
+            "an Ironwood witness must not be reachable through the Orchard pool"
+        );
+
+        assert!(
+            manager
+                .get_witness_for_spending(ShieldedPool::Ironwood, &nullifier)
+                .await
+                .expect("lookup")
+                .is_some()
+        );
+        assert!(
+            manager
+                .get_witness_for_spending(ShieldedPool::Orchard, &nullifier)
+                .await
+                .expect("lookup")
+                .is_none()
+        );
+    }
+
+    /// The anchor a spend uses and the root reported for it must both come from
+    /// the pool being spent — the Orchard tree freezes at NU6.3 while Ironwood's
+    /// keeps growing, so a mixed-up root is a silently wrong anchor.
+    #[tokio::test]
+    async fn anchors_and_roots_follow_the_pool() {
+        let manager = offline_manager();
+
+        // Give the two trees different contents.
+        {
+            let mut orchard_tree = manager.tree.write().await;
+            let mut cmx = [0u8; 32];
+            cmx[0] = 1;
+            orchard_tree.append_commitment(&cmx).expect("append orchard");
+        }
+        {
+            let mut ironwood_tree = manager.ironwood_tree.write().await;
+            let mut cmx = [0u8; 32];
+            cmx[0] = 2;
+            ironwood_tree.append_commitment(&cmx).expect("append ironwood");
+            cmx[0] = 3;
+            ironwood_tree.append_commitment(&cmx).expect("append ironwood");
+        }
+
+        let orchard_root = manager.get_pool_tree_root(ShieldedPool::Orchard).await;
+        let ironwood_root = manager.get_pool_tree_root(ShieldedPool::Ironwood).await;
+        assert_ne!(orchard_root, ironwood_root);
+
+        // The per-pool accessors and the legacy Orchard-specific ones agree.
+        assert_eq!(
+            manager.get_pool_anchor(ShieldedPool::Orchard).await,
+            manager.get_orchard_anchor().await
+        );
+        assert_eq!(
+            manager.get_pool_anchor(ShieldedPool::Ironwood).await,
+            manager.get_ironwood_anchor().await
+        );
+        assert_ne!(
+            manager.get_pool_anchor(ShieldedPool::Orchard).await,
+            manager.get_pool_anchor(ShieldedPool::Ironwood).await
+        );
+        assert_eq!(manager.get_ironwood_tree_position().await, 2);
+        assert_eq!(manager.get_tree_position().await, 1);
     }
 }
