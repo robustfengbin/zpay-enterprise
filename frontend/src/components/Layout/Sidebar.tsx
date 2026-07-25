@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { ReactNode } from 'react';
 import { NavLink, useLocation } from 'react-router-dom';
 import {
   LayoutDashboard,
@@ -11,85 +11,111 @@ import {
   ChevronRight,
   CheckSquare,
   Inbox,
-  Eye,
   Users,
   FileText,
   Send,
+  ShieldCheck,
 } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useAuth } from '../../hooks/useAuth';
 
-// Chain configuration
 const CHAIN_LIST = [
   { id: 'ethereum', name: 'Ethereum', icon: '⟠', color: '#627EEA' },
   { id: 'zcash', name: 'Zcash', icon: 'Ⓩ', color: '#F4B728' },
 ];
 
-interface ChainSectionProps {
-  chain: { id: string; name: string; icon: string; color: string };
-  isExpanded: boolean;
+const ITEM =
+  'group relative flex items-center gap-2.5 rounded-lg px-2.5 py-[7px] text-[0.8125rem] transition-colors';
+const ITEM_IDLE = 'text-[#96a0b5] hover:bg-white/[0.06] hover:text-white';
+const ITEM_ACTIVE = 'bg-white/[0.09] text-white font-medium';
+
+/** Active items carry a brand bar on the rail edge — a marker, not a slab. */
+function ActiveBar() {
+  return (
+    <span className="absolute -left-2.5 top-1/2 h-4 w-[3px] -translate-y-1/2 rounded-r bg-brand-400" />
+  );
 }
 
-function ChainSection({ chain, isExpanded }: ChainSectionProps) {
+function Item({
+  to,
+  icon: Icon,
+  label,
+  end,
+  indent,
+}: {
+  to: string;
+  icon: LucideIcon;
+  label: string;
+  end?: boolean;
+  indent?: boolean;
+}) {
+  return (
+    <NavLink
+      to={to}
+      end={end}
+      className={({ isActive }) =>
+        `${ITEM} ${isActive ? ITEM_ACTIVE : ITEM_IDLE} ${indent ? 'ml-5' : ''}`
+      }
+    >
+      {({ isActive }) => (
+        <>
+          {isActive && <ActiveBar />}
+          <Icon className={`shrink-0 ${indent ? 'h-3.5 w-3.5' : 'h-4 w-4'}`} />
+          <span className="truncate">{label}</span>
+        </>
+      )}
+    </NavLink>
+  );
+}
+
+function Group({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="mt-5 first:mt-0">
+      <p className="px-2.5 pb-1.5 text-[0.625rem] font-semibold uppercase tracking-[0.09em] text-[#5f6b80]">
+        {label}
+      </p>
+      <div className="space-y-0.5">{children}</div>
+    </div>
+  );
+}
+
+function ChainSection({
+  chain,
+  isExpanded,
+}: {
+  chain: (typeof CHAIN_LIST)[number];
+  isExpanded: boolean;
+}) {
   const { t } = useTranslation();
-  const basePath = `/${chain.id}`;
+  const base = `/${chain.id}`;
 
   return (
     <div>
       <NavLink
-        to={`${basePath}/wallets`}
-        className={({ isActive }) =>
-          `flex items-center justify-between px-6 py-3 text-sm transition-colors ${
-            isActive || isExpanded
-              ? 'bg-gray-800 text-white'
-              : 'text-gray-300 hover:bg-gray-800 hover:text-white'
-          }`
-        }
+        to={`${base}/wallets`}
+        className={`${ITEM} ${isExpanded ? 'text-white' : ITEM_IDLE} justify-between`}
       >
-        <div className="flex items-center">
+        <span className="flex items-center gap-2.5">
           <span
-            className="w-6 h-6 rounded-full flex items-center justify-center text-white text-xs mr-3"
+            className="flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full text-[10px] text-white"
             style={{ backgroundColor: chain.color }}
           >
             {chain.icon}
           </span>
-          <span>{chain.name}</span>
-        </div>
+          {chain.name}
+        </span>
         {isExpanded ? (
-          <ChevronDown className="w-4 h-4" />
+          <ChevronDown className="h-3.5 w-3.5 opacity-60" />
         ) : (
-          <ChevronRight className="w-4 h-4" />
+          <ChevronRight className="h-3.5 w-3.5 opacity-60" />
         )}
       </NavLink>
 
       {isExpanded && (
-        <div className="bg-gray-950">
-          <NavLink
-            to={`${basePath}/wallets`}
-            className={({ isActive }) =>
-              `flex items-center px-6 pl-12 py-2 text-sm transition-colors ${
-                isActive
-                  ? 'text-white bg-blue-600'
-                  : 'text-gray-400 hover:bg-gray-800 hover:text-white'
-              }`
-            }
-          >
-            <Wallet className="w-4 h-4 mr-3 flex-shrink-0" />
-            <span>{t('sidebar.wallets')}</span>
-          </NavLink>
-          <NavLink
-            to={`${basePath}/rpc`}
-            className={({ isActive }) =>
-              `flex items-center px-6 pl-12 py-2 text-sm transition-colors ${
-                isActive
-                  ? 'text-white bg-blue-600'
-                  : 'text-gray-400 hover:bg-gray-800 hover:text-white'
-              }`
-            }
-          >
-            <Server className="w-4 h-4 mr-3 flex-shrink-0" />
-            <span>{t('sidebar.rpcSettings')}</span>
-          </NavLink>
+        <div className="relative mt-0.5 space-y-0.5 before:absolute before:bottom-1 before:left-[13px] before:top-1 before:w-px before:bg-white/10">
+          <Item to={`${base}/wallets`} icon={Wallet} label={t('sidebar.wallets')} indent />
+          <Item to={`${base}/rpc`} icon={Server} label={t('sidebar.rpcSettings')} indent />
         </div>
       )}
     </div>
@@ -100,39 +126,27 @@ export function Sidebar() {
   const { t } = useTranslation();
   const { user } = useAuth();
   const location = useLocation();
+  const isAdmin = user?.role === 'admin';
+  const isOperator = user?.role === 'operator';
 
   return (
-    <aside className="w-64 min-w-64 bg-gray-900 text-white h-screen shrink-0" style={{ display: 'flex', flexDirection: 'column' }}>
-      {/* Header */}
-      <div className="p-6 shrink-0">
-        <h1 className="text-xl font-bold">{t('sidebar.title')}</h1>
-        <p className="text-gray-400 text-sm mt-1">{t('sidebar.subtitle')}</p>
+    <aside className="flex h-screen w-[248px] min-w-[248px] shrink-0 flex-col bg-rail-900 text-white">
+      <div className="flex items-center gap-2.5 px-5 py-4">
+        <span className="flex h-8 w-8 items-center justify-center rounded-[9px] bg-brand-600 text-[15px] font-bold shadow-[0_2px_8px_rgba(75,86,221,0.45)]">
+          z
+        </span>
+        <div className="leading-tight">
+          <p className="text-[0.9375rem] font-semibold tracking-[-0.01em]">{t('sidebar.title')}</p>
+          <p className="text-[0.6875rem] text-[#7b8699]">{t('sidebar.subtitle')}</p>
+        </div>
       </div>
 
-      {/* Navigation */}
-      <nav className="flex-1 overflow-y-auto" style={{ minHeight: 0 }}>
-        {/* Dashboard */}
-        <NavLink
-          to="/"
-          end
-          className={({ isActive }) =>
-            `flex items-center px-6 py-3 text-sm transition-colors ${
-              isActive
-                ? 'bg-blue-600 text-white'
-                : 'text-gray-300 hover:bg-gray-800 hover:text-white'
-            }`
-          }
-        >
-          <LayoutDashboard className="w-5 h-5 mr-3 flex-shrink-0" />
-          <span>{t('sidebar.dashboard')}</span>
-        </NavLink>
+      <nav className="min-h-0 flex-1 overflow-y-auto px-3.5 pb-4">
+        <div className="space-y-0.5">
+          <Item to="/" end icon={LayoutDashboard} label={t('sidebar.dashboard')} />
+        </div>
 
-        {/* Chain Sections */}
-        <div className="mt-4">
-          <div className="px-6 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">
-            {t('sidebar.chains')}
-          </div>
-
+        <Group label={t('sidebar.chains')}>
           {CHAIN_LIST.map((chain) => (
             <ChainSection
               key={chain.id}
@@ -140,230 +154,45 @@ export function Sidebar() {
               isExpanded={location.pathname.startsWith(`/${chain.id}`)}
             />
           ))}
-        </div>
+        </Group>
 
-        {/* Transfers — every way money leaves a wallet, in one group:
-            single (per-chain), batch payouts, and the Ironwood migration. */}
-        <div className="mt-4">
-          <div className="px-6 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">
-            {t('sidebar.transfers_group')}
-          </div>
-          <NavLink
-            to="/ethereum/transfer"
-            className={({ isActive }) =>
-              `flex items-center px-6 py-3 text-sm transition-colors ${
-                isActive
-                  ? 'bg-blue-600 text-white'
-                  : 'text-gray-300 hover:bg-gray-800 hover:text-white'
-              }`
-            }
-          >
-            <ArrowLeftRight className="w-5 h-5 mr-3 flex-shrink-0" />
-            <span>{t('sidebar.transfer_eth')}</span>
-          </NavLink>
-          <NavLink
-            to="/zcash/transfer"
-            className={({ isActive }) =>
-              `flex items-center px-6 py-3 text-sm transition-colors ${
-                isActive
-                  ? 'bg-blue-600 text-white'
-                  : 'text-gray-300 hover:bg-gray-800 hover:text-white'
-              }`
-            }
-          >
-            <ArrowLeftRight className="w-5 h-5 mr-3 flex-shrink-0" />
-            <span>{t('sidebar.transfer_zec')}</span>
-          </NavLink>
-          {/* F4.2 — batch privacy transfers (admin-only, treasury payouts) */}
-          {user?.role === 'admin' && (
-            <NavLink
-              to="/batch-transfers"
-              className={({ isActive }) =>
-                `flex items-center px-6 py-3 text-sm transition-colors ${
-                  isActive
-                    ? 'bg-blue-600 text-white'
-                    : 'text-gray-300 hover:bg-gray-800 hover:text-white'
-                }`
-              }
-            >
-              <Send className="w-5 h-5 mr-3 flex-shrink-0" />
-              <span>{t('sidebar.batch_transfers')}</span>
-            </NavLink>
+        {/* Every way money leaves a wallet, in one group: single transfers,
+            batch payouts, and the Ironwood migration. */}
+        <Group label={t('sidebar.transfers_group')}>
+          <Item to="/ethereum/transfer" icon={ArrowLeftRight} label={t('sidebar.transfer_eth')} />
+          <Item to="/zcash/transfer" icon={ArrowLeftRight} label={t('sidebar.transfer_zec')} />
+          {isAdmin && (
+            <Item to="/batch-transfers" icon={Send} label={t('sidebar.batch_transfers')} />
           )}
-          {/* F4.1 — Ironwood migration runs (admin-only, whole-treasury moves) */}
-          {user?.role === 'admin' && (
-            <NavLink
-              to="/migrations"
-              className={({ isActive }) =>
-                `flex items-center px-6 py-3 text-sm transition-colors ${
-                  isActive
-                    ? 'bg-blue-600 text-white'
-                    : 'text-gray-300 hover:bg-gray-800 hover:text-white'
-                }`
-              }
-            >
-              <FileText className="w-5 h-5 mr-3 flex-shrink-0" />
-              <span>{t('sidebar.migrations')}</span>
-            </NavLink>
+          {isAdmin && (
+            <Item to="/migrations" icon={ShieldCheck} label={t('sidebar.migrations')} />
           )}
-        </div>
+        </Group>
 
-        {/* M1 Governance & Compliance */}
-        <div className="mt-4">
-          <div className="px-6 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">
-            {t('sidebar.governance')}
-          </div>
-          {/* Approval — visible to admin (checker) + operator (maker views own pending) */}
-          {(user?.role === 'admin' || user?.role === 'operator') && (
-            <>
-              {user?.role === 'admin' && (
-                <NavLink
-                  to="/approval/queue"
-                  className={({ isActive }) =>
-                    `flex items-center px-6 py-3 text-sm transition-colors ${
-                      isActive
-                        ? 'bg-blue-600 text-white'
-                        : 'text-gray-300 hover:bg-gray-800 hover:text-white'
-                    }`
-                  }
-                >
-                  <Inbox className="w-5 h-5 mr-3 flex-shrink-0" />
-                  <span>{t('sidebar.approval_queue')}</span>
-                </NavLink>
-              )}
-              <NavLink
-                to="/approval/pending"
-                className={({ isActive }) =>
-                  `flex items-center px-6 py-3 text-sm transition-colors ${
-                    isActive
-                      ? 'bg-blue-600 text-white'
-                      : 'text-gray-300 hover:bg-gray-800 hover:text-white'
-                  }`
-                }
-              >
-                <CheckSquare className="w-5 h-5 mr-3 flex-shrink-0" />
-                <span>{t('sidebar.my_approvals')}</span>
-              </NavLink>
-              {user?.role === 'admin' && (
-                <NavLink
-                  to="/approval/policies"
-                  className={({ isActive }) =>
-                    `flex items-center px-6 py-3 text-sm transition-colors ${
-                      isActive
-                        ? 'bg-blue-600 text-white'
-                        : 'text-gray-300 hover:bg-gray-800 hover:text-white'
-                    }`
-                  }
-                >
-                  <Settings className="w-5 h-5 mr-3 flex-shrink-0" />
-                  <span>{t('sidebar.approval_policies')}</span>
-                </NavLink>
-              )}
-            </>
+        <Group label={t('sidebar.governance')}>
+          {isAdmin && <Item to="/approval/queue" icon={Inbox} label={t('sidebar.approval_queue')} />}
+          {(isAdmin || isOperator) && (
+            <Item to="/approval/pending" icon={CheckSquare} label={t('sidebar.my_approvals')} />
           )}
-
-          {/* Auditor management. The /auditor dashboard is the auditor's own
-              read-only view (gated by AuditorAuthMiddleware on kind="auditor"
-              JWT), so admins shouldn't link there from the sidebar — they
-              manage auditors at /auditor/manage instead. */}
-          {user?.role === 'admin' && (
-            <NavLink
-              to="/auditor/manage"
-              className={({ isActive }) =>
-                `flex items-center px-6 py-3 text-sm transition-colors ${
-                  isActive
-                    ? 'bg-blue-600 text-white'
-                    : 'text-gray-300 hover:bg-gray-800 hover:text-white'
-                }`
-              }
-            >
-              <Users className="w-5 h-5 mr-3 flex-shrink-0" />
-              <span>{t('sidebar.auditor_manage')}</span>
-            </NavLink>
+          {isAdmin && (
+            <Item to="/approval/policies" icon={Settings} label={t('sidebar.approval_policies')} />
           )}
-        </div>
+          {/* The /auditor dashboard is the auditor's own read-only view (gated
+              by AuditorAuthMiddleware on kind="auditor" JWTs), so admins manage
+              auditors at /auditor/manage instead of linking there. */}
+          {isAdmin && <Item to="/auditor/manage" icon={Users} label={t('sidebar.auditor_manage')} />}
+        </Group>
 
-        {/* M1 Payroll */}
-        <div className="mt-4">
-          <div className="px-6 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">
-            {t('sidebar.payroll')}
-          </div>
-          <NavLink
-            to="/payroll/runs"
-            className={({ isActive }) =>
-              `flex items-center px-6 py-3 text-sm transition-colors ${
-                isActive
-                  ? 'bg-blue-600 text-white'
-                  : 'text-gray-300 hover:bg-gray-800 hover:text-white'
-              }`
-            }
-          >
-            <FileText className="w-5 h-5 mr-3 flex-shrink-0" />
-            <span>{t('sidebar.payroll_runs')}</span>
-          </NavLink>
-          <NavLink
-            to="/payroll/employees"
-            className={({ isActive }) =>
-              `flex items-center px-6 py-3 text-sm transition-colors ${
-                isActive
-                  ? 'bg-blue-600 text-white'
-                  : 'text-gray-300 hover:bg-gray-800 hover:text-white'
-              }`
-            }
-          >
-            <Users className="w-5 h-5 mr-3 flex-shrink-0" />
-            <span>{t('sidebar.employees')}</span>
-          </NavLink>
-        </div>
+        <Group label={t('sidebar.payroll')}>
+          <Item to="/payroll/runs" icon={FileText} label={t('sidebar.payroll_runs')} />
+          <Item to="/payroll/employees" icon={Users} label={t('sidebar.employees')} />
+        </Group>
 
-        {/* History & Settings */}
-        <div className="mt-4">
-          <div className="px-6 py-2 text-xs font-semibold text-gray-500 uppercase tracking-wider">
-            {t('sidebar.general')}
-          </div>
-          <NavLink
-            to="/history"
-            className={({ isActive }) =>
-              `flex items-center px-6 py-3 text-sm transition-colors ${
-                isActive
-                  ? 'bg-blue-600 text-white'
-                  : 'text-gray-300 hover:bg-gray-800 hover:text-white'
-              }`
-            }
-          >
-            <History className="w-5 h-5 mr-3 flex-shrink-0" />
-            <span>{t('sidebar.history')}</span>
-          </NavLink>
-          <NavLink
-            to="/settings"
-            className={({ isActive }) =>
-              `flex items-center px-6 py-3 text-sm transition-colors ${
-                isActive
-                  ? 'bg-blue-600 text-white'
-                  : 'text-gray-300 hover:bg-gray-800 hover:text-white'
-              }`
-            }
-          >
-            <Settings className="w-5 h-5 mr-3 flex-shrink-0" />
-            <span>{t('sidebar.settings')}</span>
-          </NavLink>
-        </div>
+        <Group label={t('sidebar.general')}>
+          <Item to="/history" icon={History} label={t('sidebar.history')} />
+          <Item to="/settings" icon={Settings} label={t('sidebar.settings')} />
+        </Group>
       </nav>
-
-      {/* User Info at bottom */}
-      <div className="p-6 border-t border-gray-700">
-        <div className="text-sm">
-          <p className="text-gray-400">{t('sidebar.loggedInAs')}</p>
-          <p className="font-medium">{user?.username}</p>
-          <p className="text-xs text-gray-500">
-            {user?.role === 'admin'
-              ? t('common.admin')
-              : user?.role === 'auditor'
-              ? t('common.auditor')
-              : t('common.operator')}
-          </p>
-        </div>
-      </div>
     </aside>
   );
 }

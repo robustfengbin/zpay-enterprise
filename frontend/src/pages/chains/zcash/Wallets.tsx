@@ -6,7 +6,7 @@ import { useAuth } from '../../../hooks/useAuth';
 
 export function ZcashWallets() {
   const { user } = useAuth();
-  const [walletIds, setWalletIds] = useState<number[]>([]);
+  const [wallets, setWallets] = useState<Array<{ id: number; name: string }>>([]);
 
   // F4.1 — surface the Ironwood migration banner for every Zcash wallet
   // that still holds legacy-pool shielded funds. Each banner fetches its
@@ -17,19 +17,25 @@ export function ZcashWallets() {
     let alive = true;
     walletService
       .listWallets('zcash')
-      .then(ws => { if (alive) setWalletIds(ws.filter(w => w.chain === 'zcash').map(w => w.id)); })
-      .catch(() => { /* banner is advisory — the wallet list below still loads */ });
-    return () => { alive = false; };
+      .then((ws) => {
+        if (alive) {
+          setWallets(ws.filter((w) => w.chain === 'zcash').map((w) => ({ id: w.id, name: w.name })));
+        }
+      })
+      .catch(() => {
+        /* banner is advisory — the wallet list below still loads */
+      });
+    return () => {
+      alive = false;
+    };
   }, [user?.role]);
 
   return (
-    <div>
-      {walletIds.length > 0 && (
-        <div className="px-6 pt-4 space-y-2">
-          {walletIds.map(id => <MigrationBanner key={id} walletId={id} />)}
-        </div>
-      )}
-      <ChainWallets chainId="zcash" />
-    </div>
+    <ChainWallets
+      chainId="zcash"
+      banner={wallets.map((w) => (
+        <MigrationBanner key={w.id} walletId={w.id} walletName={w.name} />
+      ))}
+    />
   );
 }

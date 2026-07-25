@@ -29,21 +29,20 @@
     "copied": "Copied!"
   },
   "login": {
-    "title": "Web3 Wallet Service",
-    "subtitle": "Sign in to manage your wallets",
+    "title": "Sign in",
+    "subtitle": "zPay Enterprise Treasury console",
     "username": "Username",
     "password": "Password",
     "usernamePlaceholder": "Enter your username",
     "passwordPlaceholder": "Enter your password",
     "signIn": "Sign In",
-    "defaultCredentials": "Default admin account is configured via backend/.env (WEB3_SECURITY__ADMIN_INITIAL_PASSWORD)",
     "failed": "Login failed",
     "auditor_hint": "Auditor?",
     "auditor_link": "Sign in here"
   },
   "sidebar": {
-    "title": "Web3 Wallet",
-    "subtitle": "Management System",
+    "title": "zPay",
+    "subtitle": "Enterprise Treasury",
     "dashboard": "Dashboard",
     "wallets": "Wallets",
     "transfer": "Transfer",
@@ -87,7 +86,8 @@
       "my_awaiting": "My awaiting approval",
       "employees": "Employees",
       "auditors": "Auditors"
-    }
+    },
+    "to": "To"
   },
   "wallets": {
     "title": "Wallets",
@@ -788,7 +788,8 @@
       "body": "This wallet holds {{amount}} ZEC ({{notes}} notes) in the legacy Orchard pool. After the NU6.3 upgrade, funds move forward through the turnstile into Ironwood. Your addresses do not change.",
       "active": "Migration run #{{id}} is {{status}}.",
       "view": "View progress",
-      "start": "Start migration"
+      "start": "Start migration",
+      "body_notes": "{{notes}} notes in the legacy Orchard pool"
     },
     "create": {
       "title": "Migrate to Ironwood",
@@ -818,7 +819,9 @@
       "notes": "Notes (optional)",
       "notes_placeholder": "e.g. Q3 treasury migration",
       "confirm_hint": "If the total meets an approval policy, the run will require a second approver before anything is broadcast. One approval covers the whole window; batches then run automatically and cancel is the only way to stop the remainder.",
-      "submit": "Create migration plan"
+      "submit": "Create migration plan",
+      "nothing_to_migrate": "This wallet has no spendable balance in the legacy Orchard pool.",
+      "plan_preview": "{{batches}} batches across {{hours}}h — roughly one every {{every}}{{unit}}, with random jitter."
     },
     "detail": {
       "title": "Migration run",
@@ -852,7 +855,10 @@
         "reason": "Error"
       },
       "reject_reason_label": "Reason (min 5 characters)",
-      "reject_reason_placeholder": "Why is this migration rejected?"
+      "reject_reason_placeholder": "Why is this migration rejected?",
+      "decision_title": "Approval required",
+      "decision_help": "A second approver must sign off before anything is broadcast. Approving covers the whole schedule window; rejecting stops the run for good.",
+      "batches_done": "{{done}} of {{total}} batches submitted"
     },
     "list": {
       "title": "Migration runs",
@@ -863,8 +869,18 @@
         "mode": "Mode",
         "total": "Total (ZEC)",
         "status": "Status",
-        "created": "Created"
-      }
+        "created": "Created",
+        "batches": "Plan"
+      },
+      "subtitle": "Move a wallet's shielded balance out of the legacy Orchard pool, in batches you control.",
+      "empty_body": "When a Zcash wallet still holds funds in the legacy Orchard pool, start a run here to move them through the turnstile into Ironwood."
+    },
+    "pool": {
+      "legacy": "Legacy Orchard",
+      "legacy_sub": "Not yet migrated",
+      "ironwood": "Ironwood",
+      "ironwood_sub": "Through the turnstile",
+      "turnstile": "Turnstile"
     }
   },
   "batch": {
@@ -880,7 +896,9 @@
         "total": "Total (ZEC)",
         "status": "Status",
         "created": "Created"
-      }
+      },
+      "subtitle": "Pay many recipients from one shielded wallet, spread across a window so the payouts don't line up.",
+      "empty_body": "Upload a CSV of recipients to schedule a shielded payout run."
     },
     "create": {
       "title": "New Batch Privacy Transfer",
@@ -919,7 +937,13 @@
       "err_no_wallet": "Select a source wallet.",
       "err_no_valid_rows": "No valid rows to submit.",
       "err_server_validation": "The server rejected {{count}} row(s) — fix them and re-upload.",
-      "confirm_with_invalid": "{{count}} invalid row(s) will be skipped. Continue with the valid rows only?"
+      "confirm_with_invalid": "{{count}} invalid row(s) will be skipped. Continue with the valid rows only?",
+      "section_details": "Run details",
+      "section_recipients": "Recipients",
+      "drop_csv": "Drop a CSV here, or click to choose a file",
+      "download_template": "Template",
+      "ready_summary": "{{count}} transfers ready · {{amount}} ZEC total",
+      "awaiting_csv": "Upload a recipient list to continue."
     },
     "detail": {
       "wallet": "Wallet",
@@ -954,7 +978,11 @@
         "confirm_reject": "Confirm reject",
         "retry_failed": "Retry {{count}} failed",
         "cancel": "Cancel run"
-      }
+      },
+      "decision_title": "Approval required",
+      "decision_help": "A second approver must sign off before anything is broadcast. Approving covers the whole schedule window; rejecting stops the run for good.",
+      "sent_amount": "{{amount}} ZEC sent",
+      "recipients_paid": "{{done}} of {{total}} transfers submitted"
     },
     "run_status": {
       "pending": "Pending",

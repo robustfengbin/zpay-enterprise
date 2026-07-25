@@ -1,68 +1,526 @@
 @import "tailwindcss";
 
-/* App-wide component classes. The M1/F4 pages reference these (btn-primary /
-   btn-secondary / btn-ghost / btn-danger, field) — define them once here so
-   every page shares the same button + form language as the original
-   inline-styled pages (blue-600 primary, rounded-lg, subtle borders). */
-@layer components {
-  .btn-primary {
-    @apply inline-flex items-center justify-center gap-1 px-4 py-2 rounded-lg
-      bg-blue-600 text-white text-sm font-medium transition-colors
-      hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500/40
-      disabled:opacity-50 disabled:cursor-not-allowed;
-  }
-  .btn-secondary {
-    @apply inline-flex items-center justify-center gap-1 px-4 py-2 rounded-lg
-      bg-white text-gray-700 text-sm font-medium border border-gray-300
-      transition-colors hover:bg-gray-50 hover:border-gray-400
-      focus:outline-none focus:ring-2 focus:ring-blue-500/30
-      disabled:opacity-50 disabled:cursor-not-allowed;
-  }
-  .btn-ghost {
-    @apply inline-flex items-center justify-center gap-1 px-3 py-2 rounded-lg
-      text-gray-600 text-sm font-medium transition-colors
-      hover:bg-gray-100 hover:text-gray-900
-      focus:outline-none focus:ring-2 focus:ring-blue-500/20
-      disabled:opacity-50 disabled:cursor-not-allowed;
-  }
-  .btn-danger {
-    @apply inline-flex items-center justify-center gap-1 px-4 py-2 rounded-lg
-      bg-red-600 text-white text-sm font-medium transition-colors
-      hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500/40
-      disabled:opacity-50 disabled:cursor-not-allowed;
-  }
-  /* Shared text input / select / textarea look. (.input is the name the
-     M1/F4 pages already use; .field is an alias for new code.) */
-  .input,
-  .field {
-    @apply w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm
-      text-gray-900 shadow-sm transition-colors placeholder:text-gray-400
-      focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/30
-      disabled:bg-gray-50 disabled:text-gray-500;
-  }
+/* ============================================================================
+   zPay design system — tokens
+   ----------------------------------------------------------------------------
+   One vocabulary for the whole product: a cool neutral ramp for structure, a
+   single brand accent for action, and two *pool* identities (legacy Orchard vs
+   Ironwood) because the pool split is the mental model this release is built
+   around. Semantic colors are reserved for state — never decoration.
+   ========================================================================== */
+@theme {
+  --font-sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", Roboto, "Helvetica Neue",
+    Arial, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", "Roboto Mono",
+    Menlo, Consolas, monospace;
+
+  /* Text / structure */
+  --color-ink-900: #0b1220;
+  --color-ink-700: #263043;
+  --color-ink-500: #4a5567;
+  --color-ink-400: #6b7688;
+  --color-ink-300: #98a2b3;
+
+  --color-line-100: #f0f1f5;
+  --color-line-200: #e4e7ec;
+  --color-line-300: #d3d8e0;
+
+  --color-canvas: #f4f6f9;
+  --color-surface: #ffffff;
+  --color-surface-2: #f9fafb;
+
+  /* Navigation rail */
+  --color-rail-900: #0a1020;
+  --color-rail-800: #111a2e;
+  --color-rail-700: #1a2439;
+  --color-rail-line: #212c44;
+
+  /* Brand — action, selection, focus */
+  --color-brand-50: #eef1ff;
+  --color-brand-100: #e0e5ff;
+  --color-brand-200: #c5cdff;
+  --color-brand-300: #a3aeff;
+  --color-brand-400: #7d8bfb;
+  --color-brand-500: #5f6df2;
+  --color-brand-600: #4b56dd;
+  --color-brand-700: #3d46b4;
+
+  /* Legacy Orchard pool — sunsetting, closed to deposits */
+  --color-legacy-50: #fdf6ec;
+  --color-legacy-100: #faebd3;
+  --color-legacy-200: #f2d5a5;
+  --color-legacy-500: #c47f16;
+  --color-legacy-600: #a56a10;
+  --color-legacy-700: #7d500c;
+
+  /* Ironwood pool — the destination */
+  --color-iron-50: #eafaf5;
+  --color-iron-100: #d0f4e7;
+  --color-iron-200: #a3e6d1;
+  --color-iron-500: #109c76;
+  --color-iron-600: #0d8262;
+  --color-iron-700: #0a634b;
+
+  /* State */
+  --color-ok-50: #ecfdf3;
+  --color-ok-200: #a9e6c1;
+  --color-ok-600: #067a48;
+  --color-ok-700: #05603a;
+
+  --color-warn-50: #fff8eb;
+  --color-warn-200: #f7dda1;
+  --color-warn-600: #b25e09;
+  --color-warn-700: #8a4708;
+
+  --color-bad-50: #fef3f2;
+  --color-bad-200: #f6c9c4;
+  --color-bad-600: #cf3b30;
+  --color-bad-700: #a52d24;
+
+  --color-info-50: #eff8ff;
+  --color-info-200: #b2ddff;
+  --color-info-600: #1670c4;
+  --color-info-700: #12579a;
+
+  --radius-card: 12px;
+
+  --shadow-card: 0 1px 2px rgba(11, 18, 32, 0.04), 0 1px 3px rgba(11, 18, 32, 0.03);
+  --shadow-pop: 0 8px 24px -6px rgba(11, 18, 32, 0.14), 0 2px 6px rgba(11, 18, 32, 0.06);
+}
+
+/* ============================================================================
+   Base
+   ========================================================================== */
+html {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue',
-    Arial, sans-serif;
   margin: 0;
+  font-family: var(--font-sans);
+  color: var(--color-ink-700);
+  background: var(--color-canvas);
+  font-size: 14px;
+  line-height: 1.5;
 }
 
-/* Custom scrollbar */
+::selection {
+  background: var(--color-brand-100);
+  color: var(--color-brand-700);
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-brand-500);
+  outline-offset: 2px;
+}
+
+/* Numeric columns must line up — money is read vertically, not horizontally. */
+.num {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+
+.mono {
+  font-family: var(--font-mono);
+  font-variant-ligatures: none;
+  letter-spacing: -0.01em;
+}
+
+/* ============================================================================
+   Components
+   Raw CSS on purpose: these are the product's shared surfaces, and they should
+   not shift when a utility framework changes underneath them.
+   ========================================================================== */
+@layer components {
+  /* --- Buttons ---------------------------------------------------------- */
+  .btn-primary,
+  .btn-secondary,
+  .btn-ghost,
+  .btn-danger {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.375rem;
+    height: 2.25rem;
+    padding-inline: 0.875rem;
+    border-radius: 8px;
+    border: 1px solid transparent;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    line-height: 1;
+    white-space: nowrap;
+    cursor: pointer;
+    user-select: none;
+    transition: background-color 0.14s ease, border-color 0.14s ease,
+      color 0.14s ease, box-shadow 0.14s ease, transform 0.06s ease;
+  }
+  .btn-primary:active:not(:disabled),
+  .btn-secondary:active:not(:disabled),
+  .btn-ghost:active:not(:disabled),
+  .btn-danger:active:not(:disabled) {
+    transform: translateY(0.5px);
+  }
+  .btn-primary:disabled,
+  .btn-secondary:disabled,
+  .btn-ghost:disabled,
+  .btn-danger:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+
+  .btn-primary {
+    background: var(--color-brand-600);
+    color: #fff;
+    box-shadow: 0 1px 2px rgba(11, 18, 32, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  }
+  .btn-primary:hover:not(:disabled) {
+    background: var(--color-brand-500);
+  }
+
+  .btn-secondary {
+    background: var(--color-surface);
+    color: var(--color-ink-700);
+    border-color: var(--color-line-300);
+    box-shadow: 0 1px 2px rgba(11, 18, 32, 0.04);
+  }
+  .btn-secondary:hover:not(:disabled) {
+    background: var(--color-surface-2);
+    border-color: var(--color-ink-300);
+  }
+
+  .btn-ghost {
+    background: transparent;
+    color: var(--color-ink-500);
+  }
+  .btn-ghost:hover:not(:disabled) {
+    background: var(--color-line-100);
+    color: var(--color-ink-900);
+  }
+
+  .btn-danger {
+    background: var(--color-bad-600);
+    color: #fff;
+    box-shadow: 0 1px 2px rgba(11, 18, 32, 0.12);
+  }
+  .btn-danger:hover:not(:disabled) {
+    background: var(--color-bad-700);
+  }
+
+  .btn-sm {
+    height: 1.875rem;
+    padding-inline: 0.625rem;
+    font-size: 0.75rem;
+    border-radius: 7px;
+  }
+
+  /* Square icon-only button — same footprint as .btn so toolbars align. */
+  .btn-icon {
+    width: 2.25rem;
+    padding-inline: 0;
+  }
+  .btn-icon.btn-sm {
+    width: 1.875rem;
+  }
+
+  /* --- Form controls ---------------------------------------------------- */
+  .input,
+  .field,
+  .select,
+  textarea.field {
+    width: 100%;
+    height: 2.25rem;
+    padding: 0 0.625rem;
+    border-radius: 8px;
+    border: 1px solid var(--color-line-300);
+    background: var(--color-surface);
+    color: var(--color-ink-900);
+    font-size: 0.8125rem;
+    font-family: inherit;
+    transition: border-color 0.14s ease, box-shadow 0.14s ease, background-color 0.14s ease;
+  }
+  textarea.field,
+  textarea.input {
+    height: auto;
+    padding: 0.5rem 0.625rem;
+    line-height: 1.5;
+    resize: vertical;
+  }
+  .input::placeholder,
+  .field::placeholder {
+    color: var(--color-ink-300);
+  }
+  .input:hover:not(:disabled),
+  .field:hover:not(:disabled),
+  .select:hover:not(:disabled) {
+    border-color: var(--color-line-300);
+    background: var(--color-surface-2);
+  }
+  .input:focus,
+  .field:focus,
+  .select:focus {
+    outline: none;
+    background: var(--color-surface);
+    border-color: var(--color-brand-400);
+    box-shadow: 0 0 0 3px var(--color-brand-100);
+  }
+  .input:disabled,
+  .field:disabled,
+  .select:disabled {
+    background: var(--color-line-100);
+    color: var(--color-ink-300);
+    cursor: not-allowed;
+  }
+  .input[aria-invalid="true"],
+  .field[aria-invalid="true"] {
+    border-color: var(--color-bad-200);
+    background: var(--color-bad-50);
+  }
+  /* Native select needs its own chevron once the default border is restyled. */
+  select.input,
+  select.field,
+  .select {
+    appearance: none;
+    padding-right: 2rem;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%236b7688' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 0.5rem center;
+  }
+
+  .label {
+    display: block;
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--color-ink-500);
+    margin-bottom: 0.375rem;
+  }
+  .hint {
+    font-size: 0.6875rem;
+    color: var(--color-ink-400);
+    margin-top: 0.375rem;
+    line-height: 1.45;
+  }
+
+  /* --- Surfaces --------------------------------------------------------- */
+  .card {
+    background: var(--color-surface);
+    border: 1px solid var(--color-line-200);
+    border-radius: var(--radius-card);
+    box-shadow: var(--shadow-card);
+  }
+  .card-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.875rem 1.125rem;
+    border-bottom: 1px solid var(--color-line-200);
+  }
+  .card-title {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: var(--color-ink-900);
+    letter-spacing: -0.005em;
+  }
+  .card-body {
+    padding: 1.125rem;
+  }
+
+  /* Section eyebrow above a group of fields. */
+  .eyebrow {
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--color-ink-400);
+  }
+
+  /* --- Tables ----------------------------------------------------------- */
+  .table {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0;
+    font-size: 0.8125rem;
+  }
+  .table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: var(--color-surface-2);
+    padding: 0.5rem 0.875rem;
+    text-align: left;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--color-ink-400);
+    border-bottom: 1px solid var(--color-line-200);
+    white-space: nowrap;
+  }
+  .table tbody td {
+    padding: 0.625rem 0.875rem;
+    border-bottom: 1px solid var(--color-line-100);
+    color: var(--color-ink-700);
+    vertical-align: middle;
+  }
+  .table tbody tr:last-child td {
+    border-bottom: none;
+  }
+  .table tbody tr.row-link {
+    cursor: pointer;
+    transition: background-color 0.1s ease;
+  }
+  .table tbody tr.row-link:hover td {
+    background: var(--color-brand-50);
+  }
+  .table .cell-num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* --- Badges / chips --------------------------------------------------- */
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3125rem;
+    height: 1.375rem;
+    padding-inline: 0.5rem;
+    border-radius: 999px;
+    border: 1px solid transparent;
+    font-size: 0.6875rem;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+  .badge-neutral {
+    background: var(--color-line-100);
+    border-color: var(--color-line-200);
+    color: var(--color-ink-500);
+  }
+  .badge-ok {
+    background: var(--color-ok-50);
+    border-color: var(--color-ok-200);
+    color: var(--color-ok-700);
+  }
+  .badge-warn {
+    background: var(--color-warn-50);
+    border-color: var(--color-warn-200);
+    color: var(--color-warn-700);
+  }
+  .badge-bad {
+    background: var(--color-bad-50);
+    border-color: var(--color-bad-200);
+    color: var(--color-bad-700);
+  }
+  .badge-info {
+    background: var(--color-info-50);
+    border-color: var(--color-info-200);
+    color: var(--color-info-700);
+  }
+  .badge-brand {
+    background: var(--color-brand-50);
+    border-color: var(--color-brand-200);
+    color: var(--color-brand-700);
+  }
+  .badge-legacy {
+    background: var(--color-legacy-50);
+    border-color: var(--color-legacy-200);
+    color: var(--color-legacy-700);
+  }
+  .badge-iron {
+    background: var(--color-iron-50);
+    border-color: var(--color-iron-200);
+    color: var(--color-iron-700);
+  }
+
+  /* --- Progress --------------------------------------------------------- */
+  .progress {
+    height: 6px;
+    border-radius: 999px;
+    background: var(--color-line-200);
+    overflow: hidden;
+  }
+  .progress > span {
+    display: block;
+    height: 100%;
+    border-radius: 999px;
+    background: var(--color-brand-500);
+    transition: width 0.4s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  .progress-iron > span {
+    background: var(--color-iron-500);
+  }
+
+  /* --- Feedback --------------------------------------------------------- */
+  .alert {
+    display: flex;
+    gap: 0.625rem;
+    padding: 0.75rem 0.875rem;
+    border-radius: 10px;
+    border: 1px solid;
+    font-size: 0.8125rem;
+    line-height: 1.5;
+  }
+  .alert-bad {
+    background: var(--color-bad-50);
+    border-color: var(--color-bad-200);
+    color: var(--color-bad-700);
+  }
+  .alert-warn {
+    background: var(--color-warn-50);
+    border-color: var(--color-warn-200);
+    color: var(--color-warn-700);
+  }
+  .alert-info {
+    background: var(--color-info-50);
+    border-color: var(--color-info-200);
+    color: var(--color-info-700);
+  }
+
+  .skeleton {
+    background: linear-gradient(
+      90deg,
+      var(--color-line-100) 25%,
+      var(--color-line-200) 37%,
+      var(--color-line-100) 63%
+    );
+    background-size: 400% 100%;
+    animation: skeleton-shimmer 1.4s ease infinite;
+    border-radius: 6px;
+  }
+}
+
+@keyframes skeleton-shimmer {
+  0% { background-position: 100% 50%; }
+  100% { background-position: 0 50%; }
+}
+
+/* Live-state dot: a slow breath, not a blink. */
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.35; transform: scale(0.82); }
+}
+.dot-live {
+  animation: pulse-dot 1.8s ease-in-out infinite;
+}
+
+/* ============================================================================
+   Scrollbars — present but quiet.
+   ========================================================================== */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
 }
-
 ::-webkit-scrollbar-track {
-  background: #f1f1f1;
+  background: transparent;
 }
-
 ::-webkit-scrollbar-thumb {
-  background: #c1c1c1;
-  border-radius: 4px;
+  background: #cdd3dd;
+  border: 3px solid transparent;
+  background-clip: content-box;
+  border-radius: 999px;
 }
-
 ::-webkit-scrollbar-thumb:hover {
-  background: #a1a1a1;
+  background: #aeb6c4;
+  background-clip: content-box;
 }

@@ -1,8 +1,16 @@
 import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Link, useNavigate } from 'react-router-dom';
-import { Plus, RefreshCw } from 'lucide-react';
-import { Card, LoadingSpinner, RunStatusBadge } from '../../components/Common';
+import { useNavigate } from 'react-router-dom';
+import { Plus, RefreshCw, Send, Shield } from 'lucide-react';
+import {
+  Amount,
+  Card,
+  EmptyState,
+  PageHeader,
+  RunStatusBadge,
+  TimeAgo,
+} from '../../components/Common';
+import { TableSkeleton } from '../Migration/RunList';
 import { batchTransferService } from '../../services/api/batch-transfer';
 import type { BatchTransferRun } from '../../types/batch-transfer';
 
@@ -26,67 +34,107 @@ export function BatchTransferRunList() {
     }
   }
 
-  useEffect(() => { void load(); }, []);
-
-  if (loading) return <LoadingSpinner />;
+  useEffect(() => {
+    void load();
+  }, []);
 
   return (
-    <div className="p-6 max-w-5xl space-y-4">
-      <header className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">{t('batch.list.title')}</h1>
-        <div className="flex gap-2">
-          <button className="btn-ghost" onClick={() => void load()} aria-label={t('common.refresh')}>
-            <RefreshCw className="w-4 h-4" />
-          </button>
-          <button className="btn-primary" onClick={() => navigate('/batch-transfers/new')}>
-            <Plus className="w-4 h-4 inline mr-1" /> {t('batch.list.new')}
-          </button>
-        </div>
-      </header>
+    <>
+      <PageHeader
+        title={t('batch.list.title')}
+        subtitle={t('batch.list.subtitle')}
+        actions={
+          <>
+            <button
+              className="btn-secondary btn-icon"
+              onClick={() => void load()}
+              title={t('common.refresh')}
+              aria-label={t('common.refresh')}
+            >
+              <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+            </button>
+            <button className="btn-primary" onClick={() => navigate('/batch-transfers/new')}>
+              <Plus className="h-4 w-4" /> {t('batch.list.new')}
+            </button>
+          </>
+        }
+      />
 
-      {error && <div className="rounded bg-red-50 text-red-800 px-4 py-2 text-sm">{error}</div>}
+      {error && <div className="alert alert-bad mb-4">{error}</div>}
 
-      <Card>
-        <table className="w-full text-sm">
-          <thead className="text-gray-500 uppercase text-xs">
-            <tr>
-              <th className="text-left p-2">#</th>
-              <th className="text-left p-2">{t('batch.list.col.title')}</th>
-              <th className="text-left p-2">{t('batch.list.col.wallet')}</th>
-              <th className="text-left p-2">{t('batch.list.col.privacy')}</th>
-              <th className="text-right p-2">{t('batch.list.col.recipients')}</th>
-              <th className="text-right p-2">{t('batch.list.col.total')}</th>
-              <th className="text-left p-2">{t('batch.list.col.status')}</th>
-              <th className="text-left p-2">{t('batch.list.col.created')}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {runs.map(run => (
-              <tr
-                key={run.id}
-                className="border-t border-gray-100 hover:bg-gray-50 cursor-pointer"
-                onClick={() => navigate(`/batch-transfers/${run.id}`)}
-              >
-                <td className="p-2 font-mono">
-                  <Link to={`/batch-transfers/${run.id}`} className="text-blue-600">#{run.id}</Link>
-                </td>
-                <td className="p-2">{run.title}</td>
-                <td className="p-2">#{run.source_wallet_id}</td>
-                <td className="p-2">{t(`batch.create.mode_${run.privacy_mode}`)}</td>
-                <td className="p-2 text-right">{run.item_count}</td>
-                <td className="p-2 text-right font-mono">{Number(run.total_amount)}</td>
-                <td className="p-2">
-                  <RunStatusBadge status={run.status} label={t(`batch.run_status.${run.status}`)} />
-                </td>
-                <td className="p-2 text-gray-500">{new Date(run.created_at).toLocaleString()}</td>
-              </tr>
-            ))}
-            {runs.length === 0 && (
-              <tr><td colSpan={8} className="p-6 text-center text-gray-400">{t('batch.list.empty')}</td></tr>
-            )}
-          </tbody>
-        </table>
+      <Card flush>
+        {loading ? (
+          <TableSkeleton />
+        ) : runs.length === 0 ? (
+          <EmptyState
+            icon={Send}
+            title={t('batch.list.empty')}
+            body={t('batch.list.empty_body')}
+            action={
+              <button className="btn-primary" onClick={() => navigate('/batch-transfers/new')}>
+                <Plus className="h-4 w-4" /> {t('batch.list.new')}
+              </button>
+            }
+          />
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>{t('batch.list.col.title')}</th>
+                  <th>{t('batch.list.col.wallet')}</th>
+                  <th>{t('batch.list.col.privacy')}</th>
+                  <th className="cell-num">{t('batch.list.col.recipients')}</th>
+                  <th className="cell-num">{t('batch.list.col.total')}</th>
+                  <th>{t('batch.list.col.status')}</th>
+                  <th>{t('batch.list.col.created')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {runs.map((run) => (
+                  <tr
+                    key={run.id}
+                    className="row-link"
+                    onClick={() => navigate(`/batch-transfers/${run.id}`)}
+                  >
+                    <td className="num font-medium text-brand-700">#{run.id}</td>
+                    <td className="max-w-[220px] truncate font-medium text-ink-900" title={run.title}>
+                      {run.title}
+                    </td>
+                    <td className="text-ink-500">
+                      {t('batch.detail.wallet')} #{run.source_wallet_id}
+                    </td>
+                    <td>
+                      <span
+                        className={`badge ${
+                          run.privacy_mode === 'staggered' ? 'badge-brand' : 'badge-neutral'
+                        }`}
+                      >
+                        {run.privacy_mode === 'staggered' && <Shield className="h-3 w-3" />}
+                        {t(`batch.create.mode_${run.privacy_mode}`)}
+                      </span>
+                    </td>
+                    <td className="cell-num text-ink-700">{run.item_count}</td>
+                    <td className="cell-num">
+                      <Amount value={run.total_amount} />
+                    </td>
+                    <td>
+                      <RunStatusBadge
+                        status={run.status}
+                        label={t(`batch.run_status.${run.status}`)}
+                      />
+                    </td>
+                    <td className="text-ink-400">
+                      <TimeAgo value={run.created_at} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </Card>
-    </div>
+    </>
   );
 }

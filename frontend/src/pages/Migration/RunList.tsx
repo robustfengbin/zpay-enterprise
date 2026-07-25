@@ -1,8 +1,15 @@
 import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { Link, useNavigate } from 'react-router-dom';
-import { Plus, RefreshCw } from 'lucide-react';
-import { Card, LoadingSpinner, RunStatusBadge } from '../../components/Common';
+import { useNavigate } from 'react-router-dom';
+import { Plus, RefreshCw, ShieldCheck, Zap } from 'lucide-react';
+import {
+  Amount,
+  Card,
+  EmptyState,
+  PageHeader,
+  RunStatusBadge,
+  TimeAgo,
+} from '../../components/Common';
 import { migrationService } from '../../services/api/migration';
 import type { MigrationRun } from '../../types/migration';
 
@@ -26,63 +33,123 @@ export function MigrationRunList() {
     }
   }
 
-  useEffect(() => { void load(); }, []);
-
-  if (loading) return <LoadingSpinner />;
+  useEffect(() => {
+    void load();
+  }, []);
 
   return (
-    <div className="p-6 max-w-5xl space-y-4">
-      <header className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold">{t('migration.list.title')}</h1>
-        <div className="flex gap-2">
-          <button className="btn-ghost" onClick={() => void load()} aria-label={t('common.refresh')}>
-            <RefreshCw className="w-4 h-4" />
-          </button>
-          <button className="btn-primary" onClick={() => navigate('/migrations/new')}>
-            <Plus className="w-4 h-4 inline mr-1" /> {t('migration.list.new')}
-          </button>
-        </div>
-      </header>
+    <>
+      <PageHeader
+        title={t('migration.list.title')}
+        subtitle={t('migration.list.subtitle')}
+        actions={
+          <>
+            <button
+              className="btn-secondary btn-icon"
+              onClick={() => void load()}
+              title={t('common.refresh')}
+              aria-label={t('common.refresh')}
+            >
+              <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+            </button>
+            <button className="btn-primary" onClick={() => navigate('/migrations/new')}>
+              <Plus className="h-4 w-4" /> {t('migration.list.new')}
+            </button>
+          </>
+        }
+      />
 
-      {error && <div className="rounded bg-red-50 text-red-800 px-4 py-2 text-sm">{error}</div>}
+      {error && <div className="alert alert-bad mb-4">{error}</div>}
 
-      <Card>
-        <table className="w-full text-sm">
-          <thead className="text-gray-500 uppercase text-xs">
-            <tr>
-              <th className="text-left p-2">#</th>
-              <th className="text-left p-2">{t('migration.list.col.wallet')}</th>
-              <th className="text-left p-2">{t('migration.list.col.mode')}</th>
-              <th className="text-right p-2">{t('migration.list.col.total')}</th>
-              <th className="text-left p-2">{t('migration.list.col.status')}</th>
-              <th className="text-left p-2">{t('migration.list.col.created')}</th>
-            </tr>
-          </thead>
-          <tbody>
-            {runs.map(run => (
-              <tr
-                key={run.id}
-                className="border-t border-gray-100 hover:bg-gray-50 cursor-pointer"
-                onClick={() => navigate(`/migrations/${run.id}`)}
-              >
-                <td className="p-2 font-mono">
-                  <Link to={`/migrations/${run.id}`} className="text-blue-600">#{run.id}</Link>
-                </td>
-                <td className="p-2">#{run.source_wallet_id}</td>
-                <td className="p-2">{t(`migration.create.mode_${run.mode}`)}</td>
-                <td className="p-2 text-right font-mono">{Number(run.total_amount)}</td>
-                <td className="p-2">
-                  <RunStatusBadge status={run.status} label={t(`migration.run_status.${run.status}`)} />
-                </td>
-                <td className="p-2 text-gray-500">{new Date(run.created_at).toLocaleString()}</td>
-              </tr>
-            ))}
-            {runs.length === 0 && (
-              <tr><td colSpan={6} className="p-6 text-center text-gray-400">{t('migration.list.empty')}</td></tr>
-            )}
-          </tbody>
-        </table>
+      <Card flush>
+        {loading ? (
+          <TableSkeleton />
+        ) : runs.length === 0 ? (
+          <EmptyState
+            icon={ShieldCheck}
+            title={t('migration.list.empty')}
+            body={t('migration.list.empty_body')}
+            action={
+              <button className="btn-primary" onClick={() => navigate('/migrations/new')}>
+                <Plus className="h-4 w-4" /> {t('migration.list.new')}
+              </button>
+            }
+          />
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>{t('migration.list.col.wallet')}</th>
+                  <th>{t('migration.list.col.mode')}</th>
+                  <th className="cell-num">{t('migration.list.col.batches')}</th>
+                  <th className="cell-num">{t('migration.list.col.total')}</th>
+                  <th>{t('migration.list.col.status')}</th>
+                  <th>{t('migration.list.col.created')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {runs.map((run) => (
+                  <tr
+                    key={run.id}
+                    className="row-link"
+                    onClick={() => navigate(`/migrations/${run.id}`)}
+                  >
+                    <td className="num font-medium text-brand-700">#{run.id}</td>
+                    <td className="text-ink-700">
+                      {t('migration.detail.wallet')} #{run.source_wallet_id}
+                    </td>
+                    <td>
+                      <span
+                        className={`badge ${run.mode === 'private' ? 'badge-brand' : 'badge-neutral'}`}
+                      >
+                        {run.mode === 'private' ? (
+                          <ShieldCheck className="h-3 w-3" />
+                        ) : (
+                          <Zap className="h-3 w-3" />
+                        )}
+                        {t(`migration.create.mode_${run.mode}`)}
+                      </span>
+                    </td>
+                    <td className="cell-num text-ink-500">
+                      {run.mode === 'private' ? `${run.batch_count} × ${run.window_hours}h` : '1'}
+                    </td>
+                    <td className="cell-num">
+                      <Amount value={run.total_amount} />
+                    </td>
+                    <td>
+                      <RunStatusBadge
+                        status={run.status}
+                        label={t(`migration.run_status.${run.status}`)}
+                      />
+                    </td>
+                    <td className="text-ink-400">
+                      <TimeAgo value={run.created_at} />
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </Card>
+    </>
+  );
+}
+
+/** Loading placeholder that keeps the table's shape instead of collapsing it. */
+export function TableSkeleton({ rows = 3 }: { rows?: number }) {
+  return (
+    <div className="divide-y divide-line-100">
+      {Array.from({ length: rows }).map((_, i) => (
+        <div key={i} className="flex items-center gap-4 px-3.5 py-3.5">
+          <div className="skeleton h-3.5 w-10" />
+          <div className="skeleton h-3.5 flex-1" />
+          <div className="skeleton h-3.5 w-24" />
+          <div className="skeleton h-3.5 w-16" />
+        </div>
+      ))}
     </div>
   );
 }

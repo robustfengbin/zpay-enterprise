@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
-import { ArrowRight, Shield } from 'lucide-react';
+import { ArrowRight, Lock } from 'lucide-react';
+import { Amount } from '../../components/Common';
 import { migrationService, zatToZec } from '../../services/api/migration';
 import type { MigrationStatus } from '../../types/migration';
 
@@ -11,7 +12,14 @@ import type { MigrationStatus } from '../../types/migration';
  * Renders nothing while loading or when there is nothing to migrate, so it
  * can be dropped into the wallet page unconditionally.
  */
-export function MigrationBanner({ walletId }: { walletId: number }) {
+export function MigrationBanner({
+  walletId,
+  walletName,
+}: {
+  walletId: number;
+  /** Shown in the banner so a multi-wallet page says which wallet it means. */
+  walletName?: string;
+}) {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const [status, setStatus] = useState<MigrationStatus | null>(null);
@@ -20,10 +28,16 @@ export function MigrationBanner({ walletId }: { walletId: number }) {
     let alive = true;
     migrationService
       .walletStatus(walletId)
-      .then(s => { if (alive) setStatus(s); })
+      .then((s) => {
+        if (alive) setStatus(s);
+      })
       // Banner is advisory — a failed status fetch must not break the page.
-      .catch(() => { if (alive) setStatus(null); });
-    return () => { alive = false; };
+      .catch(() => {
+        if (alive) setStatus(null);
+      });
+    return () => {
+      alive = false;
+    };
   }, [walletId]);
 
   if (!status) return null;
@@ -32,22 +46,30 @@ export function MigrationBanner({ walletId }: { walletId: number }) {
   if (!hasFunds && !hasActive) return null;
 
   return (
-    <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 flex items-center justify-between gap-4">
+    <div className="flex flex-wrap items-center justify-between gap-4 rounded-[10px] border border-legacy-200 bg-legacy-50 px-4 py-3.5">
       <div className="flex items-start gap-3">
-        <Shield className="w-5 h-5 text-blue-600 mt-0.5 shrink-0" />
-        <div className="text-sm">
+        <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-legacy-200 bg-white">
+          <Lock className="h-3.5 w-3.5 text-legacy-600" />
+        </span>
+        <div className="min-w-0">
           {hasActive ? (
-            <p className="text-blue-900">
-              {t('migration.banner.active', { id: status.active_run_id, status: t(`migration.run_status.${status.active_run_status}`) })}
+            <p className="text-[0.8125rem] text-legacy-700">
+              {walletName && <span className="font-semibold">{walletName} · </span>}
+              {t('migration.banner.active', {
+                id: status.active_run_id,
+                status: t(`migration.run_status.${status.active_run_status}`),
+              })}
             </p>
           ) : (
             <>
-              <p className="font-semibold text-blue-900">{t('migration.banner.title')}</p>
-              <p className="text-blue-800">
-                {t('migration.banner.body', {
-                  amount: zatToZec(status.spendable_zatoshis),
-                  notes: status.unspent_note_count,
-                })}
+              <p className="text-[0.8125rem] font-semibold text-legacy-700">
+                {walletName && <span className="text-legacy-600">{walletName} · </span>}
+                {t('migration.banner.title')}
+              </p>
+              <p className="mt-0.5 text-[0.8125rem] text-legacy-700/85">
+                <Amount value={zatToZec(status.spendable_zatoshis)} />
+                <span className="mx-1.5 text-legacy-500">·</span>
+                {t('migration.banner.body_notes', { notes: status.unspent_note_count })}
               </p>
             </>
           )}
@@ -62,7 +84,7 @@ export function MigrationBanner({ walletId }: { walletId: number }) {
         }
       >
         {hasActive ? t('migration.banner.view') : t('migration.banner.start')}
-        <ArrowRight className="w-4 h-4 inline ml-1" />
+        <ArrowRight className="h-4 w-4" />
       </button>
     </div>
   );

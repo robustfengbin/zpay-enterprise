@@ -8,11 +8,15 @@ interface LayoutProps {
 
 export function Layout({ children }: LayoutProps) {
   return (
-    <div className="flex h-screen bg-gray-100">
+    <div className="flex h-screen bg-canvas">
       <Sidebar />
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+      <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
         <Header />
-        <main className="flex-1 p-6 overflow-y-auto">{children}</main>
+        <main className="flex-1 overflow-y-auto">
+          {/* One measure for the whole product — content never stretches the
+              full width of an ultrawide display. */}
+          <div className="mx-auto w-full max-w-[1240px] px-7 py-7">{children}</div>
+        </main>
       </div>
     </div>
   );

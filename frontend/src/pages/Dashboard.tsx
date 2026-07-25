@@ -1,9 +1,15 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 import { Wallet, ArrowLeftRight, CheckCircle, Clock, Inbox, Users, Eye } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { Card, LoadingSpinner } from '../components/Common';
-import { walletService, transferService, approvalService, payrollService, auditorAdminService } from '../services/api';
+import { Amount, Card, Hash, LoadingSpinner, PageHeader } from '../components/Common';
+import {
+  walletService,
+  transferService,
+  approvalService,
+  payrollService,
+  auditorAdminService,
+} from '../services/api';
 import { Wallet as WalletType, TransferListResponse } from '../types';
 import { useAuth } from '../hooks/useAuth';
 
@@ -44,18 +50,28 @@ export function Dashboard() {
       // doesn't blank the whole dashboard while backend wire-up is incremental.
       const m1: M1Stats = { ...m1Stats };
       await Promise.allSettled([
-        approvalService.listPending(1).then(r => { m1.pending_approval_count = r.items.length; }),
-        payrollService.listEmployees().then(e => { m1.employee_count = e.length; }),
+        approvalService.listPending(1).then((r) => {
+          m1.pending_approval_count = r.items.length;
+        }),
+        payrollService.listEmployees().then((e) => {
+          m1.employee_count = e.length;
+        }),
         user?.role === 'admin'
-          ? auditorAdminService.list().then(a => { m1.auditor_count = a.length; })
+          ? auditorAdminService.list().then((a) => {
+              m1.auditor_count = a.length;
+            })
           : Promise.resolve(),
       ]);
       // my_awaiting_count: count of awaiting_approval transfers I created.
       // Done as a separate call once /transfers returns the extended status.
       try {
         const all = await transferService.listTransfers(50, 0);
-        m1.my_awaiting_count = all.transfers.filter(t => (t.status as string) === 'awaiting_approval').length;
-      } catch { /* no-op */ }
+        m1.my_awaiting_count = all.transfers.filter(
+          (t) => (t.status as string) === 'awaiting_approval',
+        ).length;
+      } catch {
+        /* no-op */
+      }
       setM1Stats(m1);
     } catch (error) {
       console.error('Failed to load dashboard data:', error);
@@ -64,210 +80,183 @@ export function Dashboard() {
     }
   };
 
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <LoadingSpinner size="lg" />
-      </div>
-    );
-  }
+  if (isLoading) return <LoadingSpinner size="lg" />;
 
-  const confirmedTransfers = transfers?.transfers.filter(
-    (t) => t.status === 'confirmed'
-  ).length || 0;
+  const confirmedTransfers =
+    transfers?.transfers.filter((t) => t.status === 'confirmed').length || 0;
 
-  const pendingTransfers = transfers?.transfers.filter(
-    (t) => t.status === 'pending' || t.status === 'submitted'
-  ).length || 0;
+  const pendingTransfers =
+    transfers?.transfers.filter((t) => t.status === 'pending' || t.status === 'submitted').length ||
+    0;
 
   return (
-    <div>
-      <h1 className="text-2xl font-bold text-gray-900 mb-6">{t('dashboard.title')}</h1>
+    <>
+      <PageHeader title={t('dashboard.title')} />
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-        <Card>
-          <div className="flex items-center">
-            <div className="p-3 bg-blue-100 rounded-full">
-              <Wallet className="w-6 h-6 text-blue-600" />
-            </div>
-            <div className="ml-4">
-              <p className="text-sm text-gray-500">{t('dashboard.totalWallets')}</p>
-              <p className="text-2xl font-bold text-gray-900">{wallets.length}</p>
-            </div>
-          </div>
-        </Card>
-
-        <Card>
-          <div className="flex items-center">
-            <div className="p-3 bg-green-100 rounded-full">
-              <ArrowLeftRight className="w-6 h-6 text-green-600" />
-            </div>
-            <div className="ml-4">
-              <p className="text-sm text-gray-500">{t('dashboard.totalTransfers')}</p>
-              <p className="text-2xl font-bold text-gray-900">
-                {transfers?.total || 0}
-              </p>
-            </div>
-          </div>
-        </Card>
-
-        <Card>
-          <div className="flex items-center">
-            <div className="p-3 bg-emerald-100 rounded-full">
-              <CheckCircle className="w-6 h-6 text-emerald-600" />
-            </div>
-            <div className="ml-4">
-              <p className="text-sm text-gray-500">{t('dashboard.confirmed')}</p>
-              <p className="text-2xl font-bold text-gray-900">{confirmedTransfers}</p>
-            </div>
-          </div>
-        </Card>
-
-        <Card>
-          <div className="flex items-center">
-            <div className="p-3 bg-yellow-100 rounded-full">
-              <Clock className="w-6 h-6 text-yellow-600" />
-            </div>
-            <div className="ml-4">
-              <p className="text-sm text-gray-500">{t('dashboard.pending')}</p>
-              <p className="text-2xl font-bold text-gray-900">{pendingTransfers}</p>
-            </div>
-          </div>
-        </Card>
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+        <Tile
+          icon={<Wallet className="h-4 w-4 text-brand-600" />}
+          tone="bg-brand-50"
+          label={t('dashboard.totalWallets')}
+          value={wallets.length}
+        />
+        <Tile
+          icon={<ArrowLeftRight className="h-4 w-4 text-info-600" />}
+          tone="bg-info-50"
+          label={t('dashboard.totalTransfers')}
+          value={transfers?.total || 0}
+        />
+        <Tile
+          icon={<CheckCircle className="h-4 w-4 text-ok-600" />}
+          tone="bg-ok-50"
+          label={t('dashboard.confirmed')}
+          value={confirmedTransfers}
+        />
+        <Tile
+          icon={<Clock className="h-4 w-4 text-warn-600" />}
+          tone="bg-warn-50"
+          label={t('dashboard.pending')}
+          value={pendingTransfers}
+        />
       </div>
 
       {/* M1 stat cards — role-aware. Admins see all four; operators see
           two (my awaiting + employees); auditors don't see this row at all
           since their own dashboard is /auditor. */}
       {user?.role !== 'auditor' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+        <div className="mt-3 grid grid-cols-2 gap-3 lg:grid-cols-4">
           {user?.role === 'admin' && (
-            <Link to="/approval/queue" className="block">
-              <Card>
-                <div className="flex items-center">
-                  <div className="p-3 bg-yellow-100 rounded-full">
-                    <Inbox className="w-6 h-6 text-yellow-700" />
-                  </div>
-                  <div className="ml-4">
-                    <p className="text-sm text-gray-500">{t('dashboard.m1.pending_approvals')}</p>
-                    <p className="text-2xl font-bold text-gray-900">{m1Stats.pending_approval_count}</p>
-                  </div>
-                </div>
-              </Card>
-            </Link>
+            <Tile
+              to="/approval/queue"
+              icon={<Inbox className="h-4 w-4 text-warn-600" />}
+              tone="bg-warn-50"
+              label={t('dashboard.m1.pending_approvals')}
+              value={m1Stats.pending_approval_count}
+            />
           )}
-          <Link to="/approval/pending" className="block">
-            <Card>
-              <div className="flex items-center">
-                <div className="p-3 bg-orange-100 rounded-full">
-                  <Clock className="w-6 h-6 text-orange-600" />
-                </div>
-                <div className="ml-4">
-                  <p className="text-sm text-gray-500">{t('dashboard.m1.my_awaiting')}</p>
-                  <p className="text-2xl font-bold text-gray-900">{m1Stats.my_awaiting_count}</p>
-                </div>
-              </div>
-            </Card>
-          </Link>
-          <Link to="/payroll/employees" className="block">
-            <Card>
-              <div className="flex items-center">
-                <div className="p-3 bg-purple-100 rounded-full">
-                  <Users className="w-6 h-6 text-purple-600" />
-                </div>
-                <div className="ml-4">
-                  <p className="text-sm text-gray-500">{t('dashboard.m1.employees')}</p>
-                  <p className="text-2xl font-bold text-gray-900">{m1Stats.employee_count}</p>
-                </div>
-              </div>
-            </Card>
-          </Link>
+          <Tile
+            to="/approval/pending"
+            icon={<Clock className="h-4 w-4 text-legacy-600" />}
+            tone="bg-legacy-50"
+            label={t('dashboard.m1.my_awaiting')}
+            value={m1Stats.my_awaiting_count}
+          />
+          <Tile
+            to="/payroll/employees"
+            icon={<Users className="h-4 w-4 text-iron-600" />}
+            tone="bg-iron-50"
+            label={t('dashboard.m1.employees')}
+            value={m1Stats.employee_count}
+          />
           {user?.role === 'admin' && (
-            <Link to="/auditor/manage" className="block">
-              <Card>
-                <div className="flex items-center">
-                  <div className="p-3 bg-indigo-100 rounded-full">
-                    <Eye className="w-6 h-6 text-indigo-600" />
-                  </div>
-                  <div className="ml-4">
-                    <p className="text-sm text-gray-500">{t('dashboard.m1.auditors')}</p>
-                    <p className="text-2xl font-bold text-gray-900">{m1Stats.auditor_count}</p>
-                  </div>
-                </div>
-              </Card>
-            </Link>
+            <Tile
+              to="/auditor/manage"
+              icon={<Eye className="h-4 w-4 text-brand-600" />}
+              tone="bg-brand-50"
+              label={t('dashboard.m1.auditors')}
+              value={m1Stats.auditor_count}
+            />
           )}
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <Card title={t('dashboard.activeWallets')}>
+      <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <Card title={t('dashboard.activeWallets')} flush>
           {wallets.length === 0 ? (
-            <p className="text-gray-500">{t('dashboard.noWallets')}</p>
+            <p className="px-4 py-8 text-center text-[0.8125rem] text-ink-400">
+              {t('dashboard.noWallets')}
+            </p>
           ) : (
-            <div className="space-y-3">
+            <ul className="divide-y divide-line-100">
               {wallets.slice(0, 5).map((wallet) => (
-                <div
-                  key={wallet.id}
-                  className="flex items-center justify-between p-3 bg-gray-50 rounded-lg"
-                >
-                  <div>
-                    <p className="font-medium text-gray-900">{wallet.name}</p>
-                    <p className="text-sm text-gray-500 font-mono">
-                      {wallet.address.slice(0, 10)}...{wallet.address.slice(-8)}
+                <li key={wallet.id} className="flex items-center justify-between gap-3 px-4 py-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-[0.8125rem] font-medium text-ink-900">
+                      {wallet.name}
                     </p>
+                    <Hash value={wallet.address} head={12} tail={8} />
                   </div>
-                  <div className="text-right">
-                    <span className="text-xs text-gray-500 uppercase">
-                      {wallet.chain}
-                    </span>
-                    {wallet.is_active && (
-                      <span className="ml-2 px-2 py-0.5 bg-green-100 text-green-800 text-xs rounded-full">
-                        {t('common.active')}
-                      </span>
-                    )}
+                  <div className="flex shrink-0 items-center gap-2">
+                    <span className="badge badge-neutral uppercase">{wallet.chain}</span>
+                    {wallet.is_active && <span className="badge badge-ok">{t('common.active')}</span>}
                   </div>
-                </div>
+                </li>
               ))}
-            </div>
+            </ul>
           )}
         </Card>
 
-        <Card title={t('dashboard.recentTransfers')}>
+        <Card title={t('dashboard.recentTransfers')} flush>
           {!transfers?.transfers.length ? (
-            <p className="text-gray-500">{t('dashboard.noTransfers')}</p>
+            <p className="px-4 py-8 text-center text-[0.8125rem] text-ink-400">
+              {t('dashboard.noTransfers')}
+            </p>
           ) : (
-            <div className="space-y-3">
+            <ul className="divide-y divide-line-100">
               {transfers.transfers.map((transfer) => (
-                <div
-                  key={transfer.id}
-                  className="flex items-center justify-between p-3 bg-gray-50 rounded-lg"
-                >
-                  <div>
-                    <p className="text-sm text-gray-900">
-                      {transfer.amount} {transfer.token}
+                <li key={transfer.id} className="flex items-center justify-between gap-3 px-4 py-3">
+                  <div className="min-w-0">
+                    <p className="text-[0.8125rem] text-ink-900">
+                      <Amount value={transfer.amount} unit={transfer.token} />
                     </p>
-                    <p className="text-xs text-gray-500 font-mono">
-                      To: {transfer.to_address.slice(0, 10)}...
-                    </p>
+                    <div className="flex items-center gap-1 text-[0.6875rem] text-ink-400">
+                      <span>{t('dashboard.to')}</span>
+                      <Hash value={transfer.to_address} head={10} tail={6} />
+                    </div>
                   </div>
-                  <div
-                    className={`px-2 py-1 rounded text-xs font-medium ${
+                  <span
+                    className={`badge shrink-0 ${
                       transfer.status === 'confirmed'
-                        ? 'bg-green-100 text-green-800'
+                        ? 'badge-ok'
                         : transfer.status === 'failed'
-                        ? 'bg-red-100 text-red-800'
-                        : 'bg-yellow-100 text-yellow-800'
+                          ? 'badge-bad'
+                          : 'badge-warn'
                     }`}
                   >
                     {t(`status.${transfer.status}`)}
-                  </div>
-                </div>
+                  </span>
+                </li>
               ))}
-            </div>
+            </ul>
           )}
         </Card>
       </div>
+    </>
+  );
+}
+
+/** Compact metric tile; becomes a link when the number has a page behind it. */
+function Tile({
+  icon,
+  tone,
+  label,
+  value,
+  to,
+}: {
+  icon: ReactNode;
+  tone: string;
+  label: string;
+  value: ReactNode;
+  to?: string;
+}) {
+  const body = (
+    <div className="card flex items-center gap-3 px-4 py-3.5 transition-colors">
+      <span className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] ${tone}`}>
+        {icon}
+      </span>
+      <div className="min-w-0">
+        <p className="truncate text-[0.6875rem] font-medium uppercase tracking-[0.04em] text-ink-400">
+          {label}
+        </p>
+        <p className="num mt-0.5 text-xl font-semibold leading-none text-ink-900">{value}</p>
+      </div>
     </div>
+  );
+  return to ? (
+    <Link to={to} className="block [&>div:hover]:border-brand-200">
+      {body}
+    </Link>
+  ) : (
+    body
   );
 }

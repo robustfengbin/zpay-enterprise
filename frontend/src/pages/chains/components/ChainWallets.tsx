@@ -23,9 +23,11 @@ import { getChain, ChainConfig } from '../../../config/chains';
 
 interface ChainWalletsProps {
   chainId: string;
+  /** Advisory strip rendered under the page header (F4 migration banners). */
+  banner?: React.ReactNode;
 }
 
-export function ChainWallets({ chainId }: ChainWalletsProps) {
+export function ChainWallets({ chainId, banner }: ChainWalletsProps) {
   const { t } = useTranslation();
   const { user } = useAuth();
   const chain = getChain(chainId) as ChainConfig;
@@ -286,41 +288,38 @@ export function ChainWallets({ chainId }: ChainWalletsProps) {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center">
+      <div className="mb-5 flex items-start justify-between gap-4">
+        <div className="flex items-center gap-3">
           <span
-            className="w-10 h-10 rounded-full flex items-center justify-center text-white text-xl mr-3"
+            className="flex h-9 w-9 items-center justify-center rounded-full text-lg text-white"
             style={{ backgroundColor: chain.color }}
           >
             {chain.icon}
           </span>
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">
+            <h1 className="text-[1.375rem] font-semibold leading-tight tracking-[-0.01em] text-ink-900">
               {chain.name} {t('wallets.title')}
             </h1>
-            <p className="text-sm text-gray-500">{t('chains.manageWallets', { chain: chain.name })}</p>
+            <p className="mt-1 text-[0.8125rem] text-ink-400">
+              {t('chains.manageWallets', { chain: chain.name })}
+            </p>
           </div>
         </div>
         {isAdmin && (
-          <div className="flex space-x-3">
-            <button
-              onClick={() => setShowCreateModal(true)}
-              className="flex items-center px-4 py-2 text-white rounded-lg hover:opacity-90"
-              style={{ backgroundColor: chain.color }}
-            >
-              <Plus className="w-4 h-4 mr-2" />
+          <div className="flex shrink-0 gap-2">
+            <button onClick={() => setShowCreateModal(true)} className="btn-primary">
+              <Plus className="h-4 w-4" />
               {t('wallets.createWallet')}
             </button>
-            <button
-              onClick={() => setShowImportModal(true)}
-              className="flex items-center px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700"
-            >
-              <Upload className="w-4 h-4 mr-2" />
+            <button onClick={() => setShowImportModal(true)} className="btn-secondary">
+              <Upload className="h-4 w-4" />
               {t('wallets.importWallet')}
             </button>
           </div>
         )}
       </div>
+
+      {banner && <div className="mb-5 space-y-2">{banner}</div>}
 
       {error && (
         <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700">

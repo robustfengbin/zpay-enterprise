@@ -29,21 +29,20 @@
     "copied": "已复制！"
   },
   "login": {
-    "title": "Web3 钱包管理系统",
-    "subtitle": "登录以管理您的钱包",
+    "title": "登录",
+    "subtitle": "zPay 企业资金管理控制台",
     "username": "用户名",
     "password": "密码",
     "usernamePlaceholder": "请输入用户名",
     "passwordPlaceholder": "请输入密码",
     "signIn": "登录",
-    "defaultCredentials": "默认管理员账号通过 backend/.env 配置 (WEB3_SECURITY__ADMIN_INITIAL_PASSWORD)",
     "failed": "登录失败",
     "auditor_hint": "审计师？",
     "auditor_link": "从这里登录"
   },
   "sidebar": {
-    "title": "Web3 钱包",
-    "subtitle": "管理系统",
+    "title": "zPay",
+    "subtitle": "企业资金管理",
     "dashboard": "仪表盘",
     "wallets": "钱包管理",
     "transfer": "转账",
@@ -87,7 +86,8 @@
       "my_awaiting": "我发起待审",
       "employees": "员工数",
       "auditors": "审计师"
-    }
+    },
+    "to": "至"
   },
   "wallets": {
     "title": "钱包管理",
@@ -788,7 +788,8 @@
       "body": "该钱包在旧 Orchard 池中还有 {{amount}} ZEC({{notes}} 个 note)。NU6.3 升级后,资金需经 turnstile 单向进入 Ironwood 池。您的地址保持不变。",
       "active": "迁移任务 #{{id}} 当前状态:{{status}}。",
       "view": "查看进度",
-      "start": "开始迁移"
+      "start": "开始迁移",
+      "body_notes": "旧 Orchard 池中有 {{notes}} 笔 note"
     },
     "create": {
       "title": "迁移到 Ironwood",
@@ -818,7 +819,9 @@
       "notes": "备注(可选)",
       "notes_placeholder": "例如:Q3 金库迁移",
       "confirm_hint": "若总额达到审批策略阈值,需第二名审批人批准后才会广播。一次批准覆盖整个时间窗口,之后批次自动执行,取消是中止剩余批次的唯一方式。",
-      "submit": "创建迁移计划"
+      "submit": "创建迁移计划",
+      "nothing_to_migrate": "该钱包在旧 Orchard 池没有可花费余额。",
+      "plan_preview": "{{batches}} 批分布在 {{hours}} 小时内 —— 平均每 {{every}}{{unit}} 一批，并带随机抖动。"
     },
     "detail": {
       "title": "迁移任务",
@@ -852,7 +855,10 @@
         "reason": "错误"
       },
       "reject_reason_label": "驳回原因(至少 5 个字符)",
-      "reject_reason_placeholder": "为什么驳回这次迁移?"
+      "reject_reason_placeholder": "为什么驳回这次迁移?",
+      "decision_title": "需要审批",
+      "decision_help": "广播之前必须由第二个人批准。批准一次覆盖整个调度窗口；驳回则彻底终止本次执行。",
+      "batches_done": "已提交 {{done}} / {{total}} 批"
     },
     "list": {
       "title": "迁移任务",
@@ -863,8 +869,18 @@
         "mode": "模式",
         "total": "总额(ZEC)",
         "status": "状态",
-        "created": "创建时间"
-      }
+        "created": "创建时间",
+        "batches": "计划"
+      },
+      "subtitle": "把钱包在旧 Orchard 池里的屏蔽余额，按你设定的批次迁入 Ironwood。",
+      "empty_body": "当 Zcash 钱包在旧 Orchard 池仍有余额时，在这里发起迁移，让资金过闸进入 Ironwood。"
+    },
+    "pool": {
+      "legacy": "旧 Orchard 池",
+      "legacy_sub": "尚未迁出",
+      "ironwood": "Ironwood 新池",
+      "ironwood_sub": "已过闸到账",
+      "turnstile": "过闸"
     }
   },
   "batch": {
@@ -880,7 +896,9 @@
         "total": "总额 (ZEC)",
         "status": "状态",
         "created": "创建时间"
-      }
+      },
+      "subtitle": "从一个屏蔽钱包批量付给多个收款人，并在时间窗内错峰发出，避免付款彼此对齐。",
+      "empty_body": "上传收款人 CSV，即可安排一次屏蔽批量付款。"
     },
     "create": {
       "title": "新建批量隐私转账",
@@ -919,7 +937,13 @@
       "err_no_wallet": "请选择付款钱包。",
       "err_no_valid_rows": "没有可提交的有效行。",
       "err_server_validation": "服务端拒绝了 {{count}} 行——请修正后重新上传。",
-      "confirm_with_invalid": "有 {{count}} 行无效将被跳过。仅用有效行继续?"
+      "confirm_with_invalid": "有 {{count}} 行无效将被跳过。仅用有效行继续?",
+      "section_details": "基本信息",
+      "section_recipients": "收款人",
+      "drop_csv": "把 CSV 拖到这里，或点击选择文件",
+      "download_template": "下载模板",
+      "ready_summary": "{{count}} 笔待发 · 合计 {{amount}} ZEC",
+      "awaiting_csv": "先上传收款人列表。"
     },
     "detail": {
       "wallet": "钱包",
@@ -954,7 +978,11 @@
         "confirm_reject": "确认驳回",
         "retry_failed": "重试 {{count}} 笔失败",
         "cancel": "取消批次"
-      }
+      },
+      "decision_title": "需要审批",
+      "decision_help": "广播之前必须由第二个人批准。批准一次覆盖整个调度窗口；驳回则彻底终止本次执行。",
+      "sent_amount": "已发出 {{amount}} ZEC",
+      "recipients_paid": "已提交 {{done}} / {{total}} 笔"
     },
     "run_status": {
       "pending": "待执行",

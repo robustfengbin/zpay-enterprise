@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, ArrowRight, Shield, Zap } from 'lucide-react';
-import { Card, LoadingSpinner } from '../../components/Common';
+import { ArrowLeft, ArrowRight, Coins, Info, Lock, ShieldCheck, Zap } from 'lucide-react';
+import { Amount, Card, LoadingSpinner, PageHeader, Stepper } from '../../components/Common';
 import { migrationService, zatToZec } from '../../services/api/migration';
 import { walletService } from '../../services/api';
 import type { MigrationMode, MigrationStatus } from '../../types/migration';
@@ -43,7 +43,7 @@ export function MigrationRunCreate() {
         const all = (await walletService.listWallets('zcash')) as Array<
           ZcashWalletOption & { chain: string }
         >;
-        setWallets(all.filter(w => w.chain === 'zcash'));
+        setWallets(all.filter((w) => w.chain === 'zcash'));
       } catch (e) {
         setError((e as Error).message);
       } finally {
@@ -53,11 +53,14 @@ export function MigrationRunCreate() {
   }, []);
 
   useEffect(() => {
-    if (walletId === '') { setStatus(null); return; }
+    if (walletId === '') {
+      setStatus(null);
+      return;
+    }
     migrationService
       .walletStatus(Number(walletId))
       .then(setStatus)
-      .catch(e => setError((e as Error).message));
+      .catch((e) => setError((e as Error).message));
   }, [walletId]);
 
   async function onCreate() {
@@ -84,199 +87,274 @@ export function MigrationRunCreate() {
 
   const spendable = status ? zatToZec(status.spendable_zatoshis) : null;
   const hasActive = !!status?.active_run_id;
+  const nothingToMigrate = !!status && status.spendable_zatoshis === 0;
+  const blockedReason = hasActive
+    ? t('migration.create.active_exists', { id: status?.active_run_id })
+    : nothingToMigrate
+      ? t('migration.create.nothing_to_migrate')
+      : null;
+  const selectedWallet = wallets.find((w) => w.id === Number(walletId));
+  const everyHours = mode === 'private' ? windowHours / Math.max(1, batchCount) : 0;
 
   return (
-    <div className="p-6 max-w-3xl space-y-4">
-      <header>
-        <h1 className="text-2xl font-semibold">{t('migration.create.title')}</h1>
-        <p className="text-sm text-gray-500">{t('migration.create.subtitle')}</p>
-      </header>
+    <div className="max-w-3xl">
+      <PageHeader
+        backTo={{ to: '/migrations', label: t('migration.detail.back_to_list') }}
+        title={t('migration.create.title')}
+        subtitle={t('migration.create.subtitle')}
+      />
 
-      {/* Step indicator */}
-      <div className="flex items-center py-2">
-        {[1, 2, 3].map((s, i) => (
-          <React.Fragment key={s}>
-            {i > 0 && (
-              <div className={`h-px flex-1 mx-3 ${s <= step ? 'bg-blue-500' : 'bg-gray-200'}`} />
-            )}
-            <div className="flex items-center gap-2">
-              <span
-                className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-semibold ${
-                  s === step
-                    ? 'bg-blue-600 text-white ring-4 ring-blue-100'
-                    : s < step
-                    ? 'bg-blue-100 text-blue-700'
-                    : 'bg-gray-100 text-gray-400'
-                }`}
-              >
-                {s < step ? '✓' : s}
-              </span>
-              <span
-                className={`text-sm ${
-                  s === step ? 'font-semibold text-gray-900' : 'text-gray-500'
-                }`}
-              >
-                {t(`migration.create.step${s}`)}
-              </span>
-            </div>
-          </React.Fragment>
-        ))}
+      <div className="mb-5">
+        <Stepper
+          steps={[t('migration.create.step1'), t('migration.create.step2'), t('migration.create.step3')]}
+          current={step}
+          onStepClick={setStep}
+        />
       </div>
 
-      {error && <div className="rounded bg-red-50 text-red-800 px-4 py-2 text-sm">{error}</div>}
+      {error && <div className="alert alert-bad mb-4">{error}</div>}
 
       {step === 1 && (
-        <Card>
-          <h2 className="font-semibold mb-2">{t('migration.create.what_title')}</h2>
-          <p className="text-sm text-gray-700 whitespace-pre-line mb-4">{t('migration.create.what_body')}</p>
+        <Card title={t('migration.create.what_title')}>
+          <p className="whitespace-pre-line text-[0.8125rem] leading-relaxed text-ink-500">
+            {t('migration.create.what_body')}
+          </p>
 
-          <label className="block text-sm text-gray-600 mb-1">{t('migration.create.wallet')}</label>
-          <select
-            className="input w-full mb-2"
-            value={walletId}
-            onChange={e => setWalletId(e.target.value === '' ? '' : Number(e.target.value))}
-          >
-            <option value="">{t('migration.create.select_wallet')}</option>
-            {wallets.map(w => (
-              <option key={w.id} value={w.id}>
-                #{w.id} {w.name}
-              </option>
-            ))}
-          </select>
+          <div className="mt-5">
+            <label className="label" htmlFor="wallet-select">
+              {t('migration.create.wallet')}
+            </label>
+            <select
+              id="wallet-select"
+              className="field"
+              value={walletId}
+              onChange={(e) => setWalletId(e.target.value === '' ? '' : Number(e.target.value))}
+            >
+              <option value="">{t('migration.create.select_wallet')}</option>
+              {wallets.map((w) => (
+                <option key={w.id} value={w.id}>
+                  #{w.id} {w.name}
+                </option>
+              ))}
+            </select>
+          </div>
 
           {status && (
-            <dl className="grid grid-cols-2 gap-y-1 text-sm mt-2">
-              <dt className="text-gray-500">{t('migration.create.spendable')}</dt>
-              <dd className="font-mono">{spendable} ZEC</dd>
-              <dt className="text-gray-500">{t('migration.create.note_count')}</dt>
-              <dd>{status.unspent_note_count}</dd>
-            </dl>
-          )}
-          {hasActive && (
-            <p className="text-sm text-yellow-800 bg-yellow-50 rounded px-3 py-2 mt-2">
-              {t('migration.create.active_exists', { id: status?.active_run_id })}
-            </p>
+            <div className="mt-4 rounded-[10px] border border-legacy-200 bg-legacy-50 px-4 py-3.5">
+              <div className="flex items-center gap-1.5 text-[0.6875rem] font-medium text-legacy-700">
+                <Lock className="h-3.5 w-3.5" />
+                {t('migration.pool.legacy')}
+              </div>
+              <div className="mt-2 flex flex-wrap items-baseline gap-x-5 gap-y-1">
+                <span className="text-xl leading-none">
+                  <Amount value={spendable ?? 0} strong />
+                </span>
+                <span className="text-[0.75rem] text-legacy-700/80">
+                  {t('migration.create.note_count')}: {status.unspent_note_count}
+                </span>
+              </div>
+            </div>
           )}
 
-          <div className="mt-4 flex justify-end">
+          {blockedReason && <div className="alert alert-warn mt-3">{blockedReason}</div>}
+
+          <div className="mt-5 flex justify-end">
             <button
               className="btn-primary"
-              disabled={walletId === '' || hasActive || !status || status.spendable_zatoshis === 0}
+              disabled={walletId === '' || hasActive || !status || nothingToMigrate}
+              title={blockedReason ?? undefined}
               onClick={() => setStep(2)}
             >
-              {t('common.next')} <ArrowRight className="w-4 h-4 inline ml-1" />
+              {t('common.next')} <ArrowRight className="h-4 w-4" />
             </button>
           </div>
         </Card>
       )}
 
       {step === 2 && (
-        <Card>
-          <h2 className="font-semibold mb-3">{t('migration.create.mode_title')}</h2>
-          <div className="grid grid-cols-2 gap-3">
-            <button
-              className={`text-left border rounded-lg p-4 ${mode === 'private' ? 'border-blue-600 ring-1 ring-blue-600' : 'border-gray-200'}`}
-              onClick={() => setMode('private')}
-            >
-              <div className="flex items-center gap-2 font-semibold mb-1">
-                <Shield className="w-4 h-4 text-blue-600" /> {t('migration.create.mode_private')}
-              </div>
-              <p className="text-xs text-gray-600">{t('migration.create.mode_private_desc')}</p>
-              <p className="text-xs text-gray-500 mt-2">{t('migration.create.mode_private_fee')}</p>
-            </button>
-            <button
-              className={`text-left border rounded-lg p-4 ${mode === 'immediate' ? 'border-blue-600 ring-1 ring-blue-600' : 'border-gray-200'}`}
-              onClick={() => setMode('immediate')}
-            >
-              <div className="flex items-center gap-2 font-semibold mb-1">
-                <Zap className="w-4 h-4 text-amber-600" /> {t('migration.create.mode_immediate')}
-              </div>
-              <p className="text-xs text-gray-600">{t('migration.create.mode_immediate_desc')}</p>
-              <p className="text-xs text-gray-500 mt-2">{t('migration.create.mode_immediate_fee')}</p>
-            </button>
+        <Card title={t('migration.create.mode_title')}>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <ModeCard
+              selected={mode === 'private'}
+              onSelect={() => setMode('private')}
+              icon={<ShieldCheck className="h-4 w-4 text-brand-600" />}
+              title={t('migration.create.mode_private')}
+              desc={t('migration.create.mode_private_desc')}
+              fee={t('migration.create.mode_private_fee')}
+            />
+            <ModeCard
+              selected={mode === 'immediate'}
+              onSelect={() => setMode('immediate')}
+              icon={<Zap className="h-4 w-4 text-legacy-600" />}
+              title={t('migration.create.mode_immediate')}
+              desc={t('migration.create.mode_immediate_desc')}
+              fee={t('migration.create.mode_immediate_fee')}
+            />
           </div>
 
           {mode === 'private' && (
-            <div className="grid grid-cols-2 gap-3 mt-4">
-              <div>
-                <label className="block text-sm text-gray-600 mb-1">{t('migration.create.batches')}</label>
-                <input
-                  type="number"
-                  min={2}
-                  max={50}
-                  className="input w-full"
-                  value={batchCount}
-                  onChange={e => setBatchCount(Math.max(2, Math.min(50, Number(e.target.value) || 2)))}
-                />
+            <>
+              <div className="mt-5 grid gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="label" htmlFor="batches">
+                    {t('migration.create.batches')}
+                  </label>
+                  <input
+                    id="batches"
+                    type="number"
+                    min={2}
+                    max={50}
+                    className="field num"
+                    value={batchCount}
+                    onChange={(e) =>
+                      setBatchCount(Math.max(2, Math.min(50, Number(e.target.value) || 2)))
+                    }
+                  />
+                </div>
+                <div>
+                  <label className="label" htmlFor="window">
+                    {t('migration.create.window')}
+                  </label>
+                  <input
+                    id="window"
+                    type="number"
+                    min={1}
+                    max={336}
+                    className="field num"
+                    value={windowHours}
+                    onChange={(e) =>
+                      setWindowHours(Math.max(1, Math.min(336, Number(e.target.value) || 1)))
+                    }
+                  />
+                </div>
               </div>
-              <div>
-                <label className="block text-sm text-gray-600 mb-1">{t('migration.create.window')}</label>
-                <input
-                  type="number"
-                  min={1}
-                  max={336}
-                  className="input w-full"
-                  value={windowHours}
-                  onChange={e => setWindowHours(Math.max(1, Math.min(336, Number(e.target.value) || 1)))}
-                />
-              </div>
-            </div>
+              <p className="hint mt-3 flex items-start gap-1.5">
+                <Info className="mt-px h-3.5 w-3.5 shrink-0" />
+                {t('migration.create.plan_preview', {
+                  batches: batchCount,
+                  hours: windowHours,
+                  every: everyHours >= 1 ? everyHours.toFixed(1) : (everyHours * 60).toFixed(0),
+                  unit: everyHours >= 1 ? 'h' : 'min',
+                })}
+              </p>
+            </>
           )}
 
-          <p className="text-xs text-gray-500 mt-3">{t('migration.create.privacy_disclaimer')}</p>
+          <p className="hint mt-4">{t('migration.create.privacy_disclaimer')}</p>
 
-          <div className="mt-4 flex justify-between">
+          <div className="mt-5 flex justify-between">
             <button className="btn-ghost" onClick={() => setStep(1)}>
-              <ArrowLeft className="w-4 h-4 inline mr-1" /> {t('common.back')}
+              <ArrowLeft className="h-4 w-4" /> {t('common.back')}
             </button>
             <button className="btn-primary" onClick={() => setStep(3)}>
-              {t('common.next')} <ArrowRight className="w-4 h-4 inline ml-1" />
+              {t('common.next')} <ArrowRight className="h-4 w-4" />
             </button>
           </div>
         </Card>
       )}
 
       {step === 3 && (
-        <Card>
-          <h2 className="font-semibold mb-3">{t('migration.create.confirm_title')}</h2>
-          <dl className="grid grid-cols-2 gap-y-2 text-sm">
-            <dt className="text-gray-500">{t('migration.create.wallet')}</dt>
-            <dd>#{walletId}</dd>
-            <dt className="text-gray-500">{t('migration.create.spendable')}</dt>
-            <dd className="font-mono">{spendable} ZEC</dd>
-            <dt className="text-gray-500">{t('migration.create.mode')}</dt>
-            <dd>{t(`migration.create.mode_${mode}`)}</dd>
+        <Card title={t('migration.create.confirm_title')}>
+          <dl className="divide-y divide-line-100 text-[0.8125rem]">
+            <Row label={t('migration.create.wallet')}>
+              {selectedWallet ? `#${selectedWallet.id} ${selectedWallet.name}` : `#${walletId}`}
+            </Row>
+            <Row label={t('migration.create.spendable')}>
+              <Amount value={spendable ?? 0} strong />
+            </Row>
+            <Row label={t('migration.create.mode')}>
+              <span className={`badge ${mode === 'private' ? 'badge-brand' : 'badge-neutral'}`}>
+                {mode === 'private' ? (
+                  <ShieldCheck className="h-3 w-3" />
+                ) : (
+                  <Zap className="h-3 w-3" />
+                )}
+                {t(`migration.create.mode_${mode}`)}
+              </span>
+            </Row>
             {mode === 'private' && (
-              <>
-                <dt className="text-gray-500">{t('migration.create.batches')}</dt>
-                <dd>{batchCount}</dd>
-                <dt className="text-gray-500">{t('migration.create.window')}</dt>
-                <dd>{windowHours} h</dd>
-              </>
+              <Row label={t('migration.create.batches')}>
+                <span className="num">
+                  {batchCount} × {windowHours}h
+                </span>
+              </Row>
             )}
           </dl>
 
-          <label className="block text-sm text-gray-600 mt-3 mb-1">{t('migration.create.notes')}</label>
-          <input
-            className="input w-full"
-            value={notes}
-            maxLength={500}
-            onChange={e => setNotes(e.target.value)}
-            placeholder={t('migration.create.notes_placeholder')}
-          />
+          <div className="mt-4">
+            <label className="label" htmlFor="notes">
+              {t('migration.create.notes')}
+            </label>
+            <input
+              id="notes"
+              className="field"
+              value={notes}
+              maxLength={500}
+              onChange={(e) => setNotes(e.target.value)}
+              placeholder={t('migration.create.notes_placeholder')}
+            />
+          </div>
 
-          <p className="text-xs text-gray-500 mt-3">{t('migration.create.confirm_hint')}</p>
+          <div className="alert alert-info mt-4">
+            <Coins className="mt-px h-4 w-4 shrink-0" />
+            <span>{t('migration.create.confirm_hint')}</span>
+          </div>
 
-          <div className="mt-4 flex justify-between">
+          <div className="mt-5 flex justify-between">
             <button className="btn-ghost" onClick={() => setStep(2)}>
-              <ArrowLeft className="w-4 h-4 inline mr-1" /> {t('common.back')}
+              <ArrowLeft className="h-4 w-4" /> {t('common.back')}
             </button>
             <button className="btn-primary" disabled={busy} onClick={onCreate}>
-              {t('migration.create.submit')}
+              {busy ? t('common.loading') : t('migration.create.submit')}
             </button>
           </div>
         </Card>
       )}
+    </div>
+  );
+}
+
+function ModeCard({
+  selected,
+  onSelect,
+  icon,
+  title,
+  desc,
+  fee,
+}: {
+  selected: boolean;
+  onSelect: () => void;
+  icon: React.ReactNode;
+  title: string;
+  desc: string;
+  fee: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      aria-pressed={selected}
+      className={`rounded-[10px] border p-4 text-left transition-colors ${
+        selected
+          ? 'border-brand-400 bg-brand-50 shadow-[0_0_0_3px_var(--color-brand-100)]'
+          : 'border-line-200 bg-surface hover:border-line-300 hover:bg-surface-2'
+      }`}
+    >
+      <div className="flex items-center gap-2 text-[0.8125rem] font-semibold text-ink-900">
+        {icon}
+        {title}
+      </div>
+      <p className="mt-1.5 text-[0.75rem] leading-relaxed text-ink-500">{desc}</p>
+      <p className="mt-2 text-[0.6875rem] text-ink-400">{fee}</p>
+    </button>
+  );
+}
+
+function Row({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex items-center justify-between gap-4 py-2.5">
+      <dt className="text-ink-400">{label}</dt>
+      <dd className="text-ink-900">{children}</dd>
     </div>
   );
 }

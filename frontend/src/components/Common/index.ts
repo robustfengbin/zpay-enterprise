@@ -8,4 +8,10 @@ export type { TokenConfig } from './TokenSelector';
 export { ExtendedStatusBadge } from './ExtendedStatusBadge';
 // F2.1 / F3.1 approval timeline
 export { ApprovalTimeline, buildTimelineFromApprovals } from './ApprovalTimeline';
-export { RunStatusBadge } from './RunStatusBadge';
+export { RunStatusBadge, ItemStatusBadge } from './RunStatusBadge';
+// F4 design system: page shell + financial data primitives
+export { PageHeader } from './PageHeader';
+export { EmptyState } from './EmptyState';
+export { Stepper } from './Stepper';
+export { PoolFlow } from './PoolFlow';
+export { Amount, Hash, TimeAgo, Stat, StatRow } from './DataBits';
