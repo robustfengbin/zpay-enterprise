@@ -1,0 +1,30 @@
+# zebra regtest 档 B —— Ironwood 迁移测试 (F4.1)
+# NU5/NU6/NU6.1/NU6.2 激活在 height 1；NU6.3 (Ironwood) 激活在 height 500。
+# 测旧池 -> Ironwood 跨激活迁移。RPC: 127.0.0.1:28233
+
+[network]
+network = "Regtest"
+listen_addr = "127.0.0.1:28245"
+cache_dir = false
+
+[network.testnet_parameters.activation_heights]
+NU5 = 1
+NU6 = 1
+"NU6.1" = 1
+"NU6.2" = 1
+"NU6.3" = 500
+
+[rpc]
+listen_addr = "127.0.0.1:28233"
+enable_cookie_auth = false
+
+[mining]
+miner_address = "tmJymvcUCn1ctbghvTJpXBwHiMEB8P6wxNV"
+internal_miner = false
+
+[state]
+cache_dir = "@STATE_DIR@"
+ephemeral = false
+delete_old_database = true
+
+[tracing]

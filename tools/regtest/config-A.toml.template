@@ -1,0 +1,29 @@
+# zebra regtest 档 A —— 旧 Orchard 池回归 (F4.0)
+# NU5/NU6/NU6.1/NU6.2 全部激活在 height 1；不设 NU6.3（旧池永久活跃）。
+# 用法见 README.md。启动脚本会把 @STATE_DIR@ 替换成 run/state-A 的绝对路径。RPC: 127.0.0.1:28232
+
+[network]
+network = "Regtest"
+listen_addr = "127.0.0.1:28244"
+cache_dir = false
+
+[network.testnet_parameters.activation_heights]
+NU5 = 1
+NU6 = 1
+"NU6.1" = 1
+"NU6.2" = 1
+
+[rpc]
+listen_addr = "127.0.0.1:28232"
+enable_cookie_auth = false
+
+[mining]
+miner_address = "tmJymvcUCn1ctbghvTJpXBwHiMEB8P6wxNV"
+internal_miner = false
+
+[state]
+cache_dir = "@STATE_DIR@"
+ephemeral = false
+delete_old_database = true
+
+[tracing]
