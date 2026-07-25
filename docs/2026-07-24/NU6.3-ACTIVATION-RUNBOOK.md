@@ -33,13 +33,38 @@ transactions that consensus now rejects. Verified green 2026-07-25 (height
    - transaction is **version 6** with an `orchard` bundle (the spend) and an
      `ironwood` bundle (the output);
    - the wallet's **legacy pool balance drops** and **Ironwood rises**;
-   - the difference is exactly the fee (20,000 zatoshis for a turnstile crossing,
-     25,000 when it also keeps change in the old pool).
+   - the difference is exactly the fee — **20,000 zatoshis for a small crossing**,
+     which is what a probe will be. See the fee table below before deciding the
+     numbers disagree.
 4. **Expect the first transaction to take ~20 s longer.** The PostNu6_3 proving
    key is built on first use. It is not a hang — do not restart the service, or
    it builds again from scratch.
 5. **Then release the rest.** Batch runs and customer-facing shielding can
    proceed once step 3 reconciles.
+
+## What a turnstile crossing costs
+
+The fee follows the **action count**, not where the change goes. Post-NU6.3 the
+old pool has cross-address transfers disabled, and in that mode the library
+gives a spend and an output an action each (rather than pairing them), so the
+old-pool bundle costs `spends + outputs` actions — padded up to a minimum of 2.
+The Ironwood side is always 2. Every action is 5,000 zatoshis.
+
+| Old-pool spends | Change kept in old pool | Actions (old + Ironwood) | Fee |
+|---|---|---|---|
+| 1 | no | 2 + 2 | **20,000** |
+| 1 | yes | 2 + 2 | **20,000** — the extra output fits inside the padding |
+| 2 | no | 2 + 2 | 20,000 |
+| 2 | yes | 3 + 2 | 25,000 |
+| 3 | yes | 4 + 2 | 30,000 |
+
+A probe spends one note, so **expect 20,000** whether or not it retains change.
+Reading "keeping change costs more" as a flat +5,000 would raise a false alarm
+at exactly the wrong moment.
+
+Source of truth: `turnstile_fee_zatoshis` in `orchard/turnstile.rs`, which calls
+the same `BundleType::num_actions` the builder charges with; verified on rail C
+(a 1-note batch retaining change paid 20,000).
 
 ## If something looks wrong
 
