@@ -202,6 +202,37 @@ pub struct TransferProposal {
     pub memo: Option<String>,
     /// Expiry height for the transaction
     pub expiry_height: u64,
+    /// Where a post-NU6.3 turnstile spend leaves its change (see [`ChangePolicy`]).
+    /// Ignored before NU6.3, where there is only one pool.
+    #[serde(default)]
+    pub change_policy: ChangePolicy,
+}
+
+/// Where the change of a post-NU6.3 turnstile spend lands.
+///
+/// A turnstile spend consumes whole old-pool notes, so unless the note values
+/// happen to match the payment exactly there is change, and the choice of pool
+/// for it is a *scheduling* decision, not a cosmetic one:
+///
+/// A private migration deliberately spreads value over several batches across a
+/// 24–72h window. If batch 1's change crossed into Ironwood with the payment,
+/// the old pool would be empty and batches 2 and 3 would have nothing left to
+/// migrate — the staggering (the whole point of the private mode) would collapse
+/// into a single transfer. Intermediate batches therefore keep their change in
+/// the old pool, and only the final batch (or an immediate, one-shot migration)
+/// lets everything cross.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ChangePolicy {
+    /// Change crosses into Ironwood with the payment (immediate migration, the
+    /// final batch of a private migration, and ordinary Ironwood transfers).
+    #[default]
+    ToIronwood,
+    /// Change stays in the old Orchard pool, at our own address, so later
+    /// batches still have old-pool notes to migrate. Implemented with the
+    /// builder's wallet-controlled change output — the only legal way to retain
+    /// value in a pool whose cross-address transfers are disabled.
+    KeepInOldPool,
 }
 
 /// Result of executing a transfer
@@ -394,6 +425,10 @@ impl OrchardTransferService {
             to_address: request.to_address.clone(),
             memo: request.memo.clone(),
             expiry_height,
+            // Default: change crosses to Ironwood. A private migration's
+            // intermediate batches override this on the proposal before
+            // execution (see ChangePolicy).
+            change_policy: ChangePolicy::default(),
         })
     }
 
@@ -573,7 +608,7 @@ impl OrchardTransferService {
     ) -> OrchardResult<TransferResult> {
         use super::address::OrchardAddressManager;
         use super::turnstile::{
-            build_turnstile_transaction, turnstile_fee_zatoshis, TurnstileOutput,
+            build_turnstile_transaction, turnstile_fee_zatoshis, OldPoolChange, TurnstileOutput,
             ZpayNetworkParams,
         };
         use orchard::keys::{Diversifier, Scope};
@@ -620,7 +655,19 @@ impl OrchardTransferService {
         // Fee grows 5000/spend while each note dwarfs that, so this settles in
         // 1–2 rounds. proposal.fee_zatoshis is display-only on this path
         // (F2.1 approval binds the amount, not the fee).
-        let mut fee = turnstile_fee_zatoshis(1, 2)
+        // Change routing (F4.0-c ⑤). An intermediate batch of a private migration
+        // keeps its change in the old pool so the later batches still have
+        // something to migrate; everything else crosses. The retained change costs
+        // one extra old-pool action (the builder pairs it with a fabricated
+        // zero-valued spend), so the fee must be computed for the routing actually
+        // used — an under-paid action count is a mempool rejection (-25).
+        let keep_change_in_old_pool = proposal.change_policy == ChangePolicy::KeepInOldPool;
+        // Worst case for the fee: assume there IS change. If it turns out to be
+        // zero we recompute below, and a fee that only ever shrinks cannot break
+        // an already-satisfied selection.
+        let assumed_old_pool_changes = usize::from(keep_change_in_old_pool);
+
+        let mut fee = turnstile_fee_zatoshis(1, assumed_old_pool_changes, 2)
             .map_err(|e| OrchardError::TransactionBuild(e.to_string()))?;
         let (selected, total_input, fee) = {
             let mut settled = None;
@@ -629,7 +676,7 @@ impl OrchardTransferService {
                     self.select_notes_with_paths(spendable_notes.clone(), amount + fee)?;
                 // Ironwood side is payment + (maybe) change; either way it pads
                 // to 2 actions, so the fee is the same for 1 or 2 outputs — use 2.
-                let need = turnstile_fee_zatoshis(sel.len(), 2)
+                let need = turnstile_fee_zatoshis(sel.len(), assumed_old_pool_changes, 2)
                     .map_err(|e| OrchardError::TransactionBuild(e.to_string()))?;
                 if total_input >= amount + need {
                     settled = Some((sel, total_input, need));
@@ -643,16 +690,34 @@ impl OrchardTransferService {
                 )
             })?
         };
-        let change_amount = total_input - amount - fee;
+        let mut fee = fee;
+        let mut change_amount = total_input - amount - fee;
+
+        // No change after all: drop the assumed old-pool change action and give
+        // the difference back rather than over-paying the fee.
+        if keep_change_in_old_pool && change_amount == 0 && assumed_old_pool_changes > 0 {
+            let exact = turnstile_fee_zatoshis(selected.len(), 0, 2)
+                .map_err(|e| OrchardError::TransactionBuild(e.to_string()))?;
+            if exact < fee {
+                fee = exact;
+                change_amount = total_input - amount - fee;
+            }
+        }
+        let keep_change_in_old_pool = keep_change_in_old_pool && change_amount > 0;
 
         tracing::info!(
             "Turnstile build: {} old-pool notes selected, total_input={} zat, amount={} zat, \
-             fee={} zat (ZIP-317 double-bundle), change={} zat → Ironwood",
+             fee={} zat (ZIP-317 double-bundle), change={} zat → {}",
             selected.len(),
             total_input,
             amount,
             fee,
-            change_amount
+            change_amount,
+            if keep_change_in_old_pool {
+                "old Orchard pool (private batch: later batches still need old-pool notes)"
+            } else {
+                "Ironwood"
+            }
         );
 
         let fvk = spending_key.to_fvk();
@@ -733,15 +798,28 @@ impl OrchardTransferService {
             value_zatoshis: amount,
             memo: payment_memo,
         }];
+        // Our own change address (internal scope, so it is never handed out as a
+        // payment address). The same address serves either pool: an address is
+        // pool-agnostic — the note version follows the bundle it lands in.
+        let change_addr = fvk.address(Diversifier::from_bytes([0u8; 11]), Scope::Internal);
+        let mut old_pool_change = None;
         if change_amount > 0 {
-            let change_addr =
-                fvk.address(Diversifier::from_bytes([0u8; 11]), Scope::Internal);
-            outputs.push(TurnstileOutput {
-                ovk,
-                recipient: change_addr,
-                value_zatoshis: change_amount,
-                memo: MemoBytes::empty(),
-            });
+            if keep_change_in_old_pool {
+                old_pool_change = Some(OldPoolChange {
+                    fvk: fvk.clone(),
+                    ovk,
+                    recipient: change_addr,
+                    value_zatoshis: change_amount,
+                    memo: MemoBytes::empty(),
+                });
+            } else {
+                outputs.push(TurnstileOutput {
+                    ovk,
+                    recipient: change_addr,
+                    value_zatoshis: change_amount,
+                    memo: MemoBytes::empty(),
+                });
+            }
         }
 
         // Mirror the node's NU6.3 activation so Builder::new derives
@@ -763,6 +841,7 @@ impl OrchardTransferService {
             spends,
             saks,
             outputs,
+            old_pool_change,
             fee,
         )
         .map_err(|e| OrchardError::TransactionBuild(format!("turnstile build failed: {e}")))?;
