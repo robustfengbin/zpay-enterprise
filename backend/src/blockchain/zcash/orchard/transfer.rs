@@ -380,16 +380,14 @@ impl OrchardTransferService {
                 amount,
                 transparent_balance_zatoshis,
                 shielded_balance,
+                self.min_fee_for_era(current_height),
             )?
         };
 
-        // Calculate fee based on action count
-        // For deshielding, we have 1 transparent output which must be included in fee calculation
-        let fee = if is_deshielding {
-            self.calculate_fee_with_transparent_outputs(1, fund_source, 1) // 1 transparent output
-        } else {
-            self.calculate_fee(1, fund_source)
-        };
+        // Fee estimate for the era this proposal will execute in (post-NU6.3
+        // transactions are a different, costlier shape — see
+        // estimated_proposal_fee).
+        let fee = self.estimated_proposal_fee(current_height, fund_source, is_deshielding);
         let total_needed = amount + fee;
 
         // Validate sufficient funds
@@ -1463,13 +1461,16 @@ impl OrchardTransferService {
         amount: u64,
         transparent_balance: u64,
         shielded_balance: Option<&ShieldedBalance>,
+        min_fee: u64,
     ) -> OrchardResult<(FundSource, bool)> {
         let shielded_available = shielded_balance
             .map(|b| b.spendable_zatoshis)
             .unwrap_or(0);
 
-        // Estimate minimum fee
-        let min_fee = DEFAULT_FEE_ZATOSHIS;
+        // `min_fee` is a floor used only to choose between funding sources; the
+        // caller re-checks affordability against the exact era-aware estimate
+        // right after. It must not be a pre-NU6.3 constant, or a balance that
+        // cannot cover a post-NU6.3 fee would still pick a source and fail later.
         let total_needed = amount + min_fee;
 
         match requested {
@@ -1505,6 +1506,71 @@ impl OrchardTransferService {
                     })
                 }
             }
+        }
+    }
+
+    /// The smallest fee any transfer can cost in the era at `current_height`.
+    ///
+    /// Used as the affordability floor when choosing a funding source. Pre-NU6.3
+    /// that is the flat default; from NU6.3 the cheapest shape is an
+    /// Ironwood-native spend, which is still above it.
+    fn min_fee_for_era(&self, current_height: u64) -> u64 {
+        use super::turnstile::ironwood_fee_zatoshis;
+
+        if self.protocol_era(current_height) == ProtocolEra::PreNu63 {
+            DEFAULT_FEE_ZATOSHIS
+        } else {
+            ironwood_fee_zatoshis(1, 2).unwrap_or(DEFAULT_FEE_ZATOSHIS)
+        }
+    }
+
+    /// Fee estimate for a *proposal*, aware of the protocol era.
+    ///
+    /// Before NU6.3 this is the single-bundle ZIP-317 estimate the v5 path has
+    /// always used. From NU6.3 the real transaction is a different shape and costs
+    /// more — a turnstile crossing carries two bundles, a deshield adds a
+    /// transparent output — so quoting the old number would show a customer
+    /// 0.0001 ZEC and then charge 0.0002.
+    ///
+    /// Post-NU6.3 the estimate is the **worst case** for the operation, because
+    /// the exact figure depends on choices made later (which pool funds the spend,
+    /// how many notes or coins get selected). Quoting high and charging the exact
+    /// amount at build time is the safe direction: the availability check below
+    /// cannot green-light a transfer that then fails for want of fee.
+    fn estimated_proposal_fee(
+        &self,
+        current_height: u64,
+        fund_source: FundSource,
+        is_deshielding: bool,
+    ) -> u64 {
+        use super::turnstile::{deshield_fee_zatoshis, shield_fee_zatoshis, turnstile_fee_zatoshis};
+
+        if self.protocol_era(current_height) == ProtocolEra::PreNu63 {
+            return if is_deshielding {
+                self.calculate_fee_with_transparent_outputs(1, fund_source, 1)
+            } else {
+                self.calculate_fee(1, fund_source)
+            };
+        }
+
+        // Post-NU6.3 worst cases, from the same helpers the builders use — so an
+        // estimate can never drift from what is actually charged.
+        let fallback = DEFAULT_FEE_ZATOSHIS;
+        if is_deshielding {
+            // Worst case is unshielding from the old pool while crossing the
+            // change into Ironwood (two bundles + a transparent output); paying
+            // from Ironwood costs less.
+            deshield_fee_zatoshis(ShieldedPool::Orchard, 1, Some(ShieldedPool::Ironwood), 1)
+                .unwrap_or(fallback)
+        } else if fund_source == FundSource::Transparent {
+            // One coin assumed; the executor recomputes per coin actually selected
+            // (each transparent input is another ZIP-317 action) and tops up the
+            // selection accordingly.
+            shield_fee_zatoshis(1, 2).unwrap_or(fallback)
+        } else {
+            // Shielded → shielded: the turnstile (two bundles) is the worst case;
+            // an Ironwood-native spend is half of it.
+            turnstile_fee_zatoshis(1, 0, 2).unwrap_or(fallback)
         }
     }
 
@@ -3661,6 +3727,64 @@ mod tests {
         // Fee for multiple outputs
         let fee = service.calculate_fee(5, FundSource::Shielded);
         assert!(fee > DEFAULT_FEE_ZATOSHIS);
+    }
+
+    /// A proposal's quoted fee must not undercut what the builder will charge —
+    /// otherwise a customer is shown 0.0001 ZEC and then pays 0.0002, and the
+    /// affordability check green-lights transfers that fail at build time. Post
+    /// NU6.3 every shape costs more than the pre-NU6.3 flat estimate, so the quote
+    /// is pinned against the very helpers the builders use.
+    #[test]
+    fn proposal_fee_estimate_covers_the_post_nu63_builders() {
+        use super::super::turnstile::{
+            deshield_fee_zatoshis, ironwood_fee_zatoshis, shield_fee_zatoshis,
+            turnstile_fee_zatoshis,
+        };
+
+        let nu63 = 500u64;
+        let service =
+            OrchardTransferService::new(NetworkType::Testnet).with_nu63_activation(Some(nu63));
+
+        // Below activation: unchanged behaviour, the flat single-bundle estimate.
+        assert_eq!(
+            service.estimated_proposal_fee(nu63 - 1, FundSource::Shielded, false),
+            service.calculate_fee(1, FundSource::Shielded)
+        );
+
+        // At/after activation each shape is quoted at its worst case, and each
+        // quote is >= what the corresponding builder charges for the simplest
+        // transaction of that shape.
+        let shielded_quote = service.estimated_proposal_fee(nu63, FundSource::Shielded, false);
+        assert_eq!(shielded_quote, turnstile_fee_zatoshis(1, 0, 2).unwrap());
+        assert!(shielded_quote >= ironwood_fee_zatoshis(1, 2).unwrap());
+
+        let shield_quote = service.estimated_proposal_fee(nu63, FundSource::Transparent, false);
+        assert_eq!(shield_quote, shield_fee_zatoshis(1, 2).unwrap());
+
+        let deshield_quote = service.estimated_proposal_fee(nu63, FundSource::Shielded, true);
+        assert_eq!(
+            deshield_quote,
+            deshield_fee_zatoshis(ShieldedPool::Orchard, 1, Some(ShieldedPool::Ironwood), 1)
+                .unwrap()
+        );
+        assert!(
+            deshield_quote
+                >= deshield_fee_zatoshis(ShieldedPool::Ironwood, 1, Some(ShieldedPool::Ironwood), 1)
+                    .unwrap()
+        );
+
+        // Every post-NU6.3 quote exceeds the pre-NU6.3 flat default, which is what
+        // made the old estimate an undercount rather than a rounding difference.
+        for quote in [shielded_quote, shield_quote, deshield_quote] {
+            assert!(quote > DEFAULT_FEE_ZATOSHIS, "{quote} must exceed the flat default");
+        }
+
+        // The affordability floor tracks the era too, and stays at or below every
+        // real quote (it is a floor, not an estimate).
+        assert_eq!(service.min_fee_for_era(nu63 - 1), DEFAULT_FEE_ZATOSHIS);
+        let floor = service.min_fee_for_era(nu63);
+        assert_eq!(floor, ironwood_fee_zatoshis(1, 2).unwrap());
+        assert!(floor <= shielded_quote && floor <= shield_quote && floor <= deshield_quote);
     }
 
     #[test]
