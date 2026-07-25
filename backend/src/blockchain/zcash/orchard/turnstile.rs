@@ -1,4 +1,8 @@
-//! Ironwood turnstile transaction construction (NU6.3+).
+//! Post-NU6.3 v6 shielded transaction construction: the Ironwood turnstile
+//! crossing ([`build_turnstile_transaction`]) and Ironwood-native spends
+//! ([`build_ironwood_transaction`]). Both go through `zcash_primitives`'
+//! [`Builder`] and share this module's consensus parameters, fail-loud Sapling
+//! prover and output shape.
 //!
 //! After NU6.3 activates, spending an old Orchard-pool note crosses the
 //! "turnstile" into the Ironwood pool: a v6 transaction carrying an
@@ -413,6 +417,130 @@ pub fn build_turnstile_transaction(
     Ok(TurnstileTx { raw_tx: raw, txid })
 }
 
+/// Build a signed, proven **Ironwood-native** transaction: Ironwood notes in,
+/// Ironwood notes out, no old-pool bundle at all.
+///
+/// This is what spending migrated funds looks like once value lives in the new
+/// pool — the ordinary shielded transfer of the post-NU6.3 world, and after a
+/// completed migration the only way to spend at all.
+///
+/// Differences from the turnstile crossing:
+/// * inputs are **V3** notes (the builder rejects any other version) anchored to
+///   the **Ironwood** commitment tree, not the frozen Orchard one;
+/// * there is no old-pool bundle (`orchard_anchor: None`), so the transaction
+///   carries a single shielded bundle whose value balance covers the fee;
+/// * the Ironwood pool *permits* cross-address transfers, so a payment to an
+///   arbitrary recipient plus change back to ourselves are both plain outputs —
+///   none of the old pool's same-address gymnastics apply.
+///
+/// The caller must ensure `sum(outputs.value) == sum(spent note values) − fee`.
+/// `target_height` must be at/after NU6.3 (an Ironwood bundle exists only in v6
+/// transactions); the caller's era gate enforces this.
+pub fn build_ironwood_transaction(
+    params: ZpayNetworkParams,
+    target_height: u64,
+    ironwood_anchor: Anchor,
+    spends: Vec<(FullViewingKey, Note, MerklePath)>,
+    spend_auth_keys: Vec<SpendAuthorizingKey>,
+    outputs: Vec<TurnstileOutput>,
+    fee_zatoshis: u64,
+) -> Result<TurnstileTx, TurnstileError> {
+    if spends.is_empty() {
+        return Err(TurnstileError::Build(
+            "an Ironwood spend requires at least one Ironwood note".to_string(),
+        ));
+    }
+    if outputs.is_empty() {
+        return Err(TurnstileError::Build(
+            "an Ironwood spend requires at least one output (value has nowhere to land)"
+                .to_string(),
+        ));
+    }
+
+    let target = block_height_saturating(target_height);
+
+    // Ironwood only: no Sapling anchor, and `orchard_anchor: None` means no
+    // old-pool builder is created at all, so no old-pool bundle can appear.
+    let build_config = BuildConfig::Standard {
+        sapling_anchor: None,
+        orchard_anchor: None,
+        ironwood_anchor: Some(ironwood_anchor),
+        orchard_pool_bundle_type: orchard::builder::BundleType::DEFAULT,
+    };
+
+    let mut builder = Builder::new(params, target, build_config);
+
+    for (fvk, note, merkle_path) in spends {
+        builder
+            .add_ironwood_spend::<Infallible>(fvk, note, merkle_path)
+            .map_err(|e| TurnstileError::Build(format!("add_ironwood_spend failed: {e:?}")))?;
+    }
+
+    for out in outputs {
+        let value = Zatoshis::from_u64(out.value_zatoshis).map_err(|e| {
+            TurnstileError::Build(format!(
+                "Ironwood output value {} invalid: {e:?}",
+                out.value_zatoshis
+            ))
+        })?;
+        builder
+            .add_ironwood_output::<Infallible>(out.ovk, out.recipient, value, out.memo)
+            .map_err(|e| TurnstileError::Build(format!("add_ironwood_output failed: {e:?}")))?;
+    }
+
+    let fee = Zatoshis::from_u64(fee_zatoshis)
+        .map_err(|e| TurnstileError::Build(format!("fee {fee_zatoshis} invalid: {e:?}")))?;
+    let fee_rule = FeeRule::non_standard(fee);
+
+    let signing_set = TransparentSigningSet::new();
+    let prover = FailLoudSaplingProver;
+
+    let result = builder
+        .build(
+            &signing_set,
+            &[], // no Sapling extended spending keys
+            &spend_auth_keys,
+            OsRng,
+            &prover,
+            &prover,
+            &fee_rule,
+        )
+        .map_err(|e| TurnstileError::Build(format!("ironwood build failed: {e:?}")))?;
+
+    let tx = result.transaction();
+    let txid = tx.txid().to_string();
+    let mut raw = Vec::new();
+    tx.write(&mut raw)
+        .map_err(|e| TurnstileError::Serialize(format!("transaction serialize failed: {e}")))?;
+    Ok(TurnstileTx { raw_tx: raw, txid })
+}
+
+/// The exact ZIP-317 fee (zatoshis) for an Ironwood-native transaction with
+/// `n_spends` Ironwood inputs and `n_outputs` Ironwood outputs.
+///
+/// Single bundle, and Ironwood *permits* cross-address transfers, so its action
+/// count is `max(n_spends, n_outputs)` padded to the 2-action minimum — not the
+/// `spends + outputs` sum the closed old pool is charged. A 1-in/2-out transfer
+/// (payment + change) is therefore 2 actions = 10000 zatoshis, half the
+/// double-bundle turnstile fee.
+pub fn ironwood_fee_zatoshis(n_spends: usize, n_outputs: usize) -> Result<u64, TurnstileError> {
+    use orchard::builder::BundleType;
+    use orchard::bundle::BundleVersion;
+    use zcash_primitives::transaction::fees::zip317::{GRACE_ACTIONS, MARGINAL_FEE};
+
+    let actions = BundleType::DEFAULT
+        .num_actions(
+            BundleVersion::ironwood_v3().default_flags(),
+            n_spends,
+            n_outputs,
+        )
+        .map_err(|e| TurnstileError::Build(format!("ironwood action count: {e}")))?;
+
+    let fee = (MARGINAL_FEE * core::cmp::max(GRACE_ACTIONS, actions))
+        .ok_or_else(|| TurnstileError::Build("ZIP-317 fee overflow".to_string()))?;
+    Ok(u64::from(fee))
+}
+
 /// The exact ZIP-317 fee (zatoshis) for a turnstile transaction with `n_spends`
 /// old-pool spends and `n_ironwood_outputs` Ironwood outputs, no transparent or
 /// Sapling components.
@@ -550,6 +678,23 @@ mod tests {
         assert_eq!(turnstile_fee_zatoshis(3, 0, 2).unwrap(), 25_000);
         // 4 spends → 4 + 2 = 6 → 30000.
         assert_eq!(turnstile_fee_zatoshis(4, 0, 2).unwrap(), 30_000);
+    }
+
+    #[test]
+    fn ironwood_native_fee_is_single_bundle_max_not_sum() {
+        // Ironwood permits cross-address transfers, so a spend and an output can
+        // share an action: the count is max(spends, outputs), padded to 2.
+        // 1 in / 2 out (payment + change) = 2 actions → 10000 — half the
+        // double-bundle turnstile fee for the same shape.
+        assert_eq!(ironwood_fee_zatoshis(1, 2).unwrap(), 10_000);
+        assert_eq!(ironwood_fee_zatoshis(1, 1).unwrap(), 10_000);
+        assert_eq!(ironwood_fee_zatoshis(2, 2).unwrap(), 10_000);
+        // 3 in / 2 out = 3 actions → 15000 (the sum rule would say 5 → 25000).
+        assert_eq!(ironwood_fee_zatoshis(3, 2).unwrap(), 15_000);
+        // 2 in / 5 out (a batch of payments) = 5 actions → 25000.
+        assert_eq!(ironwood_fee_zatoshis(2, 5).unwrap(), 25_000);
+        // Same shape costs strictly less than crossing the turnstile.
+        assert!(ironwood_fee_zatoshis(1, 2).unwrap() < turnstile_fee_zatoshis(1, 0, 2).unwrap());
     }
 
     #[test]
